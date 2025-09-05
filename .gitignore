@@ -2,8 +2,6 @@
 *.o
 *.exe
 *.out
-cdp-client
-service-sink
 
 # Certificates and keys - NEVER commit these!
 certs/terrarium.key
