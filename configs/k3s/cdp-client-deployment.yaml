@@ -18,13 +18,17 @@ apiVersion: apps/v1                # Apps API version for Deployment resources
 kind: Deployment                   # Resource type - creates a deployment
 metadata:                          # Metadata about this deployment
   name: cdp-client                 # Name of the deployment
-  namespace: terrarium             # Namespace where this resource lives
+  namespace: edge-terrarium        # Namespace where this resource lives
   labels:                          # Labels for organizing resources
     app: cdp-client                # Identifies this as the CDP client app
     component: backend             # Identifies this as a backend component
 
 spec:                              # Specification of the deployment
-  replicas: 2                      # Number of Pod replicas to maintain (for high availability)
+  replicas: 1                      # Number of Pod replicas to maintain (single instance for development)
+  
+  # Deployment strategy - use Recreate to ensure only one pod at a time
+  strategy:
+    type: Recreate                 # Terminate old pods before creating new ones
   
   # Selector tells the deployment which Pods it manages
   selector:
@@ -39,7 +43,7 @@ spec:                              # Specification of the deployment
         component: backend         # Identifies this as a backend component
 
     spec:                          # Specification for Pods created from this template
-      # Init container to wait for Vault to be ready
+      # Init container to wait for Vault to be ready and initialized
       initContainers:
       - name: wait-for-vault        # Name of the init container
         image: curlimages/curl:latest  # Lightweight curl image
@@ -47,13 +51,24 @@ spec:                              # Specification of the deployment
         args:                       # Arguments for the command
         - |
           echo "Waiting for Vault to be ready..."
-          until curl -s http://vault.terrarium.svc.cluster.local:8200/v1/sys/health > /dev/null; do
+          until curl -s http://vault.edge-terrarium.svc.cluster.local:8200/v1/sys/health > /dev/null; do
             echo "Vault is not ready yet. Waiting..."
             sleep 2
           done
-          echo "Vault is ready! Waiting for initialization..."
-          until curl -s -H "X-Vault-Token: root" http://vault.terrarium.svc.cluster.local:8200/v1/secret/data/cdp-client/config > /dev/null; do
-            echo "Vault initialization not complete yet. Waiting..."
+          echo "Vault is ready! Waiting for vault-init job to complete..."
+          
+          # Wait for vault-init job to complete by checking if secrets are available
+          echo "Waiting for vault-init job to complete and secrets to be available..."
+          RETRY_COUNT=0
+          MAX_RETRIES=60  # 2 minutes max wait time
+          until curl -s -H "X-Vault-Token: root" http://vault.edge-terrarium.svc.cluster.local:8200/v1/secret/data/cdp-client/config > /dev/null; do
+            RETRY_COUNT=$((RETRY_COUNT + 1))
+            if [ $RETRY_COUNT -gt $MAX_RETRIES ]; then
+              echo "ERROR: Timeout waiting for vault-init job to complete after $MAX_RETRIES attempts"
+              echo "This indicates the vault-init job failed or is taking too long"
+              exit 1
+            fi
+            echo "Vault-init job not complete yet (attempt $RETRY_COUNT/$MAX_RETRIES). Waiting..."
             sleep 2
           done
           echo "Vault initialization complete!"
@@ -67,7 +82,7 @@ spec:                              # Specification of the deployment
       
       containers:                  # List of containers in each Pod
       - name: cdp-client           # Name of the container
-        image: terrarium-cdp-client:latest  # Docker image to use
+        image: edge-terrarium-cdp-client:latest  # Docker image to use
         imagePullPolicy: Never     # Never pull from registry (use local image for development)
         
         # Ports exposed by the container
@@ -83,7 +98,7 @@ spec:                              # Specification of the deployment
         - name: LOG_LEVEL          # Logging level
           value: "info"            # Set to info level
         - name: VAULT_ADDR         # Vault API address for Kubernetes
-          value: "http://vault.terrarium.svc.cluster.local:8200"
+          value: "http://vault.edge-terrarium.svc.cluster.local:8200"
         - name: VAULT_TOKEN        # Vault authentication token
           value: "root"
         

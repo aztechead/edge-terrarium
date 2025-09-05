@@ -7,6 +7,8 @@
 #include <arpa/inet.h>
 #include <time.h>
 #include <errno.h>
+#include <fcntl.h>
+#include <sys/stat.h>
 
 #define PORT 8080
 #define MAX_REQUEST_SIZE 1048576  // 1MB max request size
@@ -21,19 +23,43 @@ typedef struct {
 } http_request_t;
 
 int parse_http_request(const char* request, http_request_t* req) {
-    char* line_end;
-    char* request_line = strtok_r((char*)request, "\r\n", &line_end);
+    char* request_copy = strdup(request);
+    if (!request_copy) return -1;
     
-    if (!request_line) return -1;
+    // Find the end of headers (double CRLF)
+    char* header_end = strstr(request_copy, "\r\n\r\n");
+    if (!header_end) {
+        // Try single CRLF
+        header_end = strstr(request_copy, "\n\n");
+        if (!header_end) {
+            free(request_copy);
+            return -1;
+        }
+        header_end += 2; // Skip \n\n
+    } else {
+        header_end += 4; // Skip \r\n\r\n
+    }
+    
+    // Parse request line and headers
+    char* headers_section = request_copy;
+    *header_end = '\0'; // Null terminate headers section
+    
+    char* line_end;
+    char* request_line = strtok_r(headers_section, "\r\n", &line_end);
+    
+    if (!request_line) {
+        free(request_copy);
+        return -1;
+    }
     
     // Parse request line: METHOD PATH VERSION
     if (sscanf(request_line, "%15s %255s %15s", req->method, req->path, req->version) != 3) {
+        free(request_copy);
         return -1;
     }
     
     // Parse headers
     char* header_line;
-    char* header_end;
     req->headers[0] = '\0';
     
     while ((header_line = strtok_r(NULL, "\r\n", &line_end)) != NULL) {
@@ -45,18 +71,94 @@ int parse_http_request(const char* request, http_request_t* req) {
         }
     }
     
-    // Get body if present
+    // Get body if present (everything after the header section)
     req->body_length = 0;
-    if (line_end && strlen(line_end) > 0) {
-        req->body_length = strlen(line_end);
-        if (req->body_length >= MAX_REQUEST_SIZE) {
-            req->body_length = MAX_REQUEST_SIZE - 1;
+    if (*header_end != '\0') {
+        // Skip any leading whitespace/newlines
+        while (*header_end == '\r' || *header_end == '\n' || *header_end == ' ') {
+            header_end++;
         }
-        memcpy(req->body, line_end, req->body_length);
-        req->body[req->body_length] = '\0';
+        
+        if (*header_end != '\0') {
+            req->body_length = strlen(header_end);
+            if (req->body_length >= MAX_REQUEST_SIZE) {
+                req->body_length = MAX_REQUEST_SIZE - 1;
+            }
+            memcpy(req->body, header_end, req->body_length);
+            req->body[req->body_length] = '\0';
+        }
     }
     
+    free(request_copy);
     return 0;
+}
+
+// Function to extract query parameters from path
+void extract_query_params(const char* path, char* query_params, size_t query_params_size) {
+    const char* query_start = strchr(path, '?');
+    if (query_start) {
+        query_start++; // Skip the '?'
+        size_t query_len = strlen(query_start);
+        if (query_len < query_params_size) {
+            strncpy(query_params, query_start, query_params_size - 1);
+            query_params[query_params_size - 1] = '\0';
+        }
+    } else {
+        query_params[0] = '\0';
+    }
+}
+
+void log_request(const http_request_t* req, const char* client_ip) {
+    time_t now = time(0);
+    char timestamp[64];
+    strftime(timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S", localtime(&now));
+    
+    // Create filename with timestamp
+    char filename[128];
+    snprintf(filename, sizeof(filename), "/tmp/requests/service-sink-request_%ld_%s.txt", now, client_ip);
+    
+    // Ensure directory exists
+    mkdir("/tmp/requests", 0755);
+    
+    // Extract query parameters
+    char query_params[512] = {0};
+    extract_query_params(req->path, query_params, sizeof(query_params));
+    
+    FILE* file = fopen(filename, "w");
+    if (file) {
+        fprintf(file, "=== Service Sink HTTP Request Log ===\n");
+        fprintf(file, "Timestamp: %s\n", timestamp);
+        fprintf(file, "Client IP: %s\n", client_ip);
+        fprintf(file, "Method: %s\n", req->method);
+        fprintf(file, "Path: %s\n", req->path);
+        fprintf(file, "Version: %s\n", req->version);
+        fprintf(file, "Headers:\n%s\n", req->headers);
+        
+        // Log query parameters if present
+        if (strlen(query_params) > 0) {
+            fprintf(file, "Query Parameters: %s\n", query_params);
+        } else {
+            fprintf(file, "Query Parameters: (none)\n");
+        }
+        
+        fprintf(file, "Body Length: %d\n", req->body_length);
+        if (req->body_length > 0) {
+            fprintf(file, "Body Content:\n%.*s\n", req->body_length, req->body);
+        } else {
+            fprintf(file, "Body Content: (empty)\n");
+        }
+        fprintf(file, "=== End Request ===\n");
+        fclose(file);
+        printf("Service Sink request logged to: %s\n", filename);
+        
+        // Also log to console for immediate visibility
+        printf("  Query Params: %s\n", strlen(query_params) > 0 ? query_params : "(none)");
+        if (req->body_length > 0) {
+            printf("  POST Body: %.*s\n", req->body_length, req->body);
+        }
+    } else {
+        printf("Failed to open file for logging: %s\n", strerror(errno));
+    }
 }
 
 void send_http_response(int client_socket, int status_code, const char* message) {
@@ -88,11 +190,8 @@ void handle_client(int client_socket, const char* client_ip) {
     if (parse_http_request(buffer, &req) == 0) {
         printf("Service Sink received %s request to %s from %s\n", req.method, req.path, client_ip);
         
-        // Log request details
-        printf("  Method: %s\n", req.method);
-        printf("  Path: %s\n", req.path);
-        printf("  Version: %s\n", req.version);
-        printf("  Body Length: %d\n", req.body_length);
+        // Log request to file and console
+        log_request(&req, client_ip);
         
         // Simple request processing - count characters in path
         int path_length = strlen(req.path);
@@ -112,6 +211,10 @@ void handle_client(int client_socket, const char* client_ip) {
 
 int main() {
     printf("Service Sink starting...\n");
+    
+    // Create request directory
+    printf("Creating request directory...\n");
+    mkdir("/tmp/requests", 0755);
     
     int server_socket = socket(AF_INET, SOCK_STREAM, 0);
     if (server_socket < 0) {

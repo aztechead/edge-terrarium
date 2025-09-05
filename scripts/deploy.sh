@@ -38,7 +38,7 @@ show_usage() {
     echo ""
     echo "ENVIRONMENT:"
     echo "  docker     Deploy to Docker Compose (development)"
-    echo "  minikube   Deploy to Minikube (Kubernetes testing)"
+    echo "  k3s        Deploy to K3s (Kubernetes testing)"
     echo ""
     echo "ACTION:"
     echo "  deploy     Deploy the application (default)"
@@ -48,7 +48,7 @@ show_usage() {
     echo ""
     echo "Examples:"
     echo "  $0 docker deploy    # Deploy to Docker Compose"
-    echo "  $0 minikube test    # Test Minikube deployment"
+    echo "  $0 k3s test         # Test K3s deployment"
     echo "  $0 docker clean     # Clean up Docker Compose"
 }
 
@@ -56,15 +56,47 @@ show_usage() {
 deploy_docker() {
     print_status "Deploying to Docker Compose..."
     
-    # Check if Minikube is running and stop it
-    if minikube status >/dev/null 2>&1; then
-        print_warning "Minikube is running. Stopping it first to avoid conflicts..."
-        minikube stop
-        print_success "Minikube stopped."
-    fi
+    # Check for port conflicts and handle them
+    check_and_handle_port_conflicts() {
+        local port=$1
+        local service_name=$2
+        
+        if lsof -i :$port | grep -q "LISTEN"; then
+            print_warning "Port $port is already in use. Checking for conflicting services..."
+            
+            # Check if k3d cluster is running
+            if command -v k3d >/dev/null 2>&1 && k3d cluster list | grep -q "edge-terrarium"; then
+                print_warning "k3d cluster 'edge-terrarium' is running and using port $port"
+                print_status "Stopping k3d cluster to free up port $port..."
+                k3d cluster stop edge-terrarium
+                sleep 2
+                
+                # Verify port is now free
+                if lsof -i :$port | grep -q "LISTEN"; then
+                    print_error "Port $port is still in use after stopping k3d cluster"
+                    print_error "Please manually stop the service using port $port and try again"
+                    exit 1
+                else
+                    print_success "Port $port is now available"
+                fi
+            else
+                print_error "Port $port is in use by another service"
+                print_error "Please stop the service using port $port and try again"
+                print_error "You can check what's using the port with: lsof -i :$port"
+                exit 1
+            fi
+        fi
+    }
+    
+    # Check for port conflicts on ports used by Docker Compose
+    check_and_handle_port_conflicts 8200 "Vault"
+    check_and_handle_port_conflicts 80 "HTTP"
+    check_and_handle_port_conflicts 443 "HTTPS"
+    check_and_handle_port_conflicts 1337 "CDP Client"
+    check_and_handle_port_conflicts 8080 "Service Sink"
     
     # Generate certificates if they don't exist
-    if [ ! -f "certs/terrarium.crt" ] || [ ! -f "certs/terrarium.key" ]; then
+    if [ ! -f "certs/edge-terrarium.crt" ] || [ ! -f "certs/edge-terrarium.key" ]; then
         print_status "Generating TLS certificates..."
         ./scripts/generate-certs.sh
     fi
@@ -75,7 +107,7 @@ deploy_docker() {
     
     # Start services (includes automatic Vault initialization)
     print_status "Starting services with Docker Compose..."
-    docker-compose -f configs/docker/docker-compose.yml -p c-terrarium up -d
+    docker-compose -f configs/docker/docker-compose.yml -p c-edge-terrarium up -d
     
     # Wait for services to be ready
     print_status "Waiting for services to be ready..."
@@ -83,10 +115,10 @@ deploy_docker() {
     
     # Check if vault-init completed successfully
     print_status "Checking Vault initialization status..."
-    if docker logs terrarium-vault-init 2>/dev/null | grep -q "Vault initialization completed successfully"; then
+    if docker logs edge-terrarium-vault-init 2>/dev/null | grep -q "Vault initialization completed successfully"; then
         print_success "Vault initialization completed automatically!"
     else
-        print_warning "Vault initialization may still be in progress. Check logs with: docker logs terrarium-vault-init"
+        print_warning "Vault initialization may still be in progress. Check logs with: docker logs edge-terrarium-vault-init"
     fi
     
     print_success "Docker Compose deployment completed!"
@@ -100,75 +132,89 @@ deploy_docker() {
     echo "  ./scripts/test-setup.sh"
 }
 
-# Function to deploy to Minikube
-deploy_minikube() {
-    print_status "Deploying to Minikube..."
+# Function to deploy to K3s
+deploy_k3s() {
+    print_status "Deploying to K3s..."
     
     # Check if Docker Compose is running and stop it
-    if docker-compose -f configs/docker/docker-compose.yml -p c-terrarium ps | grep -q "Up"; then
+    if docker-compose -f configs/docker/docker-compose.yml -p c-edge-terrarium ps | grep -q "Up"; then
         print_warning "Docker Compose deployment is running. Stopping it first..."
-        docker-compose -f configs/docker/docker-compose.yml -p c-terrarium down
+        docker-compose -f configs/docker/docker-compose.yml -p c-edge-terrarium down
         print_success "Docker Compose deployment stopped."
     fi
     
-    # Check if Minikube is running
-    if ! minikube status >/dev/null 2>&1; then
-        print_error "Minikube is not running. Please start Minikube first:"
-        echo "  minikube start"
+    # Check for port conflicts with Docker Compose services
+    check_k3s_port_conflicts() {
+        local port=$1
+        local service_name=$2
+        
+        if lsof -i :$port | grep -q "LISTEN"; then
+            print_warning "Port $port is already in use. This may conflict with K3s deployment..."
+            print_warning "K3s will use different ports for external access via k3d loadbalancer"
+        fi
+    }
+    
+    # Check for potential port conflicts
+    check_k3s_port_conflicts 8200 "Vault"
+    check_k3s_port_conflicts 80 "HTTP"
+    check_k3s_port_conflicts 443 "HTTPS"
+    
+    # Check if K3s is running
+    if ! kubectl cluster-info >/dev/null 2>&1; then
+        print_error "K3s is not running. Please start K3s first:"
+        echo "  curl -sfL https://get.k3s.io | sh -"
+        echo "  or"
+        echo "  sudo systemctl start k3s"
         exit 1
     fi
     
     # Generate certificates if they don't exist
-    if [ ! -f "certs/terrarium.crt" ] || [ ! -f "certs/terrarium.key" ]; then
+    if [ ! -f "certs/edge-terrarium.crt" ] || [ ! -f "certs/edge-terrarium.key" ]; then
         print_status "Generating TLS certificates..."
         ./scripts/generate-certs.sh
     fi
     
-    # Set up Minikube Docker environment
-    print_status "Setting up Minikube Docker environment..."
-    eval $(minikube docker-env)
+    # Build images for K3s
+    print_status "Building Docker images for K3s..."
+    ./scripts/build-images-k3s.sh
     
-    # Build images for Minikube
-    print_status "Building Docker images for Minikube..."
-    ./scripts/build-images-minikube.sh
-    
-    # Enable ingress addon
-    print_status "Enabling NGINX ingress addon..."
-    minikube addons enable ingress
+    # Note: K3s comes with Traefik by default, but we're using Kong
+    print_status "Note: K3s comes with Traefik by default, but we're using Kong ingress controller"
+    print_status "Make sure Kong ingress controller is installed in your K3s cluster"
     
     # Apply base Kubernetes configurations (excluding problematic ingress)
     print_status "Applying base Kubernetes configurations..."
-    kubectl apply -f configs/k8s/namespace.yaml
-    kubectl apply -f configs/k8s/vault-config.yaml
-    kubectl apply -f configs/k8s/vault-pvc.yaml
-    kubectl apply -f configs/k8s/vault-service.yaml
-    kubectl apply -f configs/k8s/services.yaml
-    kubectl apply -f configs/k8s/cdp-client-deployment.yaml
-    kubectl apply -f configs/k8s/service-sink-deployment.yaml
+    kubectl apply -f configs/k3s/namespace.yaml
+    kubectl apply -f configs/k3s/vault-config.yaml
+    kubectl apply -f configs/k3s/vault-pvc.yaml
+    kubectl apply -f configs/k3s/vault-service.yaml
+    kubectl apply -f configs/k3s/services.yaml
+    kubectl apply -f configs/k3s/cdp-client-deployment.yaml
+    kubectl apply -f configs/k3s/service-sink-deployment.yaml
     
     # Apply TLS secret
     print_status "Applying TLS secret..."
-    kubectl apply -f certs/terrarium-tls-secret.yaml
+    kubectl apply -f certs/edge-terrarium-tls-secret.yaml
     
-    # Apply Minikube-specific configurations
-    print_status "Applying Minikube-specific configurations..."
-    kubectl apply -f configs/k8s/vault-deployment-minikube.yaml
-    kubectl apply -f configs/k8s/vault-init-job-minikube.yaml
-    kubectl apply -f configs/k8s/ingress-minikube.yaml
+    # Apply K3s-specific configurations
+    print_status "Applying K3s-specific configurations..."
+    kubectl apply -f configs/k3s/vault-deployment.yaml
+    kubectl apply -f configs/k3s/vault-init-job.yaml
+    kubectl apply -f configs/k3s/ingress.yaml
     
     # Wait for deployment to be ready
     print_status "Waiting for deployment to be ready..."
-    kubectl wait --for=condition=available --timeout=300s deployment/cdp-client -n terrarium
-    kubectl wait --for=condition=available --timeout=300s deployment/service-sink -n terrarium
-    kubectl wait --for=condition=available --timeout=300s deployment/vault -n terrarium
+    kubectl wait --for=condition=available --timeout=300s deployment/cdp-client -n edge-terrarium
+    kubectl wait --for=condition=available --timeout=300s deployment/service-sink -n edge-terrarium
+    kubectl wait --for=condition=available --timeout=300s deployment/vault -n edge-terrarium
     
     # Wait for Vault init job to complete
     print_status "Waiting for Vault initialization..."
-    kubectl wait --for=condition=complete --timeout=300s job/vault-init -n terrarium
+    kubectl wait --for=condition=complete --timeout=300s job/vault-init -n edge-terrarium
     
     # Set up automatic port forwarding for Vault
     print_status "Setting up Vault port forwarding..."
-    kubectl port-forward -n terrarium service/vault 8200:8200 &
+    kubectl port-forward -n edge-terrarium service/vault 8200:8200 &
     VAULT_PORT_FORWARD_PID=$!
     echo $VAULT_PORT_FORWARD_PID > /tmp/vault-port-forward.pid
     sleep 3
@@ -180,11 +226,11 @@ deploy_minikube() {
         print_warning "Vault port forwarding may not be working properly"
     fi
     
-    print_success "Minikube deployment completed!"
+    print_success "K3s deployment completed!"
     echo ""
-    echo "Services are running in Minikube:"
-    echo "  - CDP Client: Available via ingress"
-    echo "  - Service Sink: Available via ingress"
+    echo "Services are running in K3s:"
+    echo "  - CDP Client: Available via Kong ingress"
+    echo "  - Service Sink: Available via Kong ingress"
     echo "  - Vault: Available at http://localhost:8200 (port forwarded)"
     echo ""
     echo "Vault UI Access:"
@@ -192,14 +238,14 @@ deploy_minikube() {
     echo "  Token: root"
     echo ""
     echo "To test the deployment:"
-    echo "  ./scripts/test-minikube.sh"
+    echo "  ./scripts/test-k3s.sh"
     echo ""
     echo "To stop Vault port forwarding:"
     echo "  kill \$(cat /tmp/vault-port-forward.pid) && rm /tmp/vault-port-forward.pid"
     echo ""
-    echo "To access via ingress (requires tunnel):"
-    echo "  minikube tunnel"
-    echo "  curl -k -H 'Host: localhost' https://192.168.49.2/fake-provider/test"
+    echo "To access via Kong ingress:"
+    echo "  # Get Kong proxy IP: kubectl get svc -n kong kong-proxy"
+    echo "  # Then: curl -k -H 'Host: edge-terrarium.local' https://<kong-ip>/fake-provider/test"
 }
 
 # Function to test Docker Compose deployment
@@ -208,25 +254,25 @@ test_docker() {
     ./scripts/test-setup.sh
 }
 
-# Function to test Minikube deployment
-test_minikube() {
-    print_status "Testing Minikube deployment..."
-    ./scripts/test-minikube.sh
+# Function to test K3s deployment
+test_k3s() {
+    print_status "Testing K3s deployment..."
+    ./scripts/test-k3s.sh
 }
 
 # Function to clean up Docker Compose
 clean_docker() {
     print_status "Cleaning up Docker Compose deployment..."
-    docker-compose -f configs/docker/docker-compose.yml -p c-terrarium down -v
+    docker-compose -f configs/docker/docker-compose.yml -p c-edge-terrarium down -v
     print_success "Docker Compose cleanup completed!"
 }
 
-# Function to clean up Minikube
-clean_minikube() {
-    print_status "Cleaning up Minikube deployment..."
-    kubectl delete -k configs/k8s/ --ignore-not-found=true
-    kubectl delete secret terrarium-tls -n terrarium --ignore-not-found=true
-    print_success "Minikube cleanup completed!"
+# Function to clean up K3s
+clean_k3s() {
+    print_status "Cleaning up K3s deployment..."
+    kubectl delete -k configs/k3s/ --ignore-not-found=true
+    kubectl delete secret edge-terrarium-tls -n edge-terrarium --ignore-not-found=true
+    print_success "K3s cleanup completed!"
 }
 
 # Function to show logs
@@ -235,17 +281,17 @@ show_logs() {
     
     if [ "$environment" = "docker" ]; then
         print_status "Showing Docker Compose logs..."
-        docker-compose -f configs/docker/docker-compose.yml -p c-terrarium logs -f
-    elif [ "$environment" = "minikube" ]; then
-        print_status "Showing Minikube logs..."
+        docker-compose -f configs/docker/docker-compose.yml -p c-edge-terrarium logs -f
+    elif [ "$environment" = "k3s" ]; then
+        print_status "Showing K3s logs..."
         echo "CDP Client logs:"
-        kubectl logs -n terrarium deployment/cdp-client
+        kubectl logs -n edge-terrarium deployment/cdp-client
         echo ""
         echo "Service Sink logs:"
-        kubectl logs -n terrarium deployment/service-sink
+        kubectl logs -n edge-terrarium deployment/service-sink
         echo ""
         echo "Vault logs:"
-        kubectl logs -n terrarium deployment/vault
+        kubectl logs -n edge-terrarium deployment/vault
     fi
 }
 
@@ -261,7 +307,7 @@ main() {
         exit 1
     fi
     
-    if [ "$environment" != "docker" ] && [ "$environment" != "minikube" ]; then
+    if [ "$environment" != "docker" ] && [ "$environment" != "k3s" ]; then
         print_error "Invalid environment: $environment"
         show_usage
         exit 1
@@ -280,21 +326,21 @@ main() {
             if [ "$environment" = "docker" ]; then
                 deploy_docker
             else
-                deploy_minikube
+                deploy_k3s
             fi
             ;;
         "test")
             if [ "$environment" = "docker" ]; then
                 test_docker
             else
-                test_minikube
+                test_k3s
             fi
             ;;
         "clean")
             if [ "$environment" = "docker" ]; then
                 clean_docker
             else
-                clean_minikube
+                clean_k3s
             fi
             ;;
         "logs")

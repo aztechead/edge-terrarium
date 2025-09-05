@@ -1,20 +1,25 @@
 # =============================================================================
-# VAULT DEPLOYMENT FOR MINIKUBE
+# VAULT DEPLOYMENT FOR K3S
 # =============================================================================
-# Simplified Vault deployment for Minikube using dev mode
-# This removes TLS complexity for local testing
+# Vault deployment for K3s with persistent storage
+# Uses file storage backend for data persistence across restarts
 
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: vault
-  namespace: terrarium
+  namespace: edge-terrarium
   labels:
     app: vault
-    project: terrarium
+    project: edge-terrarium
     environment: development
 spec:
   replicas: 1
+  
+  # Deployment strategy - use Recreate to ensure only one pod at a time
+  strategy:
+    type: Recreate                 # Terminate old pods before creating new ones
+  
   selector:
     matchLabels:
       app: vault
@@ -22,14 +27,14 @@ spec:
     metadata:
       labels:
         app: vault
-        project: terrarium
+        project: edge-terrarium
         environment: development
     spec:
       containers:
       - name: vault
         image: hashicorp/vault:latest
         command: ["vault"]
-        args: ["server", "-dev"]
+        args: ["server", "-dev", "-dev-root-token-id=root", "-dev-listen-address=0.0.0.0:8200"]
         
         ports:
         - containerPort: 8200
@@ -37,14 +42,20 @@ spec:
           protocol: TCP
         
         env:
-        - name: VAULT_DEV_ROOT_TOKEN_ID
-          value: "root"
-        - name: VAULT_DEV_LISTEN_ADDRESS
-          value: "0.0.0.0:8200"
         - name: VAULT_ADDR
           value: "http://0.0.0.0:8200"
         - name: VAULT_API_ADDR
-          value: "http://vault.terrarium.svc.cluster.local:8200"
+          value: "http://vault.edge-terrarium.svc.cluster.local:8200"
+        - name: VAULT_LOG_LEVEL
+          value: "INFO"
+        - name: VAULT_LOG_FORMAT
+          value: "json"
+        
+        # volumeMounts:
+        # - name: vault-config
+        #   mountPath: /vault/config
+        # - name: vault-data
+        #   mountPath: /vault/data
         
         resources:
           requests:
@@ -73,3 +84,11 @@ spec:
           periodSeconds: 5
           timeoutSeconds: 3
           failureThreshold: 3
+      
+      # volumes:
+      # - name: vault-config
+      #   configMap:
+      #     name: vault-config
+      # - name: vault-data
+      #   persistentVolumeClaim:
+      #     claimName: vault-data-pvc

@@ -1,32 +1,27 @@
 # =============================================================================
-# KUBERNETES INGRESS FOR MINIKUBE (HTTP ONLY)
+# HTTP-ONLY INGRESS CONFIGURATION FOR K3S
 # =============================================================================
-# Simplified ingress configuration for Minikube environment using HTTP only
-# This avoids TLS complexity for local testing
+# Simple HTTP-only ingress for testing without TLS complications
 
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: terrarium-ingress-http
-  namespace: terrarium
+  name: edge-terrarium-ingress-http
+  namespace: edge-terrarium
   
-  # Basic annotations for Minikube
+  # Basic annotations for K3s with Kong
   annotations:
-    nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
-    nginx.ingress.kubernetes.io/proxy-body-size: "5m"
-    nginx.ingress.kubernetes.io/proxy-read-timeout: "30"
-    nginx.ingress.kubernetes.io/proxy-send-timeout: "30"
-    nginx.ingress.kubernetes.io/proxy-connect-timeout: "30"
+    konghq.com/strip-path: "false"
+    konghq.com/preserve-host: "true"
+    konghq.com/protocols: "http"
 
 spec:
-  ingressClassName: nginx
-  
-  # No TLS configuration - HTTP only for local testing
+  ingressClassName: traefik
   
   # Routing rules
   rules:
   # Route /fake-provider/* and /example-provider/* to CDP Client
-  - host: terrarium.local
+  - host: edge-terrarium.local
     http:
       paths:
       - path: /fake-provider

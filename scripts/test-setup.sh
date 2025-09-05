@@ -29,8 +29,56 @@ test_endpoint() {
     echo ""
 }
 
+# Function to test POST endpoint with body
+test_post_endpoint() {
+    local url=$1
+    local expected_service=$2
+    local description=$3
+    local post_data=$4
+    
+    echo "Testing: $description"
+    echo "URL: $url"
+    echo "POST Data: $post_data"
+    
+    response=$(curl -s -k -w "%{http_code}" -o /tmp/response.json -X POST -H "Content-Type: application/json" -d "$post_data" --connect-timeout 2 --max-time 2 "$url" || echo "000")
+    
+    if [ "$response" = "200" ]; then
+        echo "Success (HTTP $response)"
+        if [ -f /tmp/response.json ]; then
+            echo "Response: $(cat /tmp/response.json)"
+        fi
+    else
+        echo "Failed (HTTP $response)"
+    fi
+    echo ""
+}
+
+# Function to test GET endpoint with query parameters
+test_get_with_params() {
+    local url=$1
+    local expected_service=$2
+    local description=$3
+    local query_params=$4
+    
+    echo "Testing: $description"
+    echo "URL: $url"
+    echo "Query Params: $query_params"
+    
+    response=$(curl -s -k -w "%{http_code}" -o /tmp/response.json --connect-timeout 2 --max-time 2 "$url?$query_params" || echo "000")
+    
+    if [ "$response" = "200" ]; then
+        echo "Success (HTTP $response)"
+        if [ -f /tmp/response.json ]; then
+            echo "Response: $(cat /tmp/response.json)"
+        fi
+    else
+        echo "Failed (HTTP $response)"
+    fi
+    echo ""
+}
+
 # Check if Docker Compose is running
-if docker-compose -f configs/docker/docker-compose.yml -p c-terrarium ps | grep -q "Up"; then
+if docker-compose -f configs/docker/docker-compose.yml -p c-edge-terrarium ps | grep -q "Up"; then
     echo "Testing Docker Compose setup..."
     echo "================================"
     
@@ -39,7 +87,7 @@ if docker-compose -f configs/docker/docker-compose.yml -p c-terrarium ps | grep 
     sleep 10
     
     # Initialize Vault if it's running
-    if docker-compose -f configs/docker/docker-compose.yml -p c-terrarium ps | grep -q "vault.*Up"; then
+    if docker-compose -f configs/docker/docker-compose.yml -p c-edge-terrarium ps | grep -q "vault.*Up"; then
         echo "Initializing Vault with secrets..."
         ./scripts/init-vault.sh http://localhost:8200
         echo ""
@@ -56,8 +104,23 @@ if docker-compose -f configs/docker/docker-compose.yml -p c-terrarium ps | grep 
     # Test port 1337
     test_endpoint "https://localhost:443/test" "cdp-client" "CDP Client - port 1337"
     
+    echo "Testing enhanced request logging..."
+    echo "=================================="
+    
+    # Test GET requests with query parameters
+    test_get_with_params "https://localhost:443/fake-provider/test" "cdp-client" "CDP Client - GET with query params" "param1=value1&param2=value2&test=query"
+    test_get_with_params "https://localhost:443/api/test" "service-sink" "Service Sink - GET with query params" "user=testuser&action=login&id=123"
+    
+    # Test POST requests with body content
+    test_post_endpoint "https://localhost:443/fake-provider/test" "cdp-client" "CDP Client - POST with JSON body" '{"username":"testuser","password":"testpass","action":"login"}'
+    test_post_endpoint "https://localhost:443/api/test" "service-sink" "Service Sink - POST with JSON body" '{"data":"test data","timestamp":"2024-01-01","status":"active"}'
+    
+    # Test POST requests with form data
+    test_post_endpoint "https://localhost:443/example-provider/test" "cdp-client" "CDP Client - POST with form data" "username=testuser&email=test@example.com&role=admin"
+    test_post_endpoint "https://localhost:443/health" "service-sink" "Service Sink - POST with form data" "check=health&service=all&verbose=true"
+    
     # Test Vault if it's running
-    if docker-compose -f configs/docker/docker-compose.yml -p c-terrarium ps | grep -q "vault.*Up"; then
+    if docker-compose -f configs/docker/docker-compose.yml -p c-edge-terrarium ps | grep -q "vault.*Up"; then
         echo "Testing Vault..."
         echo "Vault Health:"
         curl -s http://localhost:8200/v1/sys/health | jq . 2>/dev/null || echo "Vault health check failed"
@@ -69,17 +132,17 @@ if docker-compose -f configs/docker/docker-compose.yml -p c-terrarium ps | grep 
 fi
 
 # Check if Kubernetes deployment exists
-if kubectl get namespace terrarium >/dev/null 2>&1; then
+if kubectl get namespace edge-terrarium >/dev/null 2>&1; then
     echo "Testing Kubernetes setup..."
     echo "================================"
     
     # Wait for pods to be ready
     echo "Waiting for pods to be ready..."
-    kubectl wait --for=condition=ready pod -l app=cdp-client -n terrarium --timeout=60s
-    kubectl wait --for=condition=ready pod -l app=service-sink -n terrarium --timeout=60s
+    kubectl wait --for=condition=ready pod -l app=cdp-client -n edge-terrarium --timeout=60s
+    kubectl wait --for=condition=ready pod -l app=service-sink -n edge-terrarium --timeout=60s
     
     # Check if we can access the ingress directly
-    ingress_ip=$(kubectl get ingress terrarium-ingress -n terrarium -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
+    ingress_ip=$(kubectl get ingress edge-terrarium-ingress -n edge-terrarium -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
     
     if [ -n "$ingress_ip" ] && [ "$ingress_ip" != "localhost" ]; then
         echo "Found ingress IP: $ingress_ip"
@@ -96,12 +159,23 @@ if kubectl get namespace terrarium >/dev/null 2>&1; then
             
             # Test Service Sink (default route)
             test_endpoint "https://$test_host:443/api/test" "service-sink" "K8s Service Sink - default route"
+            
+            echo "Testing enhanced request logging..."
+            echo "=================================="
+            
+            # Test GET requests with query parameters
+            test_get_with_params "https://$test_host:443/fake-provider/test" "cdp-client" "K8s CDP Client - GET with query params" "param1=value1&param2=value2&test=query"
+            test_get_with_params "https://$test_host:443/api/test" "service-sink" "K8s Service Sink - GET with query params" "user=testuser&action=login&id=123"
+            
+            # Test POST requests with body content
+            test_post_endpoint "https://$test_host:443/fake-provider/test" "cdp-client" "K8s CDP Client - POST with JSON body" '{"username":"testuser","password":"testpass","action":"login"}'
+            test_post_endpoint "https://$test_host:443/api/test" "service-sink" "K8s Service Sink - POST with JSON body" '{"data":"test data","timestamp":"2024-01-01","status":"active"}'
         else
             echo "Ingress IP found but not accessible (no tunnel or firewall blocking)"
             echo "To test Kubernetes deployment, use one of these methods:"
             echo ""
-            echo "1. Use the dedicated Minikube test script:"
-            echo "   ./scripts/test-minikube.sh"
+            echo "1. Use the dedicated K3s test script:"
+            echo "   ./scripts/test-k3s.sh"
             echo ""
             echo "2. Set up port forwarding manually:"
             echo "   kubectl port-forward -n ingress-nginx service/ingress-nginx-controller 8443:443"
@@ -112,20 +186,20 @@ if kubectl get namespace terrarium >/dev/null 2>&1; then
             echo "   curl -k -H 'Host: localhost' https://localhost/fake-provider/test"
             echo ""
             echo "4. Check pod status and logs:"
-            kubectl get pods -n terrarium
+            kubectl get pods -n edge-terrarium
             echo ""
             echo "CDP Client logs:"
-            kubectl logs -n terrarium deployment/cdp-client --tail=5
+            kubectl logs -n edge-terrarium deployment/cdp-client --tail=5
             echo ""
             echo "Service Sink logs:"
-            kubectl logs -n terrarium deployment/service-sink --tail=5
+            kubectl logs -n edge-terrarium deployment/service-sink --tail=5
         fi
     else
         echo "INFO: No ingress IP available for direct testing"
         echo "To test Kubernetes deployment, use one of these methods:"
         echo ""
-        echo "1. Use the dedicated Minikube test script:"
-        echo "   ./scripts/test-minikube.sh"
+        echo "1. Use the dedicated K3s test script:"
+        echo "   ./scripts/test-k3s.sh"
         echo ""
         echo "2. Set up port forwarding manually:"
         echo "   kubectl port-forward -n ingress-nginx service/ingress-nginx-controller 8443:443"
@@ -136,13 +210,13 @@ if kubectl get namespace terrarium >/dev/null 2>&1; then
         echo "   curl -k -H 'Host: localhost' https://localhost/fake-provider/test"
         echo ""
         echo "4. Check pod status and logs:"
-        kubectl get pods -n terrarium
+        kubectl get pods -n edge-terrarium
         echo ""
         echo "CDP Client logs:"
-        kubectl logs -n terrarium deployment/cdp-client --tail=5
+        kubectl logs -n edge-terrarium deployment/cdp-client --tail=5
         echo ""
         echo "Service Sink logs:"
-        kubectl logs -n terrarium deployment/service-sink --tail=5
+        kubectl logs -n edge-terrarium deployment/service-sink --tail=5
     fi
     
     echo "Kubernetes tests completed!"
@@ -153,20 +227,20 @@ fi
 echo "Checking request logs..."
 echo "=========================="
 
-if docker-compose -f configs/docker/docker-compose.yml -p c-terrarium ps | grep -q "Up"; then
+if docker-compose -f configs/docker/docker-compose.yml -p c-edge-terrarium ps | grep -q "Up"; then
     echo "Docker Compose logs:"
     echo "CDP Client request files:"
-    docker exec terrarium-cdp-client ls -la /tmp/requests/ 2>/dev/null || echo "No request files found"
+    docker exec edge-terrarium-cdp-client ls -la /tmp/requests/ 2>/dev/null || echo "No request files found"
     echo ""
 fi
 
-if kubectl get namespace terrarium >/dev/null 2>&1; then
+if kubectl get namespace edge-terrarium >/dev/null 2>&1; then
     echo "Kubernetes logs:"
     echo "CDP Client pods:"
-    kubectl get pods -n terrarium -l app=cdp-client
+    kubectl get pods -n edge-terrarium -l app=cdp-client
     echo ""
     echo "Service Sink pods:"
-    kubectl get pods -n terrarium -l app=service-sink
+    kubectl get pods -n edge-terrarium -l app=service-sink
     echo ""
 fi
 
@@ -175,5 +249,5 @@ echo ""
 echo "Tips:"
 echo "   - Check application logs for detailed request processing"
 echo "   - View request files in /tmp/requests/ (CDP Client)"
-echo "   - Use 'kubectl logs -n terrarium deployment/<service-name>' for K8s logs"
+echo "   - Use 'kubectl logs -n edge-terrarium deployment/<service-name>' for K8s logs"
 echo "   - Use 'docker-compose -f configs/docker/docker-compose.yml logs <service-name>' for Docker Compose logs"

@@ -1,0 +1,50 @@
+# =============================================================================
+# VAULT INGRESS CONFIGURATION FOR K3S
+# =============================================================================
+# Separate ingress configuration for Vault service
+# This allows Vault to be accessed directly without path rewriting
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: vault-ingress
+  namespace: edge-terrarium
+  
+  # Kong annotations for Vault
+  annotations:
+    konghq.com/preserve-host: "true"
+    konghq.com/protocols: "http,https"
+
+spec:
+  ingressClassName: kong
+  
+  # TLS configuration for HTTPS
+  tls:
+  - hosts:
+    - vault.edge-terrarium.local
+    - vault.localhost
+    secretName: edge-terrarium-tls
+  
+  # Routing rules for Vault
+  rules:
+  - host: vault.edge-terrarium.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: vault
+            port:
+              number: 8200
+  
+  - host: vault.localhost
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: vault
+            port:
+              number: 8200

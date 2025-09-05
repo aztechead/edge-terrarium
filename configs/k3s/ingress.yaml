@@ -1,38 +1,35 @@
 # =============================================================================
-# KUBERNETES INGRESS FOR MINIKUBE
+# KUBERNETES INGRESS FOR K3S
 # =============================================================================
-# Simplified ingress configuration for Minikube environment
-# Removes snippet annotations that are not allowed in Minikube
+# Simplified ingress configuration for K3s environment
+# Removes snippet annotations that are not allowed in K3s
 
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: terrarium-ingress
-  namespace: terrarium
+  name: edge-terrarium-ingress
+  namespace: edge-terrarium
   
-  # Basic annotations for Minikube
+  # Basic annotations for K3s with Kong
   annotations:
-    nginx.ingress.kubernetes.io/ssl-redirect: "true"
-    nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
-    nginx.ingress.kubernetes.io/proxy-body-size: "5m"
-    nginx.ingress.kubernetes.io/proxy-read-timeout: "30"
-    nginx.ingress.kubernetes.io/proxy-send-timeout: "30"
-    nginx.ingress.kubernetes.io/proxy-connect-timeout: "30"
+    konghq.com/strip-path: "false"
+    konghq.com/preserve-host: "true"
+    konghq.com/protocols: "https"
 
 spec:
-  ingressClassName: nginx
+  ingressClassName: kong
   
   # TLS configuration for HTTPS
   tls:
   - hosts:
-    - terrarium.local
+    - edge-terrarium.local
     - localhost
-    secretName: terrarium-tls
+    secretName: edge-terrarium-tls
   
   # Routing rules
   rules:
   # Route /fake-provider/* and /example-provider/* to CDP Client
-  - host: terrarium.local
+  - host: edge-terrarium.local
     http:
       paths:
       - path: /fake-provider

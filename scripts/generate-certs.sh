@@ -6,8 +6,8 @@
 set -e
 
 CERT_DIR="certs"
-DOMAIN="terrarium.local"
-ALT_DOMAINS="localhost,127.0.0.1,*.terrarium.local"
+DOMAIN="edge-terrarium.local"
+ALT_DOMAINS="localhost,127.0.0.1,*.edge-terrarium.local"
 
 echo "Generating TLS/SSL certificates for Terrarium project..."
 
@@ -16,14 +16,14 @@ mkdir -p "$CERT_DIR"
 
 # Generate private key
 echo "Generating private key..."
-openssl genrsa -out "$CERT_DIR/terrarium.key" 2048
+openssl genrsa -out "$CERT_DIR/edge-terrarium.key" 2048
 
 # Generate certificate signing request
 echo "Generating certificate signing request..."
-openssl req -new -key "$CERT_DIR/terrarium.key" -out "$CERT_DIR/terrarium.csr" -subj "/C=US/ST=CA/L=San Francisco/O=Terrarium/OU=Development/CN=$DOMAIN"
+openssl req -new -key "$CERT_DIR/edge-terrarium.key" -out "$CERT_DIR/edge-terrarium.csr" -subj "/C=US/ST=CA/L=San Francisco/O=Edge-Terrarium/OU=Development/CN=$DOMAIN"
 
 # Create certificate extensions file
-cat > "$CERT_DIR/terrarium.ext" << EOF
+cat > "$CERT_DIR/edge-terrarium.ext" << EOF
 [req]
 distinguished_name = req_distinguished_name
 req_extensions = v3_req
@@ -33,7 +33,7 @@ prompt = no
 C = US
 ST = CA
 L = San Francisco
-O = Terrarium
+O = Edge-Terrarium
 OU = Development
 CN = $DOMAIN
 
@@ -45,28 +45,28 @@ subjectAltName = @alt_names
 [alt_names]
 DNS.1 = $DOMAIN
 DNS.2 = localhost
-DNS.3 = *.terrarium.local
+DNS.3 = *.edge-terrarium.local
 IP.1 = 127.0.0.1
 IP.2 = ::1
 EOF
 
 # Generate self-signed certificate
 echo "Generating self-signed certificate..."
-openssl x509 -req -in "$CERT_DIR/terrarium.csr" -signkey "$CERT_DIR/terrarium.key" -out "$CERT_DIR/terrarium.crt" -days 365 -extensions v3_req -extfile "$CERT_DIR/terrarium.ext"
+openssl x509 -req -in "$CERT_DIR/edge-terrarium.csr" -signkey "$CERT_DIR/edge-terrarium.key" -out "$CERT_DIR/edge-terrarium.crt" -days 365 -extensions v3_req -extfile "$CERT_DIR/edge-terrarium.ext"
 
 # Generate PKCS#12 format for browsers
 echo "Generating PKCS#12 certificate for browsers..."
-openssl pkcs12 -export -out "$CERT_DIR/terrarium.p12" -inkey "$CERT_DIR/terrarium.key" -in "$CERT_DIR/terrarium.crt" -passout pass:terrarium
+openssl pkcs12 -export -out "$CERT_DIR/edge-terrarium.p12" -inkey "$CERT_DIR/edge-terrarium.key" -in "$CERT_DIR/edge-terrarium.crt" -passout pass:edge-terrarium
 
 # Create Kubernetes secret YAML from template
 echo "Creating Kubernetes secret YAML from template..."
 if [ -f "$CERT_DIR/terrarium-tls-secret.yaml.template" ]; then
     # Replace placeholders in template with actual certificate data
-    sed "s/PLACEHOLDER_CERT_DATA/$(base64 -w 0 < "$CERT_DIR/terrarium.crt")/g; s/PLACEHOLDER_KEY_DATA/$(base64 -w 0 < "$CERT_DIR/terrarium.key")/g" \
-        "$CERT_DIR/terrarium-tls-secret.yaml.template" > "$CERT_DIR/terrarium-tls-secret.yaml"
+    sed "s/PLACEHOLDER_CERT_DATA/$(base64 -w 0 < "$CERT_DIR/edge-terrarium.crt")/g; s/PLACEHOLDER_KEY_DATA/$(base64 -w 0 < "$CERT_DIR/edge-terrarium.key")/g" \
+        "$CERT_DIR/terrarium-tls-secret.yaml.template" > "$CERT_DIR/edge-terrarium-tls-secret.yaml"
 else
     echo "WARNING: Template file not found, creating secret YAML from scratch..."
-    cat > "$CERT_DIR/terrarium-tls-secret.yaml" << EOF
+    cat > "$CERT_DIR/edge-terrarium-tls-secret.yaml" << EOF
 # =============================================================================
 # KUBERNETES TLS SECRET
 # =============================================================================
@@ -97,11 +97,11 @@ type: kubernetes.io/tls           # Type of secret - TLS certificate and key
 data:
   # Base64 encoded TLS certificate
   # This is the public certificate that clients will use to verify the server
-  tls.crt: $(base64 -w 0 < "$CERT_DIR/terrarium.crt")
+  tls.crt: $(base64 -w 0 < "$CERT_DIR/edge-terrarium.crt")
   
   # Base64 encoded TLS private key
   # This is the private key that the server uses to decrypt traffic
-  tls.key: $(base64 -w 0 < "$CERT_DIR/terrarium.key")
+  tls.key: $(base64 -w 0 < "$CERT_DIR/edge-terrarium.key")
 EOF
 fi
 
@@ -111,8 +111,8 @@ if [ -f "$CERT_DIR/terrarium-tls-configmap.yaml.template" ]; then
     # Create temporary files for certificate data with proper indentation
     CERT_PEM_TEMP=$(mktemp)
     KEY_PEM_TEMP=$(mktemp)
-    sed 's/^/    /' "$CERT_DIR/terrarium.crt" > "$CERT_PEM_TEMP"
-    sed 's/^/    /' "$CERT_DIR/terrarium.key" > "$KEY_PEM_TEMP"
+    sed 's/^/    /' "$CERT_DIR/edge-terrarium.crt" > "$CERT_PEM_TEMP"
+    sed 's/^/    /' "$CERT_DIR/edge-terrarium.key" > "$KEY_PEM_TEMP"
     
     # Replace placeholders in template with actual certificate data
     awk '
@@ -131,13 +131,13 @@ if [ -f "$CERT_DIR/terrarium-tls-configmap.yaml.template" ]; then
         next
     }
     { print }
-    ' "$CERT_DIR/terrarium-tls-configmap.yaml.template" > "$CERT_DIR/terrarium-tls-configmap.yaml"
+    ' "$CERT_DIR/terrarium-tls-configmap.yaml.template" > "$CERT_DIR/edge-terrarium-tls-configmap.yaml"
     
     # Clean up temporary files
     rm -f "$CERT_PEM_TEMP" "$KEY_PEM_TEMP"
 else
     echo "WARNING: Template file not found, creating ConfigMap YAML from scratch..."
-    cat > "$CERT_DIR/terrarium-tls-configmap.yaml" << EOF
+    cat > "$CERT_DIR/edge-terrarium-tls-configmap.yaml" << EOF
 # =============================================================================
 # KUBERNETES CONFIGMAP - TLS CERTIFICATES
 # =============================================================================
@@ -167,38 +167,38 @@ data:
   # TLS Certificate in PEM format
   # This is the public certificate that clients will use to verify the server
   tls.crt: |
-$(sed 's/^/    /' "$CERT_DIR/terrarium.crt")
+$(sed 's/^/    /' "$CERT_DIR/edge-terrarium.crt")
   
   # TLS Private Key in PEM format
   # This is the private key that the server uses to decrypt traffic
   tls.key: |
-$(sed 's/^/    /' "$CERT_DIR/terrarium.key")
+$(sed 's/^/    /' "$CERT_DIR/edge-terrarium.key")
 EOF
 fi
 
 # Clean up temporary files
-rm -f "$CERT_DIR/terrarium.csr" "$CERT_DIR/terrarium.ext"
+rm -f "$CERT_DIR/edge-terrarium.csr" "$CERT_DIR/edge-terrarium.ext"
 
 echo "Certificate generation complete!"
 echo ""
 echo "Generated files:"
-echo "   - $CERT_DIR/terrarium.key (private key)"
-echo "   - $CERT_DIR/terrarium.crt (certificate)"
-echo "   - $CERT_DIR/terrarium.p12 (PKCS#12 for browsers)"
-echo "   - $CERT_DIR/terrarium-tls-secret.yaml (Kubernetes secret with actual cert data)"
-echo "   - $CERT_DIR/terrarium-tls-configmap.yaml (Kubernetes configmap with actual cert data)"
+echo "   - $CERT_DIR/edge-terrarium.key (private key)"
+echo "   - $CERT_DIR/edge-terrarium.crt (certificate)"
+echo "   - $CERT_DIR/edge-terrarium.p12 (PKCS#12 for browsers)"
+echo "   - $CERT_DIR/edge-terrarium-tls-secret.yaml (Kubernetes secret with actual cert data)"
+echo "   - $CERT_DIR/edge-terrarium-tls-configmap.yaml (Kubernetes configmap with actual cert data)"
 echo ""
 echo "Template files (committed to repo):"
 echo "   - $CERT_DIR/terrarium-tls-secret.yaml.template (template for secret)"
 echo "   - $CERT_DIR/terrarium-tls-configmap.yaml.template (template for configmap)"
 echo ""
 echo "To use with browsers:"
-echo "   1. Import $CERT_DIR/terrarium.p12 into your browser"
-echo "   2. Password: terrarium"
+echo "   1. Import $CERT_DIR/edge-terrarium.p12 into your browser"
+echo "   2. Password: edge-terrarium"
 echo "   3. Add $DOMAIN to your /etc/hosts file: 127.0.0.1 $DOMAIN"
 echo ""
 echo "To use with Kubernetes:"
-echo "   kubectl apply -f $CERT_DIR/terrarium-tls-secret.yaml"
+echo "   kubectl apply -f $CERT_DIR/edge-terrarium-tls-secret.yaml"
 echo ""
 echo "Security Notes:"
 echo "   - These are self-signed certificates for development only!"

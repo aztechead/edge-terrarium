@@ -1,5 +1,5 @@
 # =============================================================================
-# KUSTOMIZATION CONFIGURATION
+# KUSTOMIZATION CONFIGURATION FOR K3S
 # =============================================================================
 # Kustomize is a tool for customizing Kubernetes YAML configurations.
 # It allows you to manage multiple environments (dev, staging, prod) with
@@ -19,32 +19,32 @@ apiVersion: kustomize.config.k8s.io/v1beta1  # Kustomize API version
 kind: Kustomization                          # Resource type - creates a kustomization
 
 # Default namespace for all resources in this kustomization
-namespace: terrarium
+namespace: edge-terrarium
 
 # List of Kubernetes resource files to include in the build
 # These files will be processed and customized according to the rules below
 resources:
-  - namespace.yaml                    # Creates the terrarium namespace
-  - cdp-client-deployment.yaml       # CDP client application deployment
-  - service-sink-deployment.yaml     # Service sink application deployment
-  - services.yaml                    # Kubernetes services for both applications
-  - ingress.yaml                     # Ingress configuration for routing
+  - namespace.yaml                    # Creates the edge-terrarium namespace
   - vault-config.yaml                # Vault configuration ConfigMap
   - vault-pvc.yaml                   # Vault persistent volume claim
   - vault-deployment.yaml            # Vault deployment
   - vault-service.yaml               # Vault service
-  - vault-init-job.yaml              # Vault initialization job
+  - vault-init-job.yaml              # Vault initialization job (must run first)
+  - cdp-client-deployment.yaml       # CDP client application deployment (waits for vault-init)
+  - service-sink-deployment.yaml     # Service sink application deployment
+  - services.yaml                    # Kubernetes services for both applications
+  - ingress.yaml                     # Ingress configuration for routing with Kong
 
 # Common labels applied to all resources
 # These labels help with organization and resource selection
 commonLabels:
-  project: terrarium                 # Identifies all resources as part of the terrarium project
+  project: edge-terrarium           # Identifies all resources as part of the edge-terrarium project
   environment: development          # Identifies this as a development environment
 
 # Image transformations
 # These rules modify image names and tags in the resource files
 images:
-  - name: terrarium-cdp-client       # Name of the image to transform
+  - name: edge-terrarium-cdp-client  # Name of the image to transform
     newTag: latest                   # New tag to apply to this image
-  - name: terrarium-service-sink     # Name of the image to transform
+  - name: edge-terrarium-service-sink # Name of the image to transform
     newTag: latest                   # New tag to apply to this image

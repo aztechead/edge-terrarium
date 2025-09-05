@@ -1,23 +1,23 @@
 # =============================================================================
-# VAULT INITIALIZATION JOB FOR MINIKUBE
+# VAULT INITIALIZATION JOB FOR K3S
 # =============================================================================
-# This job initializes Vault with the required secrets for Minikube
+# This job initializes Vault with the required secrets for K3s
 
 apiVersion: batch/v1
 kind: Job
 metadata:
   name: vault-init
-  namespace: terrarium
+  namespace: edge-terrarium
   labels:
     app: vault-init
-    project: terrarium
+    project: edge-terrarium
     environment: development
 spec:
   template:
     metadata:
       labels:
         app: vault-init
-        project: terrarium
+        project: edge-terrarium
         environment: development
     spec:
       restartPolicy: OnFailure
@@ -27,7 +27,7 @@ spec:
         command: ['sh', '-c']
         args:
           - |
-            export VAULT_ADDR="http://vault.terrarium.svc.cluster.local:8200"
+            export VAULT_ADDR="http://vault.edge-terrarium.svc.cluster.local:8200"
             export VAULT_TOKEN="root"
             
             echo "Waiting for Vault to be ready..."
@@ -38,20 +38,28 @@ spec:
             
             echo "Vault is ready. Initializing secrets..."
             
-            # Store TLS certificates
-            vault kv put secret/terrarium/tls \
-              cert="$(cat /tmp/certs/tls.crt | base64 -w 0)" \
-              key="$(cat /tmp/certs/tls.key | base64 -w 0)" \
-              ca="$(cat /tmp/certs/tls.crt | base64 -w 0)"
+            # Store TLS certificates (if available)
+            if [ -f /tmp/certs/tls.crt ] && [ -f /tmp/certs/tls.key ]; then
+              echo "Storing TLS certificates..."
+              vault kv put secret/terrarium/tls \
+                cert="$(cat /tmp/certs/tls.crt | base64 -w 0)" \
+                key="$(cat /tmp/certs/tls.key | base64 -w 0)" \
+                ca="$(cat /tmp/certs/tls.crt | base64 -w 0)"
+            else
+              echo "TLS certificates not found, storing mock TLS secrets..."
+              vault kv put secret/terrarium/tls \
+                cert="mock-cert" \
+                key="mock-key" \
+                ca="mock-ca"
+            fi
             
-            # Store CDP client configuration
+            # Store CDP client configuration (matching Docker Compose)
             vault kv put secret/cdp-client/config \
               api_key="mock-api-key-12345" \
-              secret_token="mock-secret-token-67890" \
-              database_url="mock-database-url" \
+              database_url="postgresql://mock-user:mock-pass@mock-db:5432/mock-db" \
+              jwt_secret="mock-jwt-secret-67890" \
               encryption_key="mock-encryption-key-abcdef" \
-              jwt_secret="mock-jwt-secret-xyz789" \
-              log_level="info" \
+              log_level="INFO" \
               max_connections="100"
             
             # Store CDP client external APIs configuration
@@ -65,7 +73,7 @@ spec:
         
         env:
         - name: VAULT_ADDR
-          value: "http://vault.terrarium.svc.cluster.local:8200"
+          value: "http://vault.edge-terrarium.svc.cluster.local:8200"
         - name: VAULT_TOKEN
           value: "root"
         
@@ -77,4 +85,5 @@ spec:
       volumes:
       - name: tls-certs
         secret:
-          secretName: terrarium-tls
+          secretName: edge-terrarium-tls
+          optional: true

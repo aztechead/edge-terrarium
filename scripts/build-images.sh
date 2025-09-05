@@ -11,24 +11,24 @@ echo "Building Terrarium Docker images..."
 echo "Building CDP Client image..."
 docker build \
   --platform linux/amd64,linux/arm64 \
-  -t terrarium-cdp-client:latest \
+  -t edge-terrarium-cdp-client:latest \
   ./cdp-client
 
 # Build Service Sink
 echo "Building Service Sink image..."
 docker build \
   --platform linux/amd64,linux/arm64 \
-  -t terrarium-service-sink:latest \
+  -t edge-terrarium-service-sink:latest \
   ./service-sink
 
 echo "All images built successfully!"
 echo ""
 echo "Available images:"
-docker images | grep terrarium
+docker images | grep edge-terrarium
 
 echo ""
 echo "To deploy with Docker Compose:"
 echo "   ./scripts/deploy.sh docker deploy"
 echo ""
-echo "To deploy to Minikube:"
-echo "   ./scripts/deploy.sh minikube deploy"
+echo "To deploy to K3s:"
+echo "   ./scripts/deploy.sh k3s deploy"

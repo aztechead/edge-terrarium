@@ -1,21 +1,21 @@
-# Terrarium - Kubernetes & Docker Learning Project
+# Edge-Terrarium - Kubernetes & Docker Learning Project
 
 A comprehensive example demonstrating Kubernetes ingress routing, Docker containerization, and C application development. This project showcases how to route HTTP requests to different services based on URL paths and ports.
 
 ## Architecture Overview
 
-The Terrarium project consists of:
+The Edge-Terrarium project consists of:
 
 - **CDP Client Service**: Handles requests to `/fake-provider/*` and `/example-provider/*` paths, plus all traffic on port 1337
 - **Service Sink**: Handles all other HTTP requests
 - **HashiCorp Vault**: Secrets management for TLS certificates and application configuration
 - **Nginx Reverse Proxy**: Routes requests based on URL patterns (Docker Compose setup)
-- **Kubernetes Ingress**: Routes requests using NGINX Ingress Controller
+- **Kubernetes Ingress**: Routes requests using Kong Ingress Controller
 - **TLS/SSL**: Self-signed certificates for secure communication
 
 ## Scripts & Configs Integration Flow
 
-The following diagram shows how the scripts and configuration files work together to deploy and manage the Terrarium application:
+The following diagram shows how the scripts and configuration files work together to deploy and manage the Edge-Terrarium application:
 
 ```mermaid
 flowchart TD
@@ -27,7 +27,7 @@ flowchart TD
     B --> D{Environment?}
     C --> D
     D -->|docker| E[Docker Compose Deployment]
-    D -->|minikube| F[Minikube Deployment]
+    D -->|k3s| F[K3s Deployment]
     
     %% Docker Compose Flow
     E --> G[./scripts/build-images.sh]
@@ -40,26 +40,26 @@ flowchart TD
     L --> M[Vault Initialization]
     M --> N[./scripts/test-setup.sh]
     
-    %% Minikube Flow
-    F --> O[./scripts/build-images-minikube.sh]
-    O --> P[Load Images to Minikube]
-    P --> Q[configs/k8s/kustomization.yaml]
-    Q --> R[configs/k8s/namespace.yaml]
-    Q --> S[configs/k8s/vault-deployment-minikube.yaml]
-    Q --> T[configs/k8s/vault-init-job-minikube.yaml]
-    Q --> U[configs/k8s/cdp-client-deployment.yaml]
-    Q --> V[configs/k8s/service-sink-deployment.yaml]
-    Q --> W[configs/k8s/services.yaml]
-    Q --> X[configs/k8s/ingress-minikube.yaml]
+    %% K3s Flow
+    F --> O[./scripts/build-images.sh]
+    O --> P[Load Images to K3d]
+    P --> Q[configs/k3s/kustomization.yaml]
+    Q --> R[configs/k3s/namespace.yaml]
+    Q --> S[configs/k3s/vault-deployment.yaml]
+    Q --> T[configs/k3s/vault-init-job.yaml]
+    Q --> U[configs/k3s/cdp-client-deployment.yaml]
+    Q --> V[configs/k3s/service-sink-deployment.yaml]
+    Q --> W[configs/k3s/services.yaml]
+    Q --> X[configs/k3s/ingress.yaml]
     T --> Y[Vault Initialization]
-    Y --> Z[./scripts/test-minikube.sh]
+    Y --> Z[./scripts/test-k3s.sh]
     
     %% Certificate Generation
-    AA[./scripts/generate-certs.sh] --> BB[certs/terrarium.crt]
-    AA --> CC[certs/terrarium.key]
+    AA[./scripts/generate-certs.sh] --> BB[certs/edge-terrarium.crt]
+    AA --> CC[certs/edge-terrarium.key]
     BB --> J
     CC --> J
-    BB --> DD[configs/k8s/terrarium-tls-secret.yaml]
+    BB --> DD[configs/k3s/edge-terrarium-tls-secret.yaml]
     CC --> DD
     
     %% Configuration Dependencies
@@ -107,7 +107,7 @@ flowchart TD
 ## Project Structure
 
 ```
-c-terrarium/
+c-edge-terrarium/
 ├── cdp-client/                 # CDP Client C application
 │   ├── main.c                 # Main application source
 │   └── Dockerfile             # Multi-arch Docker build
@@ -115,8 +115,8 @@ c-terrarium/
 │   ├── main.c                 # Main application source
 │   └── Dockerfile             # Multi-arch Docker build
 ├── configs/                   # Configuration files organized by platform
-│   ├── k8s/                   # Kubernetes configuration files
-│   │   ├── namespace.yaml     # Terrarium namespace
+│   ├── k3s/                   # Kubernetes configuration files for K3s
+│   │   ├── namespace.yaml     # Edge-Terrarium namespace
 │   │   ├── cdp-client-deployment.yaml
 │   │   ├── service-sink-deployment.yaml
 │   │   ├── vault-config.yaml  # Vault configuration
@@ -150,7 +150,7 @@ c-terrarium/
 - Develop and test locally
 - Avoid Kubernetes complexity
 
-**Choose Minikube if you want to**:
+**Choose K3s if you want to**:
 - Learn Kubernetes concepts
 - Test production-like deployments
 - Practice with ingress controllers
@@ -172,7 +172,7 @@ This project supports two deployment environments for different use cases:
 
 **Access**: HTTPS on port 443 via nginx reverse proxy
 
-### Minikube (Kubernetes Testing)
+### K3s (Kubernetes Testing)
 **Best for**: Kubernetes learning, production-like testing, and cluster validation
 
 **Features**:
@@ -191,10 +191,10 @@ This project supports two deployment environments for different use cases:
 **For Docker Compose**:
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/) (Windows/Mac/Linux)
 
-**For Minikube**:
+**For K3s**:
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/) (Windows/Mac/Linux)
 - [kubectl](https://kubernetes.io/docs/tasks/tools/) (Windows/Mac/Linux)
-- [Minikube](https://minikube.sigs.k8s.io/docs/start/) (Windows/Mac/Linux)
+- [k3d](https://k3d.io/) (K3s in Docker)
 
 ### Cross-Platform Deployment Commands
 
@@ -203,20 +203,20 @@ This project supports two deployment environments for different use cases:
 # Deploy to Docker Compose
 scripts\deploy.bat docker deploy
 
-# Deploy to Minikube
-scripts\deploy.bat minikube deploy
+# Deploy to K3s
+scripts\deploy.bat k3s deploy
 
 # Test deployments
 scripts\deploy.bat docker test
-scripts\deploy.bat minikube test
+scripts\deploy.bat k3s test
 
 # Clean up deployments
 scripts\deploy.bat docker clean
-scripts\deploy.bat minikube clean
+scripts\deploy.bat k3s clean
 
 # View logs
 scripts\deploy.bat docker logs
-scripts\deploy.bat minikube logs
+scripts\deploy.bat k3s logs
 ```
 
 **Linux/macOS (Bash)**:
@@ -224,20 +224,20 @@ scripts\deploy.bat minikube logs
 # Deploy to Docker Compose
 ./scripts/deploy.sh docker deploy
 
-# Deploy to Minikube
-./scripts/deploy.sh minikube deploy
+# Deploy to K3s
+./scripts/deploy.sh k3s deploy
 
 # Test deployments
 ./scripts/deploy.sh docker test
-./scripts/deploy.sh minikube test
+./scripts/deploy.sh k3s test
 
 # Clean up deployments
 ./scripts/deploy.sh docker clean
-./scripts/deploy.sh minikube clean
+./scripts/deploy.sh k3s clean
 
 # View logs
 ./scripts/deploy.sh docker logs
-./scripts/deploy.sh minikube logs
+./scripts/deploy.sh k3s logs
 ```
 
 ## Manual Setup (Alternative)
@@ -272,8 +272,8 @@ This creates self-signed certificates in the `certs/` directory and generates Ku
 **Cross-Platform**:
 ```bash
 # Build both services
-docker build -t terrarium-cdp-client:latest ./cdp-client
-docker build -t terrarium-service-sink:latest ./service-sink
+docker build -t edge-terrarium-cdp-client:latest ./cdp-client
+docker build -t edge-terrarium-service-sink:latest ./service-sink
 ```
 
 ### Step 3: Choose Your Deployment Method
@@ -296,52 +296,82 @@ curl -k https://localhost:443/fake-provider/test
 curl -k https://localhost:443/api/test
 ```
 
-#### Option B: Minikube (Recommended for Kubernetes Learning)
+#### Option B: K3s with k3d (Recommended for Kubernetes Learning)
 
 **Prerequisites**:
 ```bash
-# Start Minikube
-minikube start
+# Install k3d (K3s in Docker)
+# macOS: brew install k3d
+# Linux: curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash
+# Windows: Use WSL or install via chocolatey
 
-# Enable ingress addon
-minikube addons enable ingress
+# Create K3s cluster with port mappings
+k3d cluster create edge-terrarium --port "80:80@loadbalancer" --port "443:443@loadbalancer" --port "8200:8200@loadbalancer"
+
+# Note: K3s comes with Traefik by default, but we use Kong ingress controller
 ```
 
-**Deploy to Minikube**:
+**Deploy to K3s**:
 ```bash
 # Apply the Kubernetes manifests
-kubectl apply -k configs/k8s/
+kubectl apply -k configs/k3s/
 
 # Apply TLS secret
-kubectl apply -f certs/terrarium-tls-secret.yaml
-
-# Apply Minikube-specific configurations
-kubectl apply -f configs/k8s/vault-deployment-minikube.yaml
-kubectl apply -f configs/k8s/vault-init-job-minikube.yaml
-kubectl apply -f configs/k8s/ingress-minikube.yaml
+kubectl apply -f certs/edge-terrarium-tls-secret.yaml
 
 # Check deployments
-kubectl get pods -n terrarium
+kubectl get pods -n edge-terrarium
 
 # Check services
-kubectl get svc -n terrarium
+kubectl get svc -n edge-terrarium
 
 # Check ingress
-kubectl get ingress -n terrarium
+kubectl get ingress -n edge-terrarium
 ```
 
-**Test Minikube Deployment**:
+**Note**: The K3s deployment is configured with single replicas for development purposes. In production, you would typically increase the replica count for high availability.
+
+**Test K3s Deployment**:
 ```bash
 # Option 1: Use the dedicated test script
-./scripts/test-minikube.sh
+./scripts/test-k3s.sh
 
-# Option 2: Manual testing with port forwarding
-kubectl port-forward -n ingress-nginx service/ingress-nginx-controller 8443:443
+# Option 2: Direct access via k3d load balancer (recommended)
+curl -k -H "Host: localhost" https://localhost:443/fake-provider/test
+
+# Option 3: Manual testing with port forwarding (if needed)
+kubectl port-forward -n default service/kong-kong-proxy 8443:443
 curl -k -H "Host: localhost" https://localhost:8443/fake-provider/test
 
-# Option 3: Use minikube tunnel (requires sudo on Linux/macOS)
-sudo minikube tunnel
-curl -k -H "Host: localhost" https://localhost/fake-provider/test
+# Access Vault directly (requires port forwarding)
+kubectl port-forward -n edge-terrarium service/vault 8200:8200
+curl -k http://localhost:8200/v1/sys/health
+```
+
+**Viewing Container Logs in K3s**:
+```bash
+# View logs for all deployments
+kubectl logs -n edge-terrarium deployment/vault -f
+kubectl logs -n edge-terrarium deployment/cdp-client -f
+kubectl logs -n edge-terrarium deployment/service-sink -f
+
+# View logs for specific pods
+kubectl logs -n edge-terrarium <pod-name> -f
+
+# View logs with timestamps and tail
+kubectl logs -n edge-terrarium deployment/vault --timestamps --tail=50
+
+# View logs from all containers in a pod
+kubectl logs -n edge-terrarium <pod-name> --all-containers=true
+
+# View logs with time filtering
+kubectl logs -n edge-terrarium deployment/vault --since=1h
+
+# View logs from multiple pods with labels
+kubectl logs -n edge-terrarium -l project=edge-terrarium -f
+
+# View Kong ingress controller logs
+kubectl logs -n default deployment/kong-kong -f
 ```
 
 ## Configuration
@@ -370,8 +400,8 @@ The CDP Client integrates with HashiCorp Vault for secrets management:
 
 - **Vault URL**: 
   - **Docker Compose**: `http://localhost:8200` (direct access)
-  - **Minikube**: `http://localhost:8200` (via port forwarding)
-  - **Internal Cluster**: `http://vault.terrarium.svc.cluster.local:8200` (within cluster only)
+  - **K3s**: `http://localhost:8200` (via port forwarding)
+  - **Internal Cluster**: `http://vault.edge-terrarium.svc.cluster.local:8200` (within cluster only)
 - **Authentication**: Root token (`root`) for development
 - **Secrets Engine**: KV v2 at `/secret/` path
 
@@ -409,11 +439,11 @@ docker-compose up -d vault
 ./scripts/init-vault.sh http://localhost:8200
 ```
 
-For Minikube:
+For K3s:
 ```bash
 # Vault is automatically initialized by the vault-init job
-kubectl get jobs -n terrarium
-kubectl logs -n terrarium job/vault-init
+kubectl get jobs -n edge-terrarium
+kubectl logs -n edge-terrarium job/vault-init
 
 # Access Vault UI (port forwarding is automatic after deployment)
 # Open http://localhost:8200 in your browser
@@ -426,7 +456,7 @@ kubectl logs -n terrarium job/vault-init
 
 ```bash
 # Set Vault environment variables
-export VAULT_ADDR="http://localhost:8200"   # For both Docker Compose and Minikube
+export VAULT_ADDR="http://localhost:8200"   # For both Docker Compose and K3s
 export VAULT_TOKEN="root"
 
 # Add a new secret to the CDP client configuration
@@ -528,8 +558,8 @@ curl -H "X-Vault-Token: $VAULT_TOKEN" \
 # Test Docker Compose deployment
 scripts\test-setup.sh
 
-# Test Minikube deployment
-scripts\test-minikube.sh
+# Test K3s deployment
+scripts\test-k3s.sh
 ```
 
 **Linux/macOS (Bash)**:
@@ -537,8 +567,8 @@ scripts\test-minikube.sh
 # Test Docker Compose deployment
 ./scripts/test-setup.sh
 
-# Test Minikube deployment
-./scripts/test-minikube.sh
+# Test K3s deployment
+./scripts/test-k3s.sh
 ```
 
 ### Manual Testing
@@ -570,12 +600,12 @@ Invoke-WebRequest -Uri "https://localhost:443/api/test" -SkipCertificateCheck
 Invoke-WebRequest -Uri "https://localhost:443/health" -SkipCertificateCheck
 ```
 
-#### Minikube Testing
+#### K3s Testing
 
 **Option 1: Port Forwarding (Recommended)**
 ```bash
 # Set up port forwarding
-kubectl port-forward -n ingress-nginx service/ingress-nginx-controller 8443:443
+kubectl port-forward -n default service/kong-kong-proxy 8443:443
 
 # Test routes (in another terminal)
 curl -k -H "Host: localhost" https://localhost:8443/fake-provider/test
@@ -583,10 +613,10 @@ curl -k -H "Host: localhost" https://localhost:8443/example-provider/test
 curl -k -H "Host: localhost" https://localhost:8443/api/test
 ```
 
-**Option 2: Minikube Tunnel (Linux/macOS only)**
+**Option 2: k3d Load Balancer (Recommended)**
 ```bash
-# Start tunnel (requires sudo)
-sudo minikube tunnel
+# k3d automatically sets up load balancer
+# Access directly via localhost ports
 
 # Test routes (in another terminal)
 curl -k -H "Host: localhost" https://localhost/fake-provider/test
@@ -596,19 +626,13 @@ curl -k -H "Host: localhost" https://localhost/api/test
 
 **Option 3: Direct IP Access (Advanced)**
 ```bash
-# Get Minikube IP
-minikube ip
-
-# Add to hosts file (Linux/macOS)
-echo "$(minikube ip) terrarium.local" | sudo tee -a /etc/hosts
-
-# Windows: Add to C:\Windows\System32\drivers\etc\hosts
-# <minikube-ip> terrarium.local
+# k3d uses localhost by default
+# No need to modify hosts file
 
 # Test routes
-curl -k https://terrarium.local/fake-provider/test
-curl -k https://terrarium.local/example-provider/test
-curl -k https://terrarium.local/api/test
+curl -k https://edge-terrarium.local/fake-provider/test
+curl -k https://edge-terrarium.local/example-provider/test
+curl -k https://edge-terrarium.local/api/test
 ```
 
 ## Monitoring & Debugging
@@ -634,8 +658,8 @@ kubectl exec -n terrarium deployment/cdp-client -- ls -la /tmp/requests/
 docker-compose ps
 
 # Kubernetes
-kubectl get pods -n terrarium
-kubectl describe pod <pod-name> -n terrarium
+kubectl get pods -n edge-terrarium
+kubectl describe pod <pod-name> -n edge-terrarium
 ```
 
 ### View Application Logs
@@ -671,24 +695,24 @@ sudo docker-compose up -d
 # Restart Docker Desktop if needed
 ```
 
-#### Minikube Issues
+#### K3s Issues
 
 **Ingress Not Accessible**:
 ```bash
 # Check if ingress controller is running
-kubectl get pods -n ingress-nginx
+kubectl get pods -n default | grep kong
 
 # Check ingress status
-kubectl get ingress -n terrarium
+kubectl get ingress -n edge-terrarium
 
 # Use port forwarding as alternative
-kubectl port-forward -n ingress-nginx service/ingress-nginx-controller 8443:443
+kubectl port-forward -n default service/kong-kong-proxy 8443:443
 ```
 
 **Pod Stuck in Pending State**:
 ```bash
 # Check pod events
-kubectl describe pod <pod-name> -n terrarium
+kubectl describe pod <pod-name> -n edge-terrarium
 
 # Check PVC status
 kubectl get pvc -n terrarium
@@ -707,7 +731,7 @@ kubectl logs -n terrarium deployment/vault
 
 # Restart vault-init job
 kubectl delete job vault-init -n terrarium
-kubectl apply -f configs/k8s/vault-init-job-minikube.yaml
+kubectl apply -f configs/k3s/vault-init-job.yaml
 ```
 
 ## Security Considerations

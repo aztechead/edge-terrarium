@@ -46,7 +46,9 @@ RUN echo '#!/bin/sh' > /app/wait-for-vault.sh && \
     echo '  echo "Vault initialization not complete yet. Waiting..."' >> /app/wait-for-vault.sh && \
     echo '  sleep 2' >> /app/wait-for-vault.sh && \
     echo 'done' >> /app/wait-for-vault.sh && \
-    echo 'echo "Vault initialization complete! Starting CDP client..."' >> /app/wait-for-vault.sh && \
+    echo 'echo "Vault initialization complete! Waiting a moment for secrets to be fully available..."' >> /app/wait-for-vault.sh && \
+    echo 'sleep 5' >> /app/wait-for-vault.sh && \
+    echo 'echo "Starting CDP client..."' >> /app/wait-for-vault.sh && \
     echo 'exec ./cdp-client' >> /app/wait-for-vault.sh && \
     chmod +x /app/wait-for-vault.sh && \
     chown appuser:appgroup /app/wait-for-vault.sh

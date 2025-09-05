@@ -19,7 +19,7 @@ set ACTION=%2
 if "%ACTION%"=="" set ACTION=deploy
 
 REM Validate environment
-if not "%ENVIRONMENT%"=="docker" if not "%ENVIRONMENT%"=="minikube" (
+if not "%ENVIRONMENT%"=="docker" if not "%ENVIRONMENT%"=="k3s" (
     echo [ERROR] Invalid environment: %ENVIRONMENT%
     call :show_usage
     exit /b 1
@@ -37,19 +37,19 @@ if "%ACTION%"=="deploy" (
     if "%ENVIRONMENT%"=="docker" (
         call :deploy_docker
     ) else (
-        call :deploy_minikube
+        call :deploy_k3s
     )
 ) else if "%ACTION%"=="test" (
     if "%ENVIRONMENT%"=="docker" (
         call :test_docker
     ) else (
-        call :test_minikube
+        call :test_k3s
     )
 ) else if "%ACTION%"=="clean" (
     if "%ENVIRONMENT%"=="docker" (
         call :clean_docker
     ) else (
-        call :clean_minikube
+        call :clean_k3s
     )
 ) else if "%ACTION%"=="logs" (
     call :show_logs %ENVIRONMENT%
@@ -66,7 +66,7 @@ echo Usage: %0 [ENVIRONMENT] [ACTION]
 echo.
 echo ENVIRONMENT:
 echo   docker     Deploy to Docker Compose (development)
-echo   minikube   Deploy to Minikube (Kubernetes testing)
+echo   k3s        Deploy to K3s (Kubernetes testing)
 echo.
 echo ACTION:
 echo   deploy     Deploy the application (default)
@@ -76,7 +76,7 @@ echo   logs       Show application logs
 echo.
 echo Examples:
 echo   %0 docker deploy    # Deploy to Docker Compose
-echo   %0 minikube test    # Test Minikube deployment
+echo   %0 k3s test        # Test K3s deployment
 echo   %0 docker clean     # Clean up Docker Compose
 exit /b 0
 
@@ -84,7 +84,7 @@ exit /b 0
 echo [INFO] Deploying to Docker Compose...
 
 REM Generate certificates if they don't exist
-if not exist "certs\terrarium.crt" (
+if not exist "certs\edge-terrarium.crt" (
     echo [INFO] Generating TLS certificates...
     call scripts\generate-certs.sh
 )
@@ -116,34 +116,32 @@ echo To test the deployment:
 echo   scripts\test-setup.sh
 exit /b 0
 
-:deploy_minikube
-echo [INFO] Deploying to Minikube...
+:deploy_k3s
+echo [INFO] Deploying to K3s...
 
-REM Check if Minikube is running
-minikube status >nul 2>&1
+REM Check if K3s is running
+kubectl cluster-info >nul 2>&1
 if errorlevel 1 (
-    echo [ERROR] Minikube is not running. Please start Minikube first:
-    echo   minikube start
+    echo [ERROR] K3s is not running. Please start K3s first:
+    echo   curl -sfL https://get.k3s.io ^| sh -
+    echo   or
+    echo   sudo systemctl start k3s
     exit /b 1
 )
 
 REM Generate certificates if they don't exist
-if not exist "certs\terrarium.crt" (
+if not exist "certs\edge-terrarium.crt" (
     echo [INFO] Generating TLS certificates...
     call scripts\generate-certs.sh
 )
 
-REM Set up Minikube Docker environment
-echo [INFO] Setting up Minikube Docker environment...
-for /f "tokens=*" %%i in ('minikube docker-env') do %%i
+REM Build images for K3s
+echo [INFO] Building Docker images for K3s...
+call scripts\build-images-k3s.sh
 
-REM Build images for Minikube
-echo [INFO] Building Docker images for Minikube...
-call scripts\build-images-minikube.sh
-
-REM Enable ingress addon
-echo [INFO] Enabling NGINX ingress addon...
-minikube addons enable ingress
+REM Note: K3s comes with Traefik by default, but we're using Kong
+echo [INFO] Note: K3s comes with Traefik by default, but we're using Kong ingress controller
+echo [INFO] Make sure Kong ingress controller is installed in your K3s cluster
 
 REM Apply Kubernetes configurations
 echo [INFO] Applying Kubernetes configurations...
@@ -151,27 +149,27 @@ kubectl apply -k configs\k8s\
 
 REM Apply TLS secret
 echo [INFO] Applying TLS secret...
-kubectl apply -f certs\terrarium-tls-secret.yaml
+kubectl apply -f certs\edge-terrarium-tls-secret.yaml
 
-REM Apply Minikube-specific configurations
-echo [INFO] Applying Minikube-specific configurations...
-kubectl apply -f configs\k8s\vault-deployment-minikube.yaml
-kubectl apply -f configs\k8s\vault-init-job-minikube.yaml
-kubectl apply -f configs\k8s\ingress-minikube.yaml
+REM Apply K3s-specific configurations
+echo [INFO] Applying K3s-specific configurations...
+kubectl apply -f configs\k8s\vault-deployment-k3s.yaml
+kubectl apply -f configs\k8s\vault-init-job-k3s.yaml
+kubectl apply -f configs\k8s\ingress-k3s.yaml
 
 REM Wait for deployment to be ready
 echo [INFO] Waiting for deployment to be ready...
-kubectl wait --for=condition=available --timeout=300s deployment/cdp-client -n terrarium
-kubectl wait --for=condition=available --timeout=300s deployment/service-sink -n terrarium
-kubectl wait --for=condition=available --timeout=300s deployment/vault -n terrarium
+kubectl wait --for=condition=available --timeout=300s deployment/cdp-client -n edge-terrarium
+kubectl wait --for=condition=available --timeout=300s deployment/service-sink -n edge-terrarium
+kubectl wait --for=condition=available --timeout=300s deployment/vault -n edge-terrarium
 
 REM Wait for Vault init job to complete
 echo [INFO] Waiting for Vault initialization...
-kubectl wait --for=condition=complete --timeout=300s job/vault-init -n terrarium
+kubectl wait --for=condition=complete --timeout=300s job/vault-init -n edge-terrarium
 
 REM Set up automatic port forwarding for Vault
 echo [INFO] Setting up Vault port forwarding...
-start /B kubectl port-forward -n terrarium service/vault 8200:8200
+start /B kubectl port-forward -n edge-terrarium service/vault 8200:8200
 timeout /t 3 /nobreak >nul
 
 REM Verify Vault is accessible
@@ -182,11 +180,11 @@ if errorlevel 1 (
     echo [SUCCESS] Vault is accessible at http://localhost:8200
 )
 
-echo [SUCCESS] Minikube deployment completed!
+echo [SUCCESS] K3s deployment completed!
 echo.
-echo Services are running in Minikube:
-echo   - CDP Client: Available via ingress
-echo   - Service Sink: Available via ingress
+echo Services are running in K3s:
+echo   - CDP Client: Available via Kong ingress
+echo   - Service Sink: Available via Kong ingress
 echo   - Vault: Available at http://localhost:8200 (port forwarded)
 echo.
 echo Vault UI Access:
@@ -194,11 +192,11 @@ echo   URL: http://localhost:8200
 echo   Token: root
 echo.
 echo To test the deployment:
-echo   scripts\test-minikube.sh
+echo   scripts\test-k3s.sh
 echo.
-echo To access via ingress (requires tunnel):
-echo   minikube tunnel
-echo   curl -k -H "Host: localhost" https://192.168.49.2/fake-provider/test
+echo To access via Kong ingress:
+echo   # Get Kong proxy IP: kubectl get svc -n kong kong-proxy
+echo   # Then: curl -k -H "Host: edge-terrarium.local" https://<kong-ip>/fake-provider/test
 exit /b 0
 
 :test_docker
@@ -206,9 +204,9 @@ echo [INFO] Testing Docker Compose deployment...
 call scripts\test-setup.sh
 exit /b 0
 
-:test_minikube
-echo [INFO] Testing Minikube deployment...
-call scripts\test-minikube.sh
+:test_k3s
+echo [INFO] Testing K3s deployment...
+call scripts\test-k3s.sh
 exit /b 0
 
 :clean_docker
@@ -217,11 +215,11 @@ docker-compose -f configs\docker\docker-compose.yml down -v
 echo [SUCCESS] Docker Compose cleanup completed!
 exit /b 0
 
-:clean_minikube
-echo [INFO] Cleaning up Minikube deployment...
+:clean_k3s
+echo [INFO] Cleaning up K3s deployment...
 kubectl delete -k configs\k8s\ --ignore-not-found=true
-kubectl delete secret terrarium-tls -n terrarium --ignore-not-found=true
-echo [SUCCESS] Minikube cleanup completed!
+kubectl delete secret edge-terrarium-tls -n edge-terrarium --ignore-not-found=true
+echo [SUCCESS] K3s cleanup completed!
 exit /b 0
 
 :show_logs
@@ -229,15 +227,15 @@ set ENVIRONMENT=%1
 if "%ENVIRONMENT%"=="docker" (
     echo [INFO] Showing Docker Compose logs...
     docker-compose -f configs\docker\docker-compose.yml logs -f
-) else if "%ENVIRONMENT%"=="minikube" (
-    echo [INFO] Showing Minikube logs...
+) else if "%ENVIRONMENT%"=="k3s" (
+    echo [INFO] Showing K3s logs...
     echo CDP Client logs:
-    kubectl logs -n terrarium deployment/cdp-client
+    kubectl logs -n edge-terrarium deployment/cdp-client
     echo.
     echo Service Sink logs:
-    kubectl logs -n terrarium deployment/service-sink
+    kubectl logs -n edge-terrarium deployment/service-sink
     echo.
     echo Vault logs:
-    kubectl logs -n terrarium deployment/vault
+    kubectl logs -n edge-terrarium deployment/vault
 )
 exit /b 0
