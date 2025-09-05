@@ -1,0 +1,80 @@
+# =============================================================================
+# VAULT INITIALIZATION JOB FOR MINIKUBE
+# =============================================================================
+# This job initializes Vault with the required secrets for Minikube
+
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: vault-init
+  namespace: terrarium
+  labels:
+    app: vault-init
+    project: terrarium
+    environment: development
+spec:
+  template:
+    metadata:
+      labels:
+        app: vault-init
+        project: terrarium
+        environment: development
+    spec:
+      restartPolicy: OnFailure
+      containers:
+      - name: vault-init
+        image: hashicorp/vault:latest
+        command: ['sh', '-c']
+        args:
+          - |
+            export VAULT_ADDR="http://vault.terrarium.svc.cluster.local:8200"
+            export VAULT_TOKEN="root"
+            
+            echo "Waiting for Vault to be ready..."
+            until vault status; do
+              echo "Vault is not ready yet. Waiting..."
+              sleep 2
+            done
+            
+            echo "Vault is ready. Initializing secrets..."
+            
+            # Store TLS certificates
+            vault kv put secret/terrarium/tls \
+              cert="$(cat /tmp/certs/tls.crt | base64 -w 0)" \
+              key="$(cat /tmp/certs/tls.key | base64 -w 0)" \
+              ca="$(cat /tmp/certs/tls.crt | base64 -w 0)"
+            
+            # Store CDP client configuration
+            vault kv put secret/cdp-client/config \
+              api_key="mock-api-key-12345" \
+              secret_token="mock-secret-token-67890" \
+              database_url="mock-database-url" \
+              encryption_key="mock-encryption-key-abcdef" \
+              jwt_secret="mock-jwt-secret-xyz789" \
+              log_level="info" \
+              max_connections="100"
+            
+            # Store CDP client external APIs configuration
+            vault kv put secret/cdp-client/external-apis \
+              provider_auth_token="mock-provider-token-xyz" \
+              webhook_secret="mock-webhook-secret-123" \
+              rate_limit="1000" \
+              timeout_seconds="30"
+            
+            echo "Vault initialization completed successfully!"
+        
+        env:
+        - name: VAULT_ADDR
+          value: "http://vault.terrarium.svc.cluster.local:8200"
+        - name: VAULT_TOKEN
+          value: "root"
+        
+        volumeMounts:
+        - name: tls-certs
+          mountPath: /tmp/certs
+          readOnly: true
+      
+      volumes:
+      - name: tls-certs
+        secret:
+          secretName: terrarium-tls

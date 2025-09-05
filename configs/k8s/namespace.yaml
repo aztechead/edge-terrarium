@@ -1,0 +1,23 @@
+# =============================================================================
+# KUBERNETES NAMESPACE
+# =============================================================================
+# A Namespace in Kubernetes provides a way to divide cluster resources between
+# multiple users, teams, or applications. It's like a virtual cluster within
+# your physical cluster.
+#
+# Key Concepts:
+# - apiVersion: The version of the Kubernetes API being used
+# - kind: The type of Kubernetes resource (Namespace, Pod, Service, etc.)
+# - metadata: Information about the resource (name, labels, annotations)
+# - labels: Key-value pairs used for organizing and selecting resources
+#
+# Documentation: https://kubernetes.io/docs/concepts/overview/working-with-objects/namespaces/
+# =============================================================================
+
+apiVersion: v1                    # Core API version for basic resources like namespaces
+kind: Namespace                   # Resource type - creates a namespace
+metadata:                         # Metadata about this namespace
+  name: terrarium                 # Name of the namespace (must be unique)
+  labels:                         # Labels for organizing and selecting resources
+    name: terrarium               # Label with the namespace name
+    app: terrarium                # Label identifying this as part of the terrarium app

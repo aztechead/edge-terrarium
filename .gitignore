@@ -1,0 +1,42 @@
+# Compiled binaries
+*.o
+*.exe
+*.out
+cdp-client
+service-sink
+
+# Certificates and keys - NEVER commit these!
+certs/terrarium.key
+certs/terrarium.crt
+certs/terrarium.p12
+certs/terrarium-tls-secret.yaml
+certs/terrarium-tls-configmap.yaml
+*.key
+*.crt
+*.p12
+*.pem
+
+# Docker volumes
+docker-data/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/
+
+# Kubernetes secrets (if generated locally)
+k8s/secrets/

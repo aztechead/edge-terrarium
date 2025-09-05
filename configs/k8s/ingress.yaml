@@ -1,0 +1,169 @@
+# =============================================================================
+# KUBERNETES INGRESS
+# =============================================================================
+# An Ingress in Kubernetes provides HTTP and HTTPS routing to services within
+# the cluster. It acts as an entry point for external traffic and can handle
+# load balancing, SSL termination, and path-based routing.
+#
+# Key Concepts:
+# - Ingress: Manages external access to services in the cluster
+# - Ingress Controller: The actual implementation that handles the routing
+# - TLS: Transport Layer Security for HTTPS
+# - Rules: Define how to route traffic based on host and path
+# - Annotations: Configuration specific to the ingress controller
+#
+# Documentation: https://kubernetes.io/docs/concepts/services-networking/ingress/
+# =============================================================================
+
+apiVersion: networking.k8s.io/v1   # Networking API version for Ingress resources
+kind: Ingress                      # Resource type - creates an ingress
+metadata:                          # Metadata about this ingress
+  name: terrarium-ingress          # Name of the ingress
+  namespace: terrarium             # Namespace where this resource lives
+  
+  # Annotations provide configuration for the NGINX Ingress Controller
+  annotations:
+    # NGINX Ingress Controller annotations
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"           # Redirect HTTP to HTTPS
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"     # Force HTTPS redirect
+    nginx.ingress.kubernetes.io/backend-protocol: "HTTP"       # Backend services use HTTP
+    nginx.ingress.kubernetes.io/proxy-body-size: "5m"          # Max request body size
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "30"       # Read timeout in seconds
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "30"       # Send timeout in seconds
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "30"    # Connect timeout in seconds
+    
+    # Security headers to add to responses
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      add_header X-Frame-Options DENY;
+      add_header X-Content-Type-Options nosniff;
+      add_header X-XSS-Protection "1; mode=block";
+      add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+
+spec:                              # Specification of the ingress
+  ingressClassName: nginx          # Use the NGINX ingress controller
+  
+  # TLS configuration for HTTPS
+  tls:
+  - hosts:                         # Hostnames that this TLS configuration applies to
+    - terrarium.local              # Custom domain for local development
+    - localhost                    # Localhost for testing
+    secretName: terrarium-tls      # Secret containing the TLS certificate and key
+  
+  # Routing rules - define how traffic is routed to services
+  rules:
+  # Route /fake-provider/* and /example-provider/* to CDP Client
+  - host: terrarium.local          # Hostname to match
+    http:
+      paths:                       # List of path-based routing rules
+      - path: /fake-provider       # Path pattern to match
+        pathType: Prefix           # Match paths that start with this prefix
+        backend:                   # Where to route matching traffic
+          service:
+            name: cdp-client-service  # Name of the service to route to
+            port:
+              number: 1337         # Port on the service to route to
+      
+      - path: /example-provider       # Path pattern to match
+        pathType: Prefix           # Match paths that start with this prefix
+        backend:                   # Where to route matching traffic
+          service:
+            name: cdp-client-service  # Name of the service to route to
+            port:
+              number: 1337         # Port on the service to route to
+      
+      # Route all other requests to Service Sink (default route)
+      - path: /                    # Catch-all path
+        pathType: Prefix           # Match all paths
+        backend:                   # Where to route matching traffic
+          service:
+            name: service-sink-service  # Name of the service to route to
+            port:
+              number: 8080         # Port on the service to route to
+  
+  # Same routing rules for localhost
+  - host: localhost                # Hostname to match
+    http:
+      paths:                       # List of path-based routing rules
+      - path: /fake-provider       # Path pattern to match
+        pathType: Prefix           # Match paths that start with this prefix
+        backend:                   # Where to route matching traffic
+          service:
+            name: cdp-client-service  # Name of the service to route to
+            port:
+              number: 1337         # Port on the service to route to
+      
+      - path: /example-provider       # Path pattern to match
+        pathType: Prefix           # Match paths that start with this prefix
+        backend:                   # Where to route matching traffic
+          service:
+            name: cdp-client-service  # Name of the service to route to
+            port:
+              number: 1337         # Port on the service to route to
+      
+      # Route all other requests to Service Sink (default route)
+      - path: /                    # Catch-all path
+        pathType: Prefix           # Match all paths
+        backend:                   # Where to route matching traffic
+          service:
+            name: service-sink-service  # Name of the service to route to
+            port:
+              number: 8080         # Port on the service to route to
+
+---
+# ==========================================================================
+# ADDITIONAL INGRESS FOR PORT 1337 (DIRECT TO CDP CLIENT)
+# ==========================================================================
+# This ingress provides direct access to the CDP client on port 1337
+# All traffic to this port goes directly to the CDP client service
+apiVersion: networking.k8s.io/v1   # Networking API version for Ingress resources
+kind: Ingress                      # Resource type - creates an ingress
+metadata:                          # Metadata about this ingress
+  name: terrarium-ingress-1337     # Name of the ingress
+  namespace: terrarium             # Namespace where this resource lives
+  
+  # Annotations provide configuration for the NGINX Ingress Controller
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"           # Redirect HTTP to HTTPS
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"     # Force HTTPS redirect
+    nginx.ingress.kubernetes.io/backend-protocol: "HTTP"       # Backend services use HTTP
+    nginx.ingress.kubernetes.io/proxy-body-size: "5m"          # Max request body size
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "30"       # Read timeout in seconds
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "30"       # Send timeout in seconds
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "30"    # Connect timeout in seconds
+    # Custom port annotation - listen on port 1337 with SSL
+    nginx.ingress.kubernetes.io/server-snippet: |
+      listen 1337 ssl;
+
+spec:                              # Specification of the ingress
+  ingressClassName: nginx          # Use the NGINX ingress controller
+  
+  # TLS configuration for HTTPS
+  tls:
+  - hosts:                         # Hostnames that this TLS configuration applies to
+    - terrarium.local              # Custom domain for local development
+    - localhost                    # Localhost for testing
+    secretName: terrarium-tls      # Secret containing the TLS certificate and key
+  
+  # Routing rules - all traffic goes to CDP client
+  rules:
+  - host: terrarium.local          # Hostname to match
+    http:
+      paths:                       # List of path-based routing rules
+      - path: /                    # Catch-all path
+        pathType: Prefix           # Match all paths
+        backend:                   # Where to route matching traffic
+          service:
+            name: cdp-client-service  # Name of the service to route to
+            port:
+              number: 1337         # Port on the service to route to
+  
+  - host: localhost                # Hostname to match
+    http:
+      paths:                       # List of path-based routing rules
+      - path: /                    # Catch-all path
+        pathType: Prefix           # Match all paths
+        backend:                   # Where to route matching traffic
+          service:
+            name: cdp-client-service  # Name of the service to route to
+            port:
+              number: 1337         # Port on the service to route to

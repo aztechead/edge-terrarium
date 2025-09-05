@@ -1,0 +1,149 @@
+# =============================================================================
+# VAULT INITIALIZATION JOB
+# =============================================================================
+# This file defines a Kubernetes Job that initializes HashiCorp Vault
+# with the necessary secrets and configuration. The job runs once to set up
+# Vault with TLS certificates and mock secrets for the CDP client.
+#
+# Key Concepts:
+# - Job: Runs a task to completion (unlike Deployments which run continuously)
+# - Init Container: Runs before the main container to prepare the environment
+# - ConfigMap: Provides configuration data to the container
+# - Secret: Provides sensitive data to the container
+# - Vault CLI: Command-line interface for interacting with Vault
+#
+# Documentation: https://kubernetes.io/docs/concepts/workloads/controllers/job/
+# =============================================================================
+
+apiVersion: batch/v1                  # API version for Job resources
+kind: Job                             # Resource type - creates a job
+metadata:                             # Metadata about this job
+  name: vault-init                    # Name of the job
+  namespace: terrarium                # Namespace where this job lives
+  labels:                             # Labels for organization and selection
+    app: vault-init                   # Identifies this as a Vault initialization job
+    project: terrarium                # Identifies this as part of the terrarium project
+    environment: development          # Identifies this as a development environment
+spec:                                 # Specification for the job
+  # Job configuration
+  backoffLimit: 3                     # Number of times to retry if the job fails
+  ttlSecondsAfterFinished: 300        # Delete the job 5 minutes after completion
+  
+  # Template for creating the pod
+  template:                           # Template for the pod that will run the job
+    metadata:                         # Metadata for the pod
+      labels:                         # Labels applied to the pod
+        app: vault-init               # Identifies this as a Vault initialization pod
+        project: terrarium            # Identifies this as part of the terrarium project
+        environment: development      # Identifies this as a development environment
+    spec:                             # Specification for the pod
+      # Restart policy for the pod
+      # Never means don't restart the pod if it fails
+      # This is appropriate for jobs that should run once
+      restartPolicy: Never
+      
+      # Init container that waits for Vault to be ready
+      initContainers:
+      - name: wait-for-vault          # Name of the init container
+        image: curlimages/curl:latest # Lightweight image with curl
+        command: ['sh', '-c']         # Command to run
+        args:                         # Arguments for the command
+          - |
+            # Wait for Vault to be ready
+            echo "Waiting for Vault to be ready..."
+            until curl -f http://vault.terrarium.svc.cluster.local:8200/v1/sys/health; do
+              echo "Vault is not ready yet, waiting 5 seconds..."
+              sleep 5
+            done
+            echo "Vault is ready!"
+        
+        # Resource limits for the init container
+        resources:
+          requests:
+            memory: "64Mi"            # Minimum 64MB RAM
+            cpu: "100m"               # Minimum 0.1 CPU cores
+          limits:
+            memory: "128Mi"           # Maximum 128MB RAM
+            cpu: "200m"               # Maximum 0.2 CPU cores
+      
+      # Main container that initializes Vault
+      containers:
+      - name: vault-init              # Name of the main container
+        image: hashicorp/vault:latest  # Official Vault image with CLI tools
+        command: ['sh', '-c']         # Command to run
+        args:                         # Arguments for the command
+          - |
+            # Set Vault address
+            export VAULT_ADDR="https://vault.terrarium.svc.cluster.local:8200"
+            export VAULT_TOKEN="root"
+            export VAULT_SKIP_VERIFY="true"
+            
+            # Wait a bit more to ensure Vault is fully ready
+            sleep 10
+            
+            # Enable KV secrets engine
+            echo "Enabling KV secrets engine..."
+            vault secrets enable -path=secret kv-v2 || echo "KV engine already enabled"
+            
+            # Create TLS certificate secret
+            echo "Creating TLS certificate secret..."
+            vault kv put secret/terrarium/tls \
+              cert="$(cat /tmp/certs/terrarium.crt | base64 -w 0)" \
+              key="$(cat /tmp/certs/terrarium.key | base64 -w 0)" \
+              ca="$(cat /tmp/certs/terrarium.crt | base64 -w 0)"
+            
+            # Create mock secrets for CDP client
+            echo "Creating mock secrets for CDP client..."
+            vault kv put secret/cdp-client/config \
+              api_key="mock-api-key-12345" \
+              database_url="postgresql://mock-user:mock-pass@mock-db:5432/mock-db" \
+              jwt_secret="mock-jwt-secret-67890" \
+              encryption_key="mock-encryption-key-abcdef" \
+              log_level="INFO" \
+              max_connections="100"
+            
+            # Create additional mock secrets
+            vault kv put secret/cdp-client/external-apis \
+              provider_auth_token="mock-provider-token-xyz" \
+              webhook_secret="mock-webhook-secret-123" \
+              rate_limit="1000" \
+              timeout_seconds="30"
+            
+            # List all secrets to verify
+            echo "Listing all secrets..."
+            vault kv list secret/
+            vault kv list secret/terrarium/
+            vault kv list secret/cdp-client/
+            
+            echo "Vault initialization completed successfully!"
+        
+        # Environment variables
+        env:
+        - name: VAULT_ADDR            # Vault API address
+          value: "https://vault.terrarium.svc.cluster.local:8200"
+        - name: VAULT_TOKEN           # Vault authentication token
+          value: "root"
+        - name: VAULT_SKIP_VERIFY     # Skip TLS verification for self-signed certs
+          value: "true"               # Development root token
+        
+        # Volume mounts
+        volumeMounts:                 # Mount volumes in the container
+        - name: tls-certs             # Mount the TLS certificates
+          mountPath: /tmp/certs       # Where to mount the certificates
+          readOnly: true              # Mount as read-only
+        
+        # Resource limits
+        resources:                    # Resource constraints
+          requests:                   # Minimum resources required
+            memory: "128Mi"           # Minimum 128MB RAM
+            cpu: "100m"               # Minimum 0.1 CPU cores
+          limits:                     # Maximum resources allowed
+            memory: "256Mi"           # Maximum 256MB RAM
+            cpu: "200m"               # Maximum 0.2 CPU cores
+      
+      # Volumes available to the pod
+      volumes:                        # Volumes to mount in the pod
+      - name: tls-certs               # TLS certificates volume
+        secret:                       # Volume from a Secret
+          secretName: terrarium-tls   # Name of the secret containing TLS certificates
+          defaultMode: 0444           # File permissions (readable by all)

@@ -1,0 +1,50 @@
+# =============================================================================
+# KUSTOMIZATION CONFIGURATION
+# =============================================================================
+# Kustomize is a tool for customizing Kubernetes YAML configurations.
+# It allows you to manage multiple environments (dev, staging, prod) with
+# a single set of base configurations and overlays.
+#
+# Key Concepts:
+# - Kustomization: Defines how to build a customized set of Kubernetes resources
+# - Resources: List of YAML files to include in the build
+# - Namespace: Default namespace for all resources
+# - CommonLabels: Labels applied to all resources
+# - Images: Image name and tag transformations
+#
+# Documentation: https://kustomize.io/
+# =============================================================================
+
+apiVersion: kustomize.config.k8s.io/v1beta1  # Kustomize API version
+kind: Kustomization                          # Resource type - creates a kustomization
+
+# Default namespace for all resources in this kustomization
+namespace: terrarium
+
+# List of Kubernetes resource files to include in the build
+# These files will be processed and customized according to the rules below
+resources:
+  - namespace.yaml                    # Creates the terrarium namespace
+  - cdp-client-deployment.yaml       # CDP client application deployment
+  - service-sink-deployment.yaml     # Service sink application deployment
+  - services.yaml                    # Kubernetes services for both applications
+  - ingress.yaml                     # Ingress configuration for routing
+  - vault-config.yaml                # Vault configuration ConfigMap
+  - vault-pvc.yaml                   # Vault persistent volume claim
+  - vault-deployment.yaml            # Vault deployment
+  - vault-service.yaml               # Vault service
+  - vault-init-job.yaml              # Vault initialization job
+
+# Common labels applied to all resources
+# These labels help with organization and resource selection
+commonLabels:
+  project: terrarium                 # Identifies all resources as part of the terrarium project
+  environment: development          # Identifies this as a development environment
+
+# Image transformations
+# These rules modify image names and tags in the resource files
+images:
+  - name: terrarium-cdp-client       # Name of the image to transform
+    newTag: latest                   # New tag to apply to this image
+  - name: terrarium-service-sink     # Name of the image to transform
+    newTag: latest                   # New tag to apply to this image

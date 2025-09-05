@@ -1,0 +1,129 @@
+# =============================================================================
+# KUBERNETES DEPLOYMENT - CDP CLIENT
+# =============================================================================
+# A Deployment manages a set of identical Pods (containers) and ensures they
+# are running and healthy. It provides declarative updates to Pods and ReplicaSets.
+#
+# Key Concepts:
+# - Deployment: Manages Pod replicas and rolling updates
+# - Pod: The smallest deployable unit in Kubernetes (one or more containers)
+# - ReplicaSet: Ensures a specified number of Pod replicas are running
+# - Service: Provides network access to Pods
+# - Volume: Storage that persists beyond the lifecycle of a Pod
+#
+# Documentation: https://kubernetes.io/docs/concepts/workloads/controllers/deployment/
+# =============================================================================
+
+apiVersion: apps/v1                # Apps API version for Deployment resources
+kind: Deployment                   # Resource type - creates a deployment
+metadata:                          # Metadata about this deployment
+  name: cdp-client                 # Name of the deployment
+  namespace: terrarium             # Namespace where this resource lives
+  labels:                          # Labels for organizing resources
+    app: cdp-client                # Identifies this as the CDP client app
+    component: backend             # Identifies this as a backend component
+
+spec:                              # Specification of the deployment
+  replicas: 2                      # Number of Pod replicas to maintain (for high availability)
+  
+  # Selector tells the deployment which Pods it manages
+  selector:
+    matchLabels:                   # Pods with these labels are managed by this deployment
+      app: cdp-client              # Must match the labels in the Pod template below
+
+  # Template defines how new Pods should be created
+  template:
+    metadata:                      # Metadata for Pods created from this template
+      labels:                      # Labels applied to each Pod
+        app: cdp-client            # Must match the selector above
+        component: backend         # Identifies this as a backend component
+
+    spec:                          # Specification for Pods created from this template
+      # Init container to wait for Vault to be ready
+      initContainers:
+      - name: wait-for-vault        # Name of the init container
+        image: curlimages/curl:latest  # Lightweight curl image
+        command: ['sh', '-c']       # Command to run
+        args:                       # Arguments for the command
+        - |
+          echo "Waiting for Vault to be ready..."
+          until curl -s http://vault.terrarium.svc.cluster.local:8200/v1/sys/health > /dev/null; do
+            echo "Vault is not ready yet. Waiting..."
+            sleep 2
+          done
+          echo "Vault is ready! Waiting for initialization..."
+          until curl -s -H "X-Vault-Token: root" http://vault.terrarium.svc.cluster.local:8200/v1/secret/data/cdp-client/config > /dev/null; do
+            echo "Vault initialization not complete yet. Waiting..."
+            sleep 2
+          done
+          echo "Vault initialization complete!"
+        resources:                  # Resource requirements for init container
+          requests:
+            memory: "32Mi"
+            cpu: "10m"
+          limits:
+            memory: "64Mi"
+            cpu: "50m"
+      
+      containers:                  # List of containers in each Pod
+      - name: cdp-client           # Name of the container
+        image: terrarium-cdp-client:latest  # Docker image to use
+        imagePullPolicy: Never     # Never pull from registry (use local image for development)
+        
+        # Ports exposed by the container
+        ports:
+        - containerPort: 1337      # Port the container listens on
+          name: http               # Name for referencing this port
+          protocol: TCP            # Protocol (TCP or UDP)
+        
+        # Environment variables passed to the container
+        env:
+        - name: SERVICE_NAME       # Environment variable name
+          value: "cdp-client"      # Environment variable value
+        - name: LOG_LEVEL          # Logging level
+          value: "info"            # Set to info level
+        - name: VAULT_ADDR         # Vault API address for Kubernetes
+          value: "http://vault.terrarium.svc.cluster.local:8200"
+        - name: VAULT_TOKEN        # Vault authentication token
+          value: "root"
+        
+        # Resource requirements and limits
+        resources:
+          requests:                # Minimum resources required
+            memory: "64Mi"         # 64 megabytes of memory
+            cpu: "50m"             # 50 millicores of CPU (0.05 cores)
+          limits:                  # Maximum resources allowed
+            memory: "128Mi"        # 128 megabytes of memory
+            cpu: "100m"            # 100 millicores of CPU (0.1 cores)
+        
+        # Liveness probe - checks if container is alive
+        livenessProbe:
+          tcpSocket:               # Check if TCP socket is open
+            port: 1337             # Port to check
+          initialDelaySeconds: 30  # Wait 30 seconds before first check
+          periodSeconds: 10        # Check every 10 seconds
+          timeoutSeconds: 5        # Wait 5 seconds for response
+          failureThreshold: 3      # Mark unhealthy after 3 failures
+        
+        # Readiness probe - checks if container is ready to serve traffic
+        readinessProbe:
+          tcpSocket:               # Check if TCP socket is open
+            port: 1337             # Port to check
+          initialDelaySeconds: 5   # Wait 5 seconds before first check
+          periodSeconds: 5         # Check every 5 seconds
+          timeoutSeconds: 3        # Wait 3 seconds for response
+          failureThreshold: 3      # Mark not ready after 3 failures
+        
+        # Volume mounts - where to mount volumes in the container
+        volumeMounts:
+        - name: requests-storage   # Name of the volume to mount
+          mountPath: /tmp/requests # Path where volume is mounted in container
+
+      # Volumes available to containers in the Pod
+      volumes:
+      - name: requests-storage     # Name of the volume
+        emptyDir:                  # Temporary directory that shares Pod's lifetime
+          sizeLimit: 100Mi         # Maximum size of the volume
+
+      # Restart policy for containers in the Pod
+      restartPolicy: Always        # Always restart containers if they fail

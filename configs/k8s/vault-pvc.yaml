@@ -1,0 +1,46 @@
+# =============================================================================
+# VAULT PERSISTENT VOLUME CLAIM
+# =============================================================================
+# This file defines a PersistentVolumeClaim (PVC) for HashiCorp Vault data storage.
+# PVCs provide persistent storage for pods, ensuring that Vault's data
+# survives pod restarts and deployments.
+#
+# Key Concepts:
+# - PersistentVolumeClaim: Requests storage from the cluster
+# - Storage Class: Defines the type of storage to use
+# - Access Modes: How the storage can be accessed (ReadWriteOnce, ReadWriteMany, etc.)
+# - Resources: Storage size and other resource requirements
+# - Persistent Storage: Data that survives pod restarts
+#
+# Documentation: https://kubernetes.io/docs/concepts/storage/persistent-volumes/
+# =============================================================================
+
+apiVersion: v1                        # Core API version for PersistentVolumeClaim resources
+kind: PersistentVolumeClaim           # Resource type - creates a persistent volume claim
+metadata:                             # Metadata about this PVC
+  name: vault-data-pvc                # Name of the PVC
+  namespace: terrarium                # Namespace where this PVC lives
+  labels:                             # Labels for organization and selection
+    app: vault                        # Identifies this as a Vault storage
+    project: terrarium                # Identifies this as part of the terrarium project
+    environment: development          # Identifies this as a development environment
+spec:                                 # Specification for the PVC
+  # Access modes define how the storage can be accessed
+  # ReadWriteOnce means the volume can be mounted as read-write by a single node
+  # This is appropriate for Vault since it typically runs as a single instance
+  accessModes:
+    - ReadWriteOnce                   # Single node read-write access
+  
+  # Storage class defines the type of storage to use
+  # If not specified, the cluster's default storage class will be used
+  # Common options include:
+  # - standard: Basic persistent disk
+  # - ssd: Solid state drive for better performance
+  # - local-ssd: Local SSD storage
+  storageClassName: "standard"        # Use standard storage class
+  
+  # Resource requirements
+  resources:                          # Resource specifications
+    requests:                         # Minimum resources required
+      storage: 1Gi                    # Request 1GB of storage
+    # Note: No limits specified, so the PVC can use more storage if available

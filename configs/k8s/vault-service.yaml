@@ -1,0 +1,44 @@
+# =============================================================================
+# VAULT SERVICE CONFIGURATION
+# =============================================================================
+# This file defines the Kubernetes service for HashiCorp Vault.
+# Services provide a stable network endpoint for accessing pods,
+# enabling other services in the cluster to communicate with Vault.
+#
+# Key Concepts:
+# - Service: Provides a stable IP address and DNS name for pods
+# - ClusterIP: Internal cluster IP address (not accessible from outside)
+# - Port Mapping: Maps service ports to pod ports
+# - Selector: How the service finds the pods to route traffic to
+# - DNS Resolution: Services are accessible via DNS within the cluster
+#
+# Documentation: https://kubernetes.io/docs/concepts/services-networking/service/
+# =============================================================================
+
+apiVersion: v1                        # Core API version for Service resources
+kind: Service                         # Resource type - creates a service
+metadata:                             # Metadata about this service
+  name: vault                         # Name of the service
+  namespace: terrarium                # Namespace where this service lives
+  labels:                             # Labels for organization and selection
+    app: vault                        # Identifies this as a Vault service
+    project: terrarium                # Identifies this as part of the terrarium project
+    environment: development          # Identifies this as a development environment
+spec:                                 # Specification for the service
+  # Service type - NodePort makes it accessible from outside the cluster
+  # Other options include ClusterIP (internal only) and LoadBalancer
+  type: NodePort
+  
+  # Port configuration
+  ports:                              # List of ports this service exposes
+  - name: http                        # Name of the port
+    port: 8200                        # Port number on the service
+    targetPort: 8200                  # Port number on the target pods
+    protocol: TCP                     # Protocol type (TCP or UDP)
+  
+  # Selector for finding pods to route traffic to
+  # This service will route traffic to pods with these labels
+  selector:
+    app: vault                        # Select pods with this label
+    project: terrarium                # Select pods with this label
+    environment: development          # Select pods with this label

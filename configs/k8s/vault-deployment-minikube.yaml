@@ -1,0 +1,75 @@
+# =============================================================================
+# VAULT DEPLOYMENT FOR MINIKUBE
+# =============================================================================
+# Simplified Vault deployment for Minikube using dev mode
+# This removes TLS complexity for local testing
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vault
+  namespace: terrarium
+  labels:
+    app: vault
+    project: terrarium
+    environment: development
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vault
+  template:
+    metadata:
+      labels:
+        app: vault
+        project: terrarium
+        environment: development
+    spec:
+      containers:
+      - name: vault
+        image: hashicorp/vault:latest
+        command: ["vault"]
+        args: ["server", "-dev"]
+        
+        ports:
+        - containerPort: 8200
+          name: http
+          protocol: TCP
+        
+        env:
+        - name: VAULT_DEV_ROOT_TOKEN_ID
+          value: "root"
+        - name: VAULT_DEV_LISTEN_ADDRESS
+          value: "0.0.0.0:8200"
+        - name: VAULT_ADDR
+          value: "http://0.0.0.0:8200"
+        - name: VAULT_API_ADDR
+          value: "http://vault.terrarium.svc.cluster.local:8200"
+        
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        
+        livenessProbe:
+          httpGet:
+            path: /v1/sys/health
+            port: 8200
+            scheme: HTTP
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        
+        readinessProbe:
+          httpGet:
+            path: /v1/sys/health
+            port: 8200
+            scheme: HTTP
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3

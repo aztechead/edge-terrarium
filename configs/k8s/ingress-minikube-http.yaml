@@ -1,0 +1,84 @@
+# =============================================================================
+# KUBERNETES INGRESS FOR MINIKUBE (HTTP ONLY)
+# =============================================================================
+# Simplified ingress configuration for Minikube environment using HTTP only
+# This avoids TLS complexity for local testing
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: terrarium-ingress-http
+  namespace: terrarium
+  
+  # Basic annotations for Minikube
+  annotations:
+    nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
+    nginx.ingress.kubernetes.io/proxy-body-size: "5m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "30"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "30"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "30"
+
+spec:
+  ingressClassName: nginx
+  
+  # No TLS configuration - HTTP only for local testing
+  
+  # Routing rules
+  rules:
+  # Route /fake-provider/* and /example-provider/* to CDP Client
+  - host: terrarium.local
+    http:
+      paths:
+      - path: /fake-provider
+        pathType: Prefix
+        backend:
+          service:
+            name: cdp-client-service
+            port:
+              number: 1337
+      
+      - path: /example-provider
+        pathType: Prefix
+        backend:
+          service:
+            name: cdp-client-service
+            port:
+              number: 1337
+      
+      # Route all other requests to Service Sink (default route)
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: service-sink-service
+            port:
+              number: 8080
+  
+  # Same routing rules for localhost
+  - host: localhost
+    http:
+      paths:
+      - path: /fake-provider
+        pathType: Prefix
+        backend:
+          service:
+            name: cdp-client-service
+            port:
+              number: 1337
+      
+      - path: /example-provider
+        pathType: Prefix
+        backend:
+          service:
+            name: cdp-client-service
+            port:
+              number: 1337
+      
+      # Route all other requests to Service Sink (default route)
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: service-sink-service
+            port:
+              number: 8080

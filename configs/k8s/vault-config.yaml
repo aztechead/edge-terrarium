@@ -1,0 +1,100 @@
+# =============================================================================
+# VAULT CONFIGURATION CONFIGMAP
+# =============================================================================
+# This file defines the configuration for HashiCorp Vault.
+# The configuration is stored in a ConfigMap so it can be easily updated
+# without rebuilding the container image.
+#
+# Key Concepts:
+# - ConfigMap: Kubernetes resource for storing configuration data
+# - Vault Configuration: HCL (HashiCorp Configuration Language) format
+# - Storage Backend: Where Vault stores its data (file system in this case)
+# - Listener: Network configuration for Vault API
+# - Development Mode: Simplified configuration for development/testing
+#
+# Documentation: https://www.vaultproject.io/docs/configuration
+# =============================================================================
+
+apiVersion: v1                        # Core API version for ConfigMap resources
+kind: ConfigMap                       # Resource type - creates a configmap
+metadata:                             # Metadata about this configmap
+  name: vault-config                  # Name of the configmap
+  namespace: terrarium                # Namespace where this configmap lives
+  labels:                             # Labels for organization and selection
+    app: vault                        # Identifies this as a Vault configuration
+    project: terrarium                # Identifies this as part of the terrarium project
+    environment: development          # Identifies this as a development environment
+data:                                 # Configuration data
+  # Vault configuration file in HCL format
+  # This file is mounted into the Vault container at /vault/config/vault.hcl
+  vault.hcl: |
+    # =============================================================================
+    # VAULT CONFIGURATION FILE
+    # =============================================================================
+    # This is the main configuration file for HashiCorp Vault.
+    # It defines how Vault should behave, where to store data, and how to listen
+    # for incoming requests.
+    # =============================================================================
+    
+    # Storage backend configuration
+    # This defines where Vault stores its persistent data
+    storage "file" {
+      # Path where Vault will store its data
+      # This directory is mounted as a persistent volume
+      path = "/vault/data"
+    }
+    
+    # Listener configuration
+    # This defines how Vault listens for incoming API requests
+    listener "tcp" {
+      # Address and port for Vault to listen on
+      # 0.0.0.0 means listen on all network interfaces
+      address = "0.0.0.0:8200"
+      
+      # TLS configuration (enabled for secure communication)
+      # Using the generated TLS certificates for secure communication
+      tls_disable = false
+      
+      # TLS certificate and key files
+      tls_cert_file = "/vault/tls/terrarium.crt"    # Path to TLS certificate
+      tls_key_file = "/vault/tls/terrarium.key"     # Path to TLS private key
+    }
+    
+    # API address configuration
+    # This is the address that Vault will advertise to clients
+    # It should be accessible from within the Kubernetes cluster
+    api_addr = "https://localhost:8200"
+    
+    # Cluster address configuration
+    # This is the address for cluster-to-cluster communication
+    # In a single-node setup, this is the same as api_addr
+    cluster_addr = "https://localhost:8201"
+    
+    # Log level configuration
+    # This controls how verbose Vault's logging is
+    # Options: trace, debug, info, warn, error
+    log_level = "INFO"
+    
+    # Log format configuration
+    # This controls the format of log messages
+    # Options: standard, json
+    log_format = "standard"
+    
+    # Log file configuration
+    # This defines where Vault writes its log files
+    log_file = "/vault/logs/vault.log"
+    
+    # Disable clustering for single-node setup
+    # In production with multiple Vault nodes, you would enable clustering
+    disable_clustering = true
+    
+    # Development mode configuration
+    # This enables development mode with simplified security
+    # WARNING: Never use this in production!
+    # In development mode:
+    # - Vault starts unsealed
+    # - Uses in-memory storage (overridden by file storage above)
+    # - Disables some security features
+    # - Uses a default root token
+    # For this setup, we're using file storage but keeping dev mode for simplicity
+    # In production, you would disable dev mode and implement proper unsealing
