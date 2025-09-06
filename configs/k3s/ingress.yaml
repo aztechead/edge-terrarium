@@ -3,85 +3,121 @@
 # =============================================================================
 # Simplified ingress configuration for K3s environment
 # Removes snippet annotations that are not allowed in K3s
+#
+# Key Concepts:
+# - Ingress: Manages external access to services in a cluster
+# - Kong Ingress Controller: Routes traffic based on host and path rules
+# - TLS: Provides HTTPS encryption for secure communication
+# - Path-based Routing: Routes traffic based on URL paths
+# - Host-based Routing: Routes traffic based on hostnames
+#
+# Impact:
+# - Provides external access to all services via HTTPS
+# - Routes CDP client requests to appropriate endpoints
+# - Routes logthon requests to log aggregation service
+# - Routes all other requests to service-sink (default)
+# - Enables SSL/TLS termination with self-signed certificates
+# - Supports both edge-terrarium.local and localhost hostnames
+#
+# Documentation: https://kubernetes.io/docs/concepts/services-networking/ingress/
+# =============================================================================
 
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: edge-terrarium-ingress
-  namespace: edge-terrarium
+apiVersion: networking.k8s.io/v1    # Networking API version for Ingress resources
+kind: Ingress                       # Resource type - creates an ingress
+metadata:                           # Metadata about this ingress
+  name: edge-terrarium-ingress     # Name of the ingress
+  namespace: edge-terrarium        # Namespace where this resource lives
   
   # Basic annotations for K3s with Kong
   annotations:
-    konghq.com/strip-path: "false"
-    konghq.com/preserve-host: "true"
-    konghq.com/protocols: "https"
+    konghq.com/strip-path: "false"  # Don't strip the path when forwarding to backend
+    konghq.com/preserve-host: "true" # Preserve the original host header
+    konghq.com/protocols: "http,https"   # Allow both HTTP and HTTPS traffic
 
-spec:
-  ingressClassName: kong
+spec:                               # Specification for the ingress
+  ingressClassName: kong            # Use Kong as the ingress controller
   
   # TLS configuration for HTTPS
-  tls:
-  - hosts:
-    - edge-terrarium.local
-    - localhost
-    secretName: edge-terrarium-tls
+  tls:                              # TLS configuration
+  - hosts:                          # Hostnames that will use TLS
+    - edge-terrarium.local          # Custom domain for the application
+    - localhost                     # Local development domain
+    secretName: edge-terrarium-tls  # Reference to the TLS secret
   
   # Routing rules
-  rules:
+  rules:                            # List of routing rules
   # Route /fake-provider/* and /example-provider/* to CDP Client
-  - host: edge-terrarium.local
-    http:
-      paths:
-      - path: /fake-provider
-        pathType: Prefix
-        backend:
+  - host: edge-terrarium.local      # Hostname to match
+    http:                           # HTTP routing rules
+      paths:                        # List of path-based routing rules
+      - path: /fake-provider        # Path to match
+        pathType: Prefix            # Match paths that start with this prefix
+        backend:                    # Backend service to route to
           service:
-            name: cdp-client-service
+            name: cdp-client-service # Name of the service
             port:
-              number: 1337
+              number: 1337          # Port number on the service
       
-      - path: /example-provider
-        pathType: Prefix
-        backend:
+      - path: /example-provider     # Path to match
+        pathType: Prefix            # Match paths that start with this prefix
+        backend:                    # Backend service to route to
           service:
-            name: cdp-client-service
+            name: cdp-client-service # Name of the service
             port:
-              number: 1337
+              number: 1337          # Port number on the service
+      
+      # Route /logs/* to Logthon
+      - path: /logs                 # Path to match
+        pathType: Prefix            # Match paths that start with this prefix
+        backend:                    # Backend service to route to
+          service:
+            name: logthon-ingress-service   # Name of the ingress-specific service
+            port:
+              number: 5000          # Port number on the service
       
       # Route all other requests to Service Sink (default route)
-      - path: /
-        pathType: Prefix
-        backend:
+      - path: /                     # Path to match (root path)
+        pathType: Prefix            # Match paths that start with this prefix
+        backend:                    # Backend service to route to
           service:
-            name: service-sink-service
+            name: service-sink-service # Name of the service
             port:
-              number: 8080
+              number: 8080          # Port number on the service
   
   # Same routing rules for localhost
-  - host: localhost
-    http:
-      paths:
-      - path: /fake-provider
-        pathType: Prefix
-        backend:
+  - host: localhost                 # Hostname to match
+    http:                           # HTTP routing rules
+      paths:                        # List of path-based routing rules
+      - path: /fake-provider        # Path to match
+        pathType: Prefix            # Match paths that start with this prefix
+        backend:                    # Backend service to route to
           service:
-            name: cdp-client-service
+            name: cdp-client-service # Name of the service
             port:
-              number: 1337
+              number: 1337          # Port number on the service
       
-      - path: /example-provider
-        pathType: Prefix
-        backend:
+      - path: /example-provider     # Path to match
+        pathType: Prefix            # Match paths that start with this prefix
+        backend:                    # Backend service to route to
           service:
-            name: cdp-client-service
+            name: cdp-client-service # Name of the service
             port:
-              number: 1337
+              number: 1337          # Port number on the service
+      
+      # Route /logs/* to Logthon
+      - path: /logs                 # Path to match
+        pathType: Prefix            # Match paths that start with this prefix
+        backend:                    # Backend service to route to
+          service:
+            name: logthon-ingress-service   # Name of the ingress-specific service
+            port:
+              number: 5000          # Port number on the service
       
       # Route all other requests to Service Sink (default route)
-      - path: /
-        pathType: Prefix
-        backend:
+      - path: /                     # Path to match (root path)
+        pathType: Prefix            # Match paths that start with this prefix
+        backend:                    # Backend service to route to
           service:
-            name: service-sink-service
+            name: service-sink-service # Name of the service
             port:
-              number: 8080
+              number: 8080          # Port number on the service

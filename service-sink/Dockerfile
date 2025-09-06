@@ -2,7 +2,7 @@
 FROM --platform=$BUILDPLATFORM alpine:3.18 AS builder
 
 # Install build dependencies
-RUN apk add --no-cache gcc musl-dev
+RUN apk add --no-cache gcc musl-dev curl-dev json-c-dev
 
 # Set working directory
 WORKDIR /app
@@ -11,13 +11,13 @@ WORKDIR /app
 COPY main.c .
 
 # Compile the application
-RUN gcc -static -o service-sink main.c
+RUN gcc -o service-sink main.c -lcurl -ljson-c
 
 # Final stage
 FROM alpine:3.18
 
 # Install runtime dependencies
-RUN apk add --no-cache ca-certificates
+RUN apk add --no-cache ca-certificates curl json-c
 
 # Create non-root user
 RUN addgroup -g 1001 -S appgroup && \

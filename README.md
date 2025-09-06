@@ -8,10 +8,11 @@ The Edge-Terrarium project consists of:
 
 - **CDP Client Service**: Handles requests to `/fake-provider/*` and `/example-provider/*` paths, plus all traffic on port 1337
 - **Service Sink**: Handles all other HTTP requests
+- **Logthon Service**: Python-based log aggregation service that collects and displays logs from all services
 - **HashiCorp Vault**: Secrets management for TLS certificates and application configuration
-- **Nginx Reverse Proxy**: Routes requests based on URL patterns (Docker Compose setup)
+- **Kong Gateway**: Routes requests based on URL patterns (both Docker Compose and K3s)
 - **Kubernetes Ingress**: Routes requests using Kong Ingress Controller
-- **TLS/SSL**: Self-signed certificates for secure communication
+- **TLS/SSL**: Dynamically generated self-signed certificates for secure communication
 
 ## Scripts & Configs Integration Flow
 
@@ -35,7 +36,7 @@ flowchart TD
     G --> I[Build Service Sink Image]
     H --> J[configs/docker/docker-compose.yml]
     I --> J
-    J --> K[configs/docker/nginx/nginx.conf]
+    J --> K[configs/docker/kong/kong.yml]
     J --> L[./scripts/init-vault.sh]
     L --> M[Vault Initialization]
     M --> N[./scripts/test-setup.sh]
@@ -55,27 +56,38 @@ flowchart TD
     Y --> Z[./scripts/test-k3s.sh]
     
     %% Certificate Generation
-    AA[./scripts/generate-certs.sh] --> BB[certs/edge-terrarium.crt]
+    AA[./scripts/generate-tls-certs.sh] --> BB[certs/edge-terrarium.crt]
     AA --> CC[certs/edge-terrarium.key]
     BB --> J
     CC --> J
-    BB --> DD[configs/k3s/edge-terrarium-tls-secret.yaml]
+    BB --> DD[Dynamic TLS Generation]
     CC --> DD
+    
+    %% Logthon Service
+    JJ[logthon/] --> KK[logthon/Dockerfile]
+    JJ --> LL[logthon/main.py]
+    KK --> MM[edge-terrarium-logthon:latest]
+    LL --> MM
+    MM --> J
+    MM --> NN[configs/k3s/logthon-deployment.yaml]
+    NN --> OO[Logthon Service]
     
     %% Configuration Dependencies
     J --> EE[Vault Service]
     J --> FF[CDP Client Service]
     J --> GG[Service Sink Service]
-    J --> HH[Nginx Proxy Service]
+    J --> HH[Kong Gateway Service]
+    J --> OO[Logthon Service]
     
     S --> EE
     U --> FF
     V --> GG
+    NN --> OO
     X --> II[Ingress Controller]
     
     %% Testing
-    N --> JJ[Test Results]
-    Z --> KK[Test Results]
+    N --> PP[Test Results]
+    Z --> QQ[Test Results]
     
     %% Styling
     classDef scriptFile fill:#e1f5fe,stroke:#01579b,stroke-width:2px
@@ -87,20 +99,20 @@ flowchart TD
     
     class A,B,C,G,L,N,O,T,Z,AA scriptFile
     class J,K configFile
-    class H,I dockerFile
-    class Q,R,S,T,U,V,W,X,DD k8sFile
+    class H,I,KK,LL,MM dockerFile
+    class Q,R,S,T,U,V,W,X,NN,DD k8sFile
     class BB,CC certFile
-    class EE,FF,GG,HH,II service
+    class EE,FF,GG,HH,II,OO service
 ```
 
 ### Key Integration Points
 
 1. **Deployment Entry Points**: `deploy.sh` (Unix) and `deploy.bat` (Windows) are the main entry points
 2. **Image Building**: `build-images.sh` creates Docker images used by both Docker Compose and Kubernetes
-3. **Certificate Management**: `generate-certs.sh` creates TLS certificates used across all deployments
+3. **Certificate Management**: `generate-tls-certs.sh` creates TLS certificates used across all deployments
 4. **Vault Initialization**: `init-vault.sh` sets up secrets for both deployment types
 5. **Configuration Orchestration**: 
-   - Docker Compose uses `docker-compose.yml` + `nginx.conf`
+   - Docker Compose uses `docker-compose.yml` + `kong/kong.yml`
    - Kubernetes uses `kustomization.yaml` to orchestrate all K8s manifests
 6. **Testing**: Separate test scripts validate each deployment type
 
@@ -114,11 +126,19 @@ c-edge-terrarium/
 ├── service-sink/              # Service Sink C application
 │   ├── main.c                 # Main application source
 │   └── Dockerfile             # Multi-arch Docker build
+├── logthon/                   # Logthon Python log aggregation service
+│   ├── main.py                # FastAPI application source
+│   ├── Dockerfile             # Python Docker build
+│   ├── pyproject.toml         # Python project configuration
+│   └── README.md              # Logthon service documentation
 ├── configs/                   # Configuration files organized by platform
 │   ├── k3s/                   # Kubernetes configuration files for K3s
 │   │   ├── namespace.yaml     # Edge-Terrarium namespace
 │   │   ├── cdp-client-deployment.yaml
 │   │   ├── service-sink-deployment.yaml
+│   │   ├── logthon-deployment.yaml # Logthon deployment
+│   │   ├── logthon-service.yaml # Logthon service
+│   │   ├── logthon-ingress-service.yaml # Logthon ingress service
 │   │   ├── vault-config.yaml  # Vault configuration
 │   │   ├── vault-deployment.yaml # Vault deployment
 │   │   ├── vault-service.yaml # Vault service
@@ -129,15 +149,18 @@ c-edge-terrarium/
 │   │   └── kustomization.yaml # Kustomize configuration
 │   └── docker/                # Docker configuration files
 │       ├── docker-compose.yml # Docker Compose configuration
-│       └── nginx/             # Nginx configuration
-│           └── nginx.conf     # Reverse proxy config
+│       └── kong/              # Kong Gateway configuration
+│           └── kong.yml       # API Gateway config
 ├── scripts/                   # Utility scripts
-│   ├── generate-certs.sh      # TLS certificate generation
+│   ├── generate-tls-certs.sh  # TLS certificate generation
+│   ├── create-k3s-tls-secret.sh # K3s TLS secret creation
 │   ├── init-vault.sh          # Vault initialization script
 │   ├── build-images.sh        # Docker image build script
+│   ├── build-images-k3s.sh    # K3s-specific image build script
 │   ├── deploy.sh              # Deployment script
 │   ├── deploy.bat             # Windows deployment script
-│   └── test-setup.sh          # Test setup script
+│   ├── test-setup.sh          # Test setup script
+│   └── test-k3s.sh            # K3s test script
 ├── certs/                     # Generated certificates (after running script)
 └── README.md                  # This file
 ```
@@ -167,10 +190,12 @@ This project supports two deployment environments for different use cases:
 - Simple single-machine deployment
 - HTTP communication between services
 - Development mode Vault with HTTP
-- Direct port access (443 for HTTPS)
+- Direct port access (8443 for HTTPS, 5001 for Logthon)
 - No Kubernetes knowledge required
+- Kong Gateway for request routing
+- Logthon log aggregation service
 
-**Access**: HTTPS on port 443 via nginx reverse proxy
+**Access**: HTTPS on port 8443 via Kong Gateway, Logthon on port 5001
 
 ### K3s (Kubernetes Testing)
 **Best for**: Kubernetes learning, production-like testing, and cluster validation
@@ -179,10 +204,12 @@ This project supports two deployment environments for different use cases:
 - Full Kubernetes cluster simulation
 - TLS termination at ingress
 - Production-like Vault setup with persistent storage
-- Ingress-based routing
+- Ingress-based routing with Kong
 - Real Kubernetes networking and services
+- Logthon log aggregation service
+- Kong Ingress Controller
 
-**Access**: HTTPS on port 443 via ingress with TLS certificates
+**Access**: HTTPS on port 443 via Kong ingress, Logthon on port 5001 via LoadBalancer
 
 ## Quick Start
 
@@ -249,14 +276,14 @@ If you prefer manual setup over the deployment script:
 **Windows (Command Prompt/PowerShell)**:
 ```cmd
 # Run the certificate generation script
-scripts\generate-certs.sh
+scripts\generate-tls-certs.sh
 ```
 
 **Linux/macOS (Bash)**:
 ```bash
 # Make the script executable and run it
-chmod +x scripts/generate-certs.sh
-./scripts/generate-certs.sh
+chmod +x scripts/generate-tls-certs.sh
+./scripts/generate-tls-certs.sh
 ```
 
 This creates self-signed certificates in the `certs/` directory and generates Kubernetes secrets.
@@ -271,9 +298,10 @@ This creates self-signed certificates in the `certs/` directory and generates Ku
 
 **Cross-Platform**:
 ```bash
-# Build both services
+# Build all services
 docker build -t edge-terrarium-cdp-client:latest ./cdp-client
 docker build -t edge-terrarium-service-sink:latest ./service-sink
+docker build -t edge-terrarium-logthon:latest ./logthon
 ```
 
 ### Step 3: Choose Your Deployment Method
@@ -292,8 +320,12 @@ docker-compose ps
 docker-compose logs -f
 
 # Test the deployment
-curl -k https://localhost:443/fake-provider/test
-curl -k https://localhost:443/api/test
+curl -k https://localhost:8443/fake-provider/test
+curl -k https://localhost:8443/api/test
+
+# Test Logthon log aggregation service
+curl http://localhost:5001/health
+curl http://localhost:5001/
 ```
 
 #### Option B: K3s with k3d (Recommended for Kubernetes Learning)
@@ -306,7 +338,7 @@ curl -k https://localhost:443/api/test
 # Windows: Use WSL or install via chocolatey
 
 # Create K3s cluster with port mappings
-k3d cluster create edge-terrarium --port "80:80@loadbalancer" --port "443:443@loadbalancer" --port "8200:8200@loadbalancer"
+k3d cluster create edge-terrarium --port "80:80@loadbalancer" --port "443:443@loadbalancer" --port "8200:8200@loadbalancer" --port "5001:5001@loadbalancer"
 
 # Note: K3s comes with Traefik by default, but we use Kong ingress controller
 ```
@@ -317,7 +349,7 @@ k3d cluster create edge-terrarium --port "80:80@loadbalancer" --port "443:443@lo
 kubectl apply -k configs/k3s/
 
 # Apply TLS secret
-kubectl apply -f certs/edge-terrarium-tls-secret.yaml
+# TLS certificates are now generated dynamically during deployment
 
 # Check deployments
 kubectl get pods -n edge-terrarium
@@ -346,6 +378,10 @@ curl -k -H "Host: localhost" https://localhost:8443/fake-provider/test
 # Access Vault directly (requires port forwarding)
 kubectl port-forward -n edge-terrarium service/vault 8200:8200
 curl -k http://localhost:8200/v1/sys/health
+
+# Test Logthon log aggregation service
+curl http://localhost:5001/health
+curl http://localhost:5001/
 ```
 
 **Viewing Container Logs in K3s**:
@@ -354,6 +390,7 @@ curl -k http://localhost:8200/v1/sys/health
 kubectl logs -n edge-terrarium deployment/vault -f
 kubectl logs -n edge-terrarium deployment/cdp-client -f
 kubectl logs -n edge-terrarium deployment/service-sink -f
+kubectl logs -n edge-terrarium deployment/logthon -f
 
 # View logs for specific pods
 kubectl logs -n edge-terrarium <pod-name> -f
@@ -391,6 +428,8 @@ Both services support the following environment variables:
 
 - `SERVICE_NAME`: Service identifier
 - `LOG_LEVEL`: Logging level (info, debug, error)
+- `LOGTHON_HOST`: Logthon service hostname for log aggregation (K3s only)
+- `LOGTHON_PORT`: Logthon service port for log aggregation (K3s only)
 
 ### Vault Integration
 
@@ -578,26 +617,34 @@ scripts\test-k3s.sh
 **Cross-Platform**:
 ```bash
 # Test CDP Client routes
-curl -k https://localhost:443/fake-provider/test
-curl -k https://localhost:443/example-provider/test
+curl -k https://localhost:8443/fake-provider/test
+curl -k https://localhost:8443/example-provider/test
 
 # Test Service Sink (default route)
-curl -k https://localhost:443/api/test
-curl -k https://localhost:443/health
+curl -k https://localhost:8443/api/test
+curl -k https://localhost:8443/health
 
 # Test port 1337 (direct to CDP Client)
-curl -k https://localhost:443/test
+curl -k https://localhost:8443/test
+
+# Test Logthon log aggregation service
+curl http://localhost:5001/health
+curl http://localhost:5001/
 ```
 
 **Windows PowerShell Alternative**:
 ```powershell
 # Test CDP Client routes
-Invoke-WebRequest -Uri "https://localhost:443/fake-provider/test" -SkipCertificateCheck
-Invoke-WebRequest -Uri "https://localhost:443/example-provider/test" -SkipCertificateCheck
+Invoke-WebRequest -Uri "https://localhost:8443/fake-provider/test" -SkipCertificateCheck
+Invoke-WebRequest -Uri "https://localhost:8443/example-provider/test" -SkipCertificateCheck
 
 # Test Service Sink (default route)
-Invoke-WebRequest -Uri "https://localhost:443/api/test" -SkipCertificateCheck
-Invoke-WebRequest -Uri "https://localhost:443/health" -SkipCertificateCheck
+Invoke-WebRequest -Uri "https://localhost:8443/api/test" -SkipCertificateCheck
+Invoke-WebRequest -Uri "https://localhost:8443/health" -SkipCertificateCheck
+
+# Test Logthon log aggregation service
+Invoke-WebRequest -Uri "http://localhost:5001/health"
+Invoke-WebRequest -Uri "http://localhost:5001/"
 ```
 
 #### K3s Testing
@@ -611,6 +658,10 @@ kubectl port-forward -n default service/kong-kong-proxy 8443:443
 curl -k -H "Host: localhost" https://localhost:8443/fake-provider/test
 curl -k -H "Host: localhost" https://localhost:8443/example-provider/test
 curl -k -H "Host: localhost" https://localhost:8443/api/test
+
+# Test Logthon log aggregation service
+curl http://localhost:5001/health
+curl http://localhost:5001/
 ```
 
 **Option 2: k3d Load Balancer (Recommended)**
@@ -622,6 +673,10 @@ curl -k -H "Host: localhost" https://localhost:8443/api/test
 curl -k -H "Host: localhost" https://localhost/fake-provider/test
 curl -k -H "Host: localhost" https://localhost/example-provider/test
 curl -k -H "Host: localhost" https://localhost/api/test
+
+# Test Logthon log aggregation service
+curl http://localhost:5001/health
+curl http://localhost:5001/
 ```
 
 **Option 3: Direct IP Access (Advanced)**
@@ -633,6 +688,10 @@ curl -k -H "Host: localhost" https://localhost/api/test
 curl -k https://edge-terrarium.local/fake-provider/test
 curl -k https://edge-terrarium.local/example-provider/test
 curl -k https://edge-terrarium.local/api/test
+
+# Test Logthon log aggregation service
+curl http://localhost:5001/health
+curl http://localhost:5001/
 ```
 
 ## Monitoring & Debugging
@@ -644,10 +703,10 @@ CDP Client writes request details to `/tmp/requests/` directory:
 **Cross-Platform**:
 ```bash
 # Docker Compose
-docker exec terrarium-cdp-client ls -la /tmp/requests/
+docker exec edge-terrarium-cdp-client ls -la /tmp/requests/
 
 # Kubernetes
-kubectl exec -n terrarium deployment/cdp-client -- ls -la /tmp/requests/
+kubectl exec -n edge-terrarium deployment/cdp-client -- ls -la /tmp/requests/
 ```
 
 ### Check Service Health
@@ -670,11 +729,13 @@ kubectl describe pod <pod-name> -n edge-terrarium
 docker-compose logs cdp-client
 docker-compose logs service-sink
 docker-compose logs vault
+docker-compose logs logthon
 
 # Kubernetes
-kubectl logs -n terrarium deployment/cdp-client
-kubectl logs -n terrarium deployment/service-sink
-kubectl logs -n terrarium deployment/vault
+kubectl logs -n edge-terrarium deployment/cdp-client
+kubectl logs -n edge-terrarium deployment/service-sink
+kubectl logs -n edge-terrarium deployment/vault
+kubectl logs -n edge-terrarium deployment/logthon
 ```
 
 ### Troubleshooting Common Issues
@@ -715,7 +776,7 @@ kubectl port-forward -n default service/kong-kong-proxy 8443:443
 kubectl describe pod <pod-name> -n edge-terrarium
 
 # Check PVC status
-kubectl get pvc -n terrarium
+kubectl get pvc -n edge-terrarium
 
 # Check storage class
 kubectl get storageclass
@@ -724,13 +785,13 @@ kubectl get storageclass
 **Vault Initialization Issues**:
 ```bash
 # Check vault-init job logs
-kubectl logs -n terrarium job/vault-init
+kubectl logs -n edge-terrarium job/vault-init
 
 # Check vault pod logs
-kubectl logs -n terrarium deployment/vault
+kubectl logs -n edge-terrarium deployment/vault
 
 # Restart vault-init job
-kubectl delete job vault-init -n terrarium
+kubectl delete job vault-init -n edge-terrarium
 kubectl apply -f configs/k3s/vault-init-job.yaml
 ```
 
@@ -738,9 +799,11 @@ kubectl apply -f configs/k3s/vault-init-job.yaml
 
 - Self-signed certificates are used for development only
 - Services run as non-root users in containers
-- Security headers are configured in Nginx
+- Security headers are configured in Kong Gateway
 - TLS 1.2+ is enforced
 - Request body size is limited to 5MB
+- Log aggregation service provides centralized logging
+- Environment variables are properly configured for service communication
 
 ## Learning Resources
 
@@ -757,10 +820,11 @@ kubectl apply -f configs/k3s/vault-init-job.yaml
 - [Multi-stage Builds](https://docs.docker.com/develop/dev-best-practices/dockerfile_best-practices/#use-multi-stage-builds)
 - [Container Networking](https://docs.docker.com/network/)
 
-### NGINX Documentation
-- [NGINX Ingress Controller](https://kubernetes.github.io/ingress-nginx/)
-- [NGINX Configuration](https://nginx.org/en/docs/)
-- [SSL/TLS Configuration](https://nginx.org/en/docs/http/configuring_https_servers.html)
+### Kong Gateway Documentation
+- [Kong Gateway](https://docs.konghq.com/gateway/)
+- [Kong Ingress Controller](https://docs.konghq.com/kubernetes-ingress-controller/)
+- [Kong Configuration](https://docs.konghq.com/gateway/latest/configuration/)
+- [Kong SSL/TLS Configuration](https://docs.konghq.com/gateway/latest/configure/ssl/)
 
 ## Development
 
@@ -778,7 +842,8 @@ gcc -o service-sink service-sink/main.c
 
 Both C applications are designed to be simple but functional:
 
-- **CDP Client**: Parses HTTP requests, logs them to files, and responds with JSON
-- **Service Sink**: Processes requests and returns response with path analysis
+- **CDP Client**: Parses HTTP requests, logs them to files, sends logs to Logthon, and responds with JSON
+- **Service Sink**: Processes requests, sends logs to Logthon, and returns response with path analysis
+- **Logthon**: Python-based log aggregation service that collects logs from all services and provides a web UI
 
-You can modify the applications to add more functionality while maintaining the basic request/response pattern.
+You can modify the applications to add more functionality while maintaining the basic request/response pattern and log aggregation capabilities.

@@ -10,6 +10,15 @@
 # - ReplicaSet: Ensures a specified number of Pod replicas are running
 # - Service: Provides network access to Pods
 # - Volume: Storage that persists beyond the lifecycle of a Pod
+# - Init Container: Runs before main containers start
+#
+# Impact:
+# - Runs the CDP client application in Kubernetes
+# - Waits for Vault to be ready before starting
+# - Ensures secrets are available before application starts
+# - Provides health checks for automatic recovery
+# - Uses single replica to prevent conflicts
+# - Mounts storage for request logs
 #
 # Documentation: https://kubernetes.io/docs/concepts/workloads/controllers/deployment/
 # =============================================================================
@@ -27,6 +36,7 @@ spec:                              # Specification of the deployment
   replicas: 1                      # Number of Pod replicas to maintain (single instance for development)
   
   # Deployment strategy - use Recreate to ensure only one pod at a time
+  # This prevents multiple instances from running simultaneously
   strategy:
     type: Recreate                 # Terminate old pods before creating new ones
   
@@ -44,12 +54,14 @@ spec:                              # Specification of the deployment
 
     spec:                          # Specification for Pods created from this template
       # Init container to wait for Vault to be ready and initialized
+      # Init containers run before main containers and must complete successfully
       initContainers:
       - name: wait-for-vault        # Name of the init container
-        image: curlimages/curl:latest  # Lightweight curl image
+        image: curlimages/curl:latest  # Lightweight curl image for health checks
         command: ['sh', '-c']       # Command to run
         args:                       # Arguments for the command
-        - |
+        - |                        # Multi-line script
+          # Wait for Vault service to be ready
           echo "Waiting for Vault to be ready..."
           until curl -s http://vault.edge-terrarium.svc.cluster.local:8200/v1/sys/health > /dev/null; do
             echo "Vault is not ready yet. Waiting..."
@@ -58,6 +70,7 @@ spec:                              # Specification of the deployment
           echo "Vault is ready! Waiting for vault-init job to complete..."
           
           # Wait for vault-init job to complete by checking if secrets are available
+          # This ensures the CDP client can retrieve secrets on startup
           echo "Waiting for vault-init job to complete and secrets to be available..."
           RETRY_COUNT=0
           MAX_RETRIES=60  # 2 minutes max wait time
@@ -73,12 +86,12 @@ spec:                              # Specification of the deployment
           done
           echo "Vault initialization complete!"
         resources:                  # Resource requirements for init container
-          requests:
-            memory: "32Mi"
-            cpu: "10m"
-          limits:
-            memory: "64Mi"
-            cpu: "50m"
+          requests:                 # Minimum resources required
+            memory: "32Mi"          # 32 megabytes of memory
+            cpu: "10m"              # 10 millicores of CPU
+          limits:                   # Maximum resources allowed
+            memory: "64Mi"          # 64 megabytes of memory
+            cpu: "50m"              # 50 millicores of CPU
       
       containers:                  # List of containers in each Pod
       - name: cdp-client           # Name of the container
@@ -101,6 +114,10 @@ spec:                              # Specification of the deployment
           value: "http://vault.edge-terrarium.svc.cluster.local:8200"
         - name: VAULT_TOKEN        # Vault authentication token
           value: "root"
+        - name: LOGTHON_HOST       # Logthon service hostname for log aggregation
+          value: "logthon-ingress-service.edge-terrarium.svc.cluster.local"
+        - name: LOGTHON_PORT       # Logthon service port
+          value: "5000"
         
         # Resource requirements and limits
         resources:

@@ -77,6 +77,64 @@ test_get_with_params() {
     echo ""
 }
 
+# Function to test logthon functionality
+test_logthon() {
+    local base_url=$1
+    local description=$2
+    
+    echo "Testing: $description"
+    echo "================================="
+    
+    # Test logthon health endpoint
+    echo "Testing Logthon health endpoint:"
+    echo "--------------------------------"
+    response=$(curl -s -k -w "%{http_code}" -o /tmp/response.json --connect-timeout 2 --max-time 2 "$base_url/logs/health" || echo "000")
+    
+    if [ "$response" = "200" ]; then
+        echo "✓ Logthon health check - SUCCESS"
+        if [ -f /tmp/response.json ]; then
+            echo "Response: $(cat /tmp/response.json)"
+        fi
+    else
+        echo "✗ Logthon health check - FAILED (HTTP $response)"
+    fi
+    echo ""
+    
+    # Test logthon web UI
+    echo "Testing Logthon web UI:"
+    echo "----------------------"
+    response=$(curl -s -k -w "%{http_code}" -o /tmp/response.html --connect-timeout 2 --max-time 2 "$base_url/logs/" || echo "000")
+    
+    if [ "$response" = "200" ]; then
+        echo "✓ Logthon web UI - SUCCESS"
+        if [ -f /tmp/response.html ]; then
+            if grep -q "Logthon" /tmp/response.html; then
+                echo "✓ Logthon web UI contains expected content"
+            else
+                echo "✗ Logthon web UI missing expected content"
+            fi
+        fi
+    else
+        echo "✗ Logthon web UI - FAILED (HTTP $response)"
+    fi
+    echo ""
+    
+    # Test logthon API endpoint
+    echo "Testing Logthon API endpoint:"
+    echo "----------------------------"
+    response=$(curl -s -k -w "%{http_code}" -o /tmp/response.json --connect-timeout 2 --max-time 2 "$base_url/logs/api/logs" || echo "000")
+    
+    if [ "$response" = "200" ]; then
+        echo "✓ Logthon API endpoint - SUCCESS"
+        if [ -f /tmp/response.json ]; then
+            echo "Response: $(cat /tmp/response.json)"
+        fi
+    else
+        echo "✗ Logthon API endpoint - FAILED (HTTP $response)"
+    fi
+    echo ""
+}
+
 # Check if Docker Compose is running
 if docker-compose -f configs/docker/docker-compose.yml -p c-edge-terrarium ps | grep -q "Up"; then
     echo "Testing Docker Compose setup..."
@@ -94,30 +152,33 @@ if docker-compose -f configs/docker/docker-compose.yml -p c-edge-terrarium ps | 
     fi
     
     # Test CDP Client routes
-    test_endpoint "https://localhost:443/fake-provider/test" "cdp-client" "CDP Client - fake-provider route"
-    test_endpoint "https://localhost:443/example-provider/test" "cdp-client" "CDP Client - example-provider route"
+    test_endpoint "https://localhost:8443/fake-provider/test" "cdp-client" "CDP Client - fake-provider route"
+    test_endpoint "https://localhost:8443/example-provider/test" "cdp-client" "CDP Client - example-provider route"
     
     # Test Service Sink (default route)
-    test_endpoint "https://localhost:443/api/test" "service-sink" "Service Sink - default route"
-    test_endpoint "https://localhost:443/health" "service-sink" "Service Sink - health check"
+    test_endpoint "https://localhost:8443/api/test" "service-sink" "Service Sink - default route"
+    test_endpoint "https://localhost:8443/health" "service-sink" "Service Sink - health check"
     
     # Test port 1337
-    test_endpoint "https://localhost:443/test" "cdp-client" "CDP Client - port 1337"
+    test_endpoint "https://localhost:8443/test" "cdp-client" "CDP Client - port 1337"
     
     echo "Testing enhanced request logging..."
     echo "=================================="
     
     # Test GET requests with query parameters
-    test_get_with_params "https://localhost:443/fake-provider/test" "cdp-client" "CDP Client - GET with query params" "param1=value1&param2=value2&test=query"
-    test_get_with_params "https://localhost:443/api/test" "service-sink" "Service Sink - GET with query params" "user=testuser&action=login&id=123"
+    test_get_with_params "https://localhost:8443/fake-provider/test" "cdp-client" "CDP Client - GET with query params" "param1=value1&param2=value2&test=query"
+    test_get_with_params "https://localhost:8443/api/test" "service-sink" "Service Sink - GET with query params" "user=testuser&action=login&id=123"
     
     # Test POST requests with body content
-    test_post_endpoint "https://localhost:443/fake-provider/test" "cdp-client" "CDP Client - POST with JSON body" '{"username":"testuser","password":"testpass","action":"login"}'
-    test_post_endpoint "https://localhost:443/api/test" "service-sink" "Service Sink - POST with JSON body" '{"data":"test data","timestamp":"2024-01-01","status":"active"}'
+    test_post_endpoint "https://localhost:8443/fake-provider/test" "cdp-client" "CDP Client - POST with JSON body" '{"username":"testuser","password":"testpass","action":"login"}'
+    test_post_endpoint "https://localhost:8443/api/test" "service-sink" "Service Sink - POST with JSON body" '{"data":"test data","timestamp":"2024-01-01","status":"active"}'
     
     # Test POST requests with form data
-    test_post_endpoint "https://localhost:443/example-provider/test" "cdp-client" "CDP Client - POST with form data" "username=testuser&email=test@example.com&role=admin"
-    test_post_endpoint "https://localhost:443/health" "service-sink" "Service Sink - POST with form data" "check=health&service=all&verbose=true"
+    test_post_endpoint "https://localhost:8443/example-provider/test" "cdp-client" "CDP Client - POST with form data" "username=testuser&email=test@example.com&role=admin"
+    test_post_endpoint "https://localhost:8443/health" "service-sink" "Service Sink - POST with form data" "check=health&service=all&verbose=true"
+    
+    # Test logthon functionality
+    test_logthon "https://localhost:8443" "Docker Compose - Logthon Log Aggregation Service"
     
     # Test Vault if it's running
     if docker-compose -f configs/docker/docker-compose.yml -p c-edge-terrarium ps | grep -q "vault.*Up"; then
@@ -170,6 +231,9 @@ if kubectl get namespace edge-terrarium >/dev/null 2>&1; then
             # Test POST requests with body content
             test_post_endpoint "https://$test_host:443/fake-provider/test" "cdp-client" "K8s CDP Client - POST with JSON body" '{"username":"testuser","password":"testpass","action":"login"}'
             test_post_endpoint "https://$test_host:443/api/test" "service-sink" "K8s Service Sink - POST with JSON body" '{"data":"test data","timestamp":"2024-01-01","status":"active"}'
+            
+            # Test logthon functionality
+            test_logthon "https://$test_host:443" "Kubernetes - Logthon Log Aggregation Service"
         else
             echo "Ingress IP found but not accessible (no tunnel or firewall blocking)"
             echo "To test Kubernetes deployment, use one of these methods:"

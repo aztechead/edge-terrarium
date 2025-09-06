@@ -2,78 +2,96 @@
 # HTTP-ONLY INGRESS CONFIGURATION FOR K3S
 # =============================================================================
 # Simple HTTP-only ingress for testing without TLS complications
+#
+# Key Concepts:
+# - Ingress: Manages external access to services in a cluster
+# - HTTP-only: No TLS/HTTPS encryption (for testing purposes)
+# - Path-based Routing: Routes traffic based on URL paths
+# - Host-based Routing: Routes traffic based on hostnames
+# - Traefik Ingress Controller: Alternative to Kong for routing
+#
+# Impact:
+# - Provides external access to services via HTTP (unencrypted)
+# - Routes CDP client requests to appropriate endpoints
+# - Routes all other requests to service-sink (default)
+# - Useful for testing without TLS certificate complications
+# - Supports both edge-terrarium.local and localhost hostnames
+#
+# Note: This configuration uses Traefik instead of Kong for comparison
+# Documentation: https://kubernetes.io/docs/concepts/services-networking/ingress/
+# =============================================================================
 
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: edge-terrarium-ingress-http
-  namespace: edge-terrarium
+apiVersion: networking.k8s.io/v1    # Networking API version for Ingress resources
+kind: Ingress                       # Resource type - creates an ingress
+metadata:                           # Metadata about this ingress
+  name: edge-terrarium-ingress-http # Name of the ingress
+  namespace: edge-terrarium        # Namespace where this resource lives
   
   # Basic annotations for K3s with Kong
   annotations:
-    konghq.com/strip-path: "false"
-    konghq.com/preserve-host: "true"
-    konghq.com/protocols: "http"
+    konghq.com/strip-path: "false"  # Don't strip the path when forwarding to backend
+    konghq.com/preserve-host: "true" # Preserve the original host header
+    konghq.com/protocols: "http"    # Only allow HTTP traffic (no HTTPS)
 
-spec:
-  ingressClassName: traefik
+spec:                               # Specification for the ingress
+  ingressClassName: traefik         # Use Traefik as the ingress controller (alternative to Kong)
   
   # Routing rules
-  rules:
+  rules:                            # List of routing rules
   # Route /fake-provider/* and /example-provider/* to CDP Client
-  - host: edge-terrarium.local
-    http:
-      paths:
-      - path: /fake-provider
-        pathType: Prefix
-        backend:
+  - host: edge-terrarium.local      # Hostname to match
+    http:                           # HTTP routing rules
+      paths:                        # List of path-based routing rules
+      - path: /fake-provider        # Path to match
+        pathType: Prefix            # Match paths that start with this prefix
+        backend:                    # Backend service to route to
           service:
-            name: cdp-client-service
+            name: cdp-client-service # Name of the service
             port:
-              number: 1337
+              number: 1337          # Port number on the service
       
-      - path: /example-provider
-        pathType: Prefix
-        backend:
+      - path: /example-provider     # Path to match
+        pathType: Prefix            # Match paths that start with this prefix
+        backend:                    # Backend service to route to
           service:
-            name: cdp-client-service
+            name: cdp-client-service # Name of the service
             port:
-              number: 1337
+              number: 1337          # Port number on the service
       
       # Route all other requests to Service Sink (default route)
-      - path: /
-        pathType: Prefix
-        backend:
+      - path: /                     # Path to match (root path)
+        pathType: Prefix            # Match paths that start with this prefix
+        backend:                    # Backend service to route to
           service:
-            name: service-sink-service
+            name: service-sink-service # Name of the service
             port:
-              number: 8080
+              number: 8080          # Port number on the service
   
   # Same routing rules for localhost
-  - host: localhost
-    http:
-      paths:
-      - path: /fake-provider
-        pathType: Prefix
-        backend:
+  - host: localhost                 # Hostname to match
+    http:                           # HTTP routing rules
+      paths:                        # List of path-based routing rules
+      - path: /fake-provider        # Path to match
+        pathType: Prefix            # Match paths that start with this prefix
+        backend:                    # Backend service to route to
           service:
-            name: cdp-client-service
+            name: cdp-client-service # Name of the service
             port:
-              number: 1337
+              number: 1337          # Port number on the service
       
-      - path: /example-provider
-        pathType: Prefix
-        backend:
+      - path: /example-provider     # Path to match
+        pathType: Prefix            # Match paths that start with this prefix
+        backend:                    # Backend service to route to
           service:
-            name: cdp-client-service
+            name: cdp-client-service # Name of the service
             port:
-              number: 1337
+              number: 1337          # Port number on the service
       
       # Route all other requests to Service Sink (default route)
-      - path: /
-        pathType: Prefix
-        backend:
+      - path: /                     # Path to match (root path)
+        pathType: Prefix            # Match paths that start with this prefix
+        backend:                    # Backend service to route to
           service:
-            name: service-sink-service
+            name: service-sink-service # Name of the service
             port:
-              number: 8080
+              number: 8080          # Port number on the service

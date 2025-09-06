@@ -3,48 +3,65 @@
 # =============================================================================
 # Separate ingress configuration for Vault service
 # This allows Vault to be accessed directly without path rewriting
+#
+# Key Concepts:
+# - Ingress: Manages external access to services in a cluster
+# - Kong Ingress Controller: Routes traffic based on host and path rules
+# - TLS: Provides HTTPS encryption for secure communication
+# - Host-based Routing: Routes traffic based on hostnames
+# - Direct Access: Allows direct access to Vault without path modifications
+#
+# Impact:
+# - Provides external access to Vault via HTTPS
+# - Enables direct access to Vault web UI and API
+# - Supports both vault.edge-terrarium.local and vault.localhost hostnames
+# - Enables SSL/TLS termination with self-signed certificates
+# - Allows Vault to be accessed without path rewriting
+#
+# Documentation: https://kubernetes.io/docs/concepts/services-networking/ingress/
+# =============================================================================
 
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: vault-ingress
-  namespace: edge-terrarium
+apiVersion: networking.k8s.io/v1    # Networking API version for Ingress resources
+kind: Ingress                       # Resource type - creates an ingress
+metadata:                           # Metadata about this ingress
+  name: vault-ingress              # Name of the ingress
+  namespace: edge-terrarium        # Namespace where this resource lives
   
   # Kong annotations for Vault
   annotations:
-    konghq.com/preserve-host: "true"
-    konghq.com/protocols: "http,https"
+    konghq.com/preserve-host: "true"  # Preserve the original host header
+    konghq.com/protocols: "http,https" # Allow both HTTP and HTTPS protocols
 
-spec:
-  ingressClassName: kong
+spec:                               # Specification for the ingress
+  ingressClassName: kong            # Use Kong as the ingress controller
   
   # TLS configuration for HTTPS
-  tls:
-  - hosts:
-    - vault.edge-terrarium.local
-    - vault.localhost
-    secretName: edge-terrarium-tls
+  tls:                              # TLS configuration
+  - hosts:                          # Hostnames that will use TLS
+    - vault.edge-terrarium.local    # Custom domain for Vault
+    - vault.localhost               # Local development domain for Vault
+    secretName: edge-terrarium-tls  # Reference to the TLS secret
   
   # Routing rules for Vault
-  rules:
-  - host: vault.edge-terrarium.local
-    http:
-      paths:
-      - path: /
-        pathType: Prefix
-        backend:
+  rules:                            # List of routing rules
+  - host: vault.edge-terrarium.local # Hostname to match
+    http:                           # HTTP routing rules
+      paths:                        # List of path-based routing rules
+      - path: /                     # Path to match (root path)
+        pathType: Prefix            # Match paths that start with this prefix
+        backend:                    # Backend service to route to
           service:
-            name: vault
+            name: vault             # Name of the Vault service
             port:
-              number: 8200
+              number: 8200          # Port number on the service
   
-  - host: vault.localhost
-    http:
-      paths:
-      - path: /
-        pathType: Prefix
-        backend:
+  - host: vault.localhost           # Hostname to match
+    http:                           # HTTP routing rules
+      paths:                        # List of path-based routing rules
+      - path: /                     # Path to match (root path)
+        pathType: Prefix            # Match paths that start with this prefix
+        backend:                    # Backend service to route to
           service:
-            name: vault
+            name: vault             # Name of the Vault service
             port:
-              number: 8200
+              number: 8200          # Port number on the service

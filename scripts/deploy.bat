@@ -86,7 +86,7 @@ echo [INFO] Deploying to Docker Compose...
 REM Generate certificates if they don't exist
 if not exist "certs\edge-terrarium.crt" (
     echo [INFO] Generating TLS certificates...
-    call scripts\generate-certs.sh
+    call scripts\generate-tls-certs.sh
 )
 
 REM Build images
@@ -132,7 +132,7 @@ if errorlevel 1 (
 REM Generate certificates if they don't exist
 if not exist "certs\edge-terrarium.crt" (
     echo [INFO] Generating TLS certificates...
-    call scripts\generate-certs.sh
+    call scripts\generate-tls-certs.sh
 )
 
 REM Build images for K3s
@@ -149,7 +149,7 @@ kubectl apply -k configs\k8s\
 
 REM Apply TLS secret
 echo [INFO] Applying TLS secret...
-kubectl apply -f certs\edge-terrarium-tls-secret.yaml
+REM TLS certificates are now generated dynamically during deployment
 
 REM Apply K3s-specific configurations
 echo [INFO] Applying K3s-specific configurations...

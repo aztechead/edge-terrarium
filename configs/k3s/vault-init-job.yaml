@@ -2,34 +2,53 @@
 # VAULT INITIALIZATION JOB FOR K3S
 # =============================================================================
 # This job initializes Vault with the required secrets for K3s
+#
+# Key Concepts:
+# - Job: Runs a task to completion (one-time execution)
+# - Init Container: Runs before main application containers start
+# - Vault KV Store: Key-value storage for secrets
+# - Base64 Encoding: Encodes binary data for storage
+# - Conditional Logic: Handles missing certificates gracefully
+#
+# Impact:
+# - Automatically populates Vault with required secrets
+# - Ensures CDP client can retrieve secrets on startup
+# - Handles both real and mock TLS certificates
+# - Runs once and completes successfully
+# - Provides consistent secrets between Docker Compose and K3s
+#
+# Documentation: https://kubernetes.io/docs/concepts/workloads/controllers/job/
+# =============================================================================
 
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: vault-init
-  namespace: edge-terrarium
-  labels:
-    app: vault-init
-    project: edge-terrarium
-    environment: development
-spec:
-  template:
-    metadata:
-      labels:
-        app: vault-init
-        project: edge-terrarium
-        environment: development
-    spec:
-      restartPolicy: OnFailure
-      containers:
-      - name: vault-init
-        image: hashicorp/vault:latest
-        command: ['sh', '-c']
-        args:
-          - |
+apiVersion: batch/v1                   # Batch API version for Job resources
+kind: Job                              # Resource type - creates a job
+metadata:                              # Metadata about this job
+  name: vault-init                    # Name of the job
+  namespace: edge-terrarium           # Namespace where this job lives
+  labels:                             # Labels for organization and selection
+    app: vault-init                   # Identifies this as a Vault initialization job
+    project: edge-terrarium           # Identifies this as part of the edge-terrarium project
+    environment: development          # Identifies this as a development environment
+spec:                                  # Specification for the job
+  template:                           # Pod template for the job
+    metadata:                         # Metadata for pods created from this template
+      labels:                         # Labels applied to each pod
+        app: vault-init               # Must match the selector
+        project: edge-terrarium       # Identifies this as part of the edge-terrarium project
+        environment: development      # Identifies this as a development environment
+    spec:                             # Specification for pods
+      restartPolicy: OnFailure        # Restart pod if it fails (but not if it succeeds)
+      containers:                     # List of containers in the pod
+      - name: vault-init             # Name of the container
+        image: hashicorp/vault:latest # Official Vault Docker image
+        command: ['sh', '-c']        # Override the default entrypoint
+        args:                        # Arguments for the command
+          - |                        # Multi-line script
+            # Set Vault environment variables
             export VAULT_ADDR="http://vault.edge-terrarium.svc.cluster.local:8200"
             export VAULT_TOKEN="root"
             
+            # Wait for Vault to be ready before proceeding
             echo "Waiting for Vault to be ready..."
             until vault status; do
               echo "Vault is not ready yet. Waiting..."
@@ -39,14 +58,17 @@ spec:
             echo "Vault is ready. Initializing secrets..."
             
             # Store TLS certificates (if available)
-            if [ -f /tmp/certs/tls.crt ] && [ -f /tmp/certs/tls.key ]; then
+            # This handles both real certificates and mock certificates
+            if [ -f /tmp/certs/edge-terrarium.crt ] && [ -f /tmp/certs/edge-terrarium.key ]; then
               echo "Storing TLS certificates..."
+              # Store real TLS certificates in base64 format
               vault kv put secret/terrarium/tls \
-                cert="$(cat /tmp/certs/tls.crt | base64 -w 0)" \
-                key="$(cat /tmp/certs/tls.key | base64 -w 0)" \
-                ca="$(cat /tmp/certs/tls.crt | base64 -w 0)"
+                cert="$(cat /tmp/certs/edge-terrarium.crt | base64 -w 0)" \
+                key="$(cat /tmp/certs/edge-terrarium.key | base64 -w 0)" \
+                ca="$(cat /tmp/certs/edge-terrarium.crt | base64 -w 0)"
             else
               echo "TLS certificates not found, storing mock TLS secrets..."
+              # Store mock TLS certificates for development
               vault kv put secret/terrarium/tls \
                 cert="mock-cert" \
                 key="mock-key" \
@@ -54,6 +76,7 @@ spec:
             fi
             
             # Store CDP client configuration (matching Docker Compose)
+            # These secrets are used by the CDP client application
             vault kv put secret/cdp-client/config \
               api_key="mock-api-key-12345" \
               database_url="postgresql://mock-user:mock-pass@mock-db:5432/mock-db" \
@@ -63,6 +86,7 @@ spec:
               max_connections="100"
             
             # Store CDP client external APIs configuration
+            # These secrets are used for external API integrations
             vault kv put secret/cdp-client/external-apis \
               provider_auth_token="mock-provider-token-xyz" \
               webhook_secret="mock-webhook-secret-123" \
@@ -71,19 +95,19 @@ spec:
             
             echo "Vault initialization completed successfully!"
         
-        env:
-        - name: VAULT_ADDR
+        env:                          # Environment variables for the container
+        - name: VAULT_ADDR            # Vault API address
           value: "http://vault.edge-terrarium.svc.cluster.local:8200"
-        - name: VAULT_TOKEN
+        - name: VAULT_TOKEN           # Vault authentication token
           value: "root"
         
-        volumeMounts:
-        - name: tls-certs
-          mountPath: /tmp/certs
-          readOnly: true
+        volumeMounts:                 # Mount volumes into the container
+        - name: tls-certs             # Mount the TLS certificates secret
+          mountPath: /tmp/certs       # Mount point in container
+          readOnly: true              # Mount as read-only
       
-      volumes:
-      - name: tls-certs
-        secret:
-          secretName: edge-terrarium-tls
-          optional: true
+      volumes:                        # Volumes available to the pod
+      - name: tls-certs               # TLS certificates volume
+        secret:                       # Volume from a Kubernetes secret
+          secretName: edge-terrarium-tls # Name of the secret
+          optional: true              # Don't fail if secret doesn't exist

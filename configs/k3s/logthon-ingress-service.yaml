@@ -1,0 +1,48 @@
+# =============================================================================
+# LOGTHON INGRESS SERVICE
+# =============================================================================
+# This service is specifically for Kong ingress routing.
+# It provides internal cluster access to Logthon for the ingress controller.
+# The main logthon-service remains as LoadBalancer for direct access.
+#
+# Key Concepts:
+# - Service: Provides a stable IP address and DNS name for pods
+# - ClusterIP: Internal cluster IP address (not accessible from outside)
+# - Port Mapping: Maps service ports to pod ports
+# - Selector: How the service finds the pods to route traffic to
+# - DNS Resolution: Services are accessible via DNS within the cluster
+#
+# Impact:
+# - Provides stable network access to Logthon pods for ingress routing
+# - Creates DNS name 'logthon-ingress-service.edge-terrarium.svc.cluster.local'
+# - Routes traffic to pods with matching labels
+# - Enables Kong ingress controller to route external traffic to Logthon
+# - Separate from LoadBalancer service to avoid conflicts
+#
+# Documentation: https://kubernetes.io/docs/concepts/services-networking/service/
+# =============================================================================
+
+apiVersion: v1                        # Core API version for Service resources
+kind: Service                         # Resource type - creates a service
+metadata:                             # Metadata about this service
+  name: logthon-ingress-service      # Name of the service (used in DNS resolution)
+  namespace: edge-terrarium          # Namespace where this service lives
+  labels:                             # Labels for organization and selection
+    app: logthon                      # Identifies this as a Logthon service component
+    project: edge-terrarium           # Identifies this as part of the edge-terrarium project
+    environment: development          # Identifies this as a development environment
+    component: logging                # Identifies this as a logging component
+    purpose: ingress                  # Identifies this as an ingress-specific service
+spec:                                 # Specification for the service
+  type: ClusterIP                     # ClusterIP service - only accessible within cluster
+  ports:                              # List of ports this service exposes
+  - port: 5000                        # Port number on the service (external access)
+    targetPort: 5000                  # Port number on the target pods (container port)
+    protocol: TCP                     # Protocol type (TCP or UDP)
+    name: http                        # Name for the port (referenced in other resources)
+
+  # Selector for finding pods to route traffic to
+  # This service will route traffic to pods with these labels
+  # Must match the labels in the Logthon deployment pod template
+  selector:
+    app: logthon                      # Select pods with this label

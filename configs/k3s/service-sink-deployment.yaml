@@ -12,6 +12,14 @@
 # - Pod: The smallest deployable unit in Kubernetes (one or more containers)
 # - ReplicaSet: Ensures a specified number of Pod replicas are running
 # - Service: Provides network access to Pods
+# - Health Probes: Monitor container health and restart if needed
+#
+# Impact:
+# - Runs the service-sink application in Kubernetes
+# - Handles default routing for all non-CDP client requests
+# - Provides health checks for automatic recovery
+# - Uses single replica to prevent conflicts
+# - Processes requests and logs them to logthon
 #
 # Documentation: https://kubernetes.io/docs/concepts/workloads/controllers/deployment/
 # =============================================================================
@@ -29,6 +37,7 @@ spec:                              # Specification of the deployment
   replicas: 1                      # Number of Pod replicas to maintain (single instance for development)
   
   # Deployment strategy - use Recreate to ensure only one pod at a time
+  # This prevents multiple instances from running simultaneously
   strategy:
     type: Recreate                 # Terminate old pods before creating new ones
   
@@ -62,6 +71,10 @@ spec:                              # Specification of the deployment
           value: "service-sink"    # Environment variable value
         - name: LOG_LEVEL          # Logging level
           value: "info"            # Set to info level
+        - name: LOGTHON_HOST       # Logthon service hostname for log aggregation
+          value: "logthon-ingress-service.edge-terrarium.svc.cluster.local"
+        - name: LOGTHON_PORT       # Logthon service port
+          value: "5000"
         
         # Resource requirements and limits
         resources:

@@ -12,6 +12,13 @@
 # - CommonLabels: Labels applied to all resources
 # - Images: Image name and tag transformations
 #
+# Impact:
+# - Manages the order of resource deployment
+# - Ensures vault-init-job runs before CDP client
+# - Applies consistent labels to all resources
+# - Transforms image tags to latest for development
+# - Provides single command deployment via kubectl apply -k
+#
 # Documentation: https://kustomize.io/
 # =============================================================================
 
@@ -23,6 +30,7 @@ namespace: edge-terrarium
 
 # List of Kubernetes resource files to include in the build
 # These files will be processed and customized according to the rules below
+# IMPORTANT: Order matters - resources are applied in the order listed
 resources:
   - namespace.yaml                    # Creates the edge-terrarium namespace
   - vault-config.yaml                # Vault configuration ConfigMap
@@ -32,6 +40,9 @@ resources:
   - vault-init-job.yaml              # Vault initialization job (must run first)
   - cdp-client-deployment.yaml       # CDP client application deployment (waits for vault-init)
   - service-sink-deployment.yaml     # Service sink application deployment
+  - logthon-deployment.yaml          # Logthon log aggregation service deployment
+  - logthon-service.yaml             # Logthon LoadBalancer service (direct access)
+  - logthon-ingress-service.yaml     # Logthon ClusterIP service (ingress routing)
   - services.yaml                    # Kubernetes services for both applications
   - ingress.yaml                     # Ingress configuration for routing with Kong
 
@@ -43,8 +54,11 @@ commonLabels:
 
 # Image transformations
 # These rules modify image names and tags in the resource files
+# This ensures all images use the 'latest' tag for development
 images:
   - name: edge-terrarium-cdp-client  # Name of the image to transform
     newTag: latest                   # New tag to apply to this image
   - name: edge-terrarium-service-sink # Name of the image to transform
+    newTag: latest                   # New tag to apply to this image
+  - name: edge-terrarium-logthon     # Name of the image to transform
     newTag: latest                   # New tag to apply to this image

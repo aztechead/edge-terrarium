@@ -17,16 +17,23 @@ fi
 # Build CDP Client (single platform for K3s)
 echo "Building CDP Client image..."
 docker build \
-  --platform linux/amd64 \
+  --platform linux/arm64 \
   -t edge-terrarium-cdp-client:latest \
   ./cdp-client
 
 # Build Service Sink (single platform for K3s)
 echo "Building Service Sink image..."
 docker build \
-  --platform linux/amd64 \
+  --platform linux/arm64 \
   -t edge-terrarium-service-sink:latest \
   ./service-sink
+
+# Build Logthon (single platform for K3s)
+echo "Building Logthon image..."
+docker build \
+  --platform linux/arm64 \
+  -t edge-terrarium-logthon:latest \
+  ./logthon
 
 echo "All images built successfully in K3s environment!"
 echo ""

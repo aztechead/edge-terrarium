@@ -190,34 +190,89 @@ services:
     restart: "no"                  # Don't automatically restart the container
 
   # ==========================================================================
-  # NGINX REVERSE PROXY
+  # LOGTHON LOG AGGREGATION SERVICE
   # ==========================================================================
-  # This service acts as a reverse proxy and load balancer
-  # It routes requests to the appropriate backend service based on URL patterns
-  # and handles TLS/SSL termination
-  nginx-proxy:
-    # Use pre-built nginx image instead of building from source
-    image: nginx:alpine             # Official nginx image with Alpine Linux (smaller)
-    container_name: edge-terrarium-nginx-proxy
+  # This service collects logs from CDP client and service-sink containers
+  # and provides a web UI for real-time log viewing with color-coded output
+  logthon:
+    # Build from local Dockerfile
+    build:
+      context: ../../logthon
+      dockerfile: Dockerfile
+    
+    # Container name
+    container_name: edge-terrarium-logthon
     
     # Port mapping
     ports:
-      - "80:80"                     # HTTP port - redirects to HTTPS
-      - "443:443"                   # HTTPS port - standard HTTPS port
+      - "5001:5000"                 # Logthon web UI port
+    
+    # Environment variables
+    environment:
+      - SERVICE_NAME=logthon         # Identifies this service in logs
+      - LOGTHON_HOST=0.0.0.0        # Host to bind to
+      - LOGTHON_PORT=5000           # Port to listen on
+      - LOGTHON_LOG_LEVEL=INFO      # Logging level
+    
+    # Network configuration
+    networks:
+      - edge-terrarium-network      # Custom network for service communication
+    
+    # Restart policy
+    restart: unless-stopped         # Restart unless manually stopped
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s                 # Check every 30 seconds
+      timeout: 10s                  # Wait 10 seconds for response
+      retries: 3                    # Try 3 times before marking unhealthy
+      start_period: 40s             # Wait 40 seconds before first check
+
+  # ==========================================================================
+  # KONG GATEWAY
+  # ==========================================================================
+  # This service acts as an API gateway and reverse proxy
+  # It routes requests to the appropriate backend service based on URL patterns
+  # and handles TLS/SSL termination using Kong Gateway
+  kong-gateway:
+    # Use official Kong Gateway image
+    image: kong:latest              # Official Kong Gateway image with Alpine Linux
+    container_name: edge-terrarium-kong-gateway
+    
+    # Port mapping
+    ports:
+      - "8000:8000"                 # Kong Admin API port
+      - "8001:8001"                 # Kong Gateway port (HTTP)
+      - "8443:8443"                 # Kong Gateway port (HTTPS)
+    
+    # Environment variables for Kong configuration
+    environment:
+      - KONG_DATABASE=off           # Use DB-less mode (declarative configuration)
+      - KONG_DECLARATIVE_CONFIG=/kong/kong.yml
+      - KONG_PROXY_ACCESS_LOG=/dev/stdout
+      - KONG_ADMIN_ACCESS_LOG=/dev/stdout
+      - KONG_PROXY_ERROR_LOG=/dev/stderr
+      - KONG_ADMIN_ERROR_LOG=/dev/stderr
+      - KONG_ADMIN_LISTEN=0.0.0.0:8001
+      - KONG_PROXY_LISTEN=0.0.0.0:8000, 0.0.0.0:8443 ssl
+      - KONG_SSL_CERT=/kong/ssl/edge-terrarium.crt
+      - KONG_SSL_CERT_KEY=/kong/ssl/edge-terrarium.key
     
     # Volume mounts - configuration and certificates
     volumes:
-      # Mount custom nginx configuration
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      # Mount Kong declarative configuration
+      - ./kong/kong.yml:/kong/kong.yml:ro
       # Mount SSL certificate (read-only) - use absolute path from project root
-      - ../../certs/edge-terrarium.crt:/etc/nginx/ssl/edge-terrarium.crt:ro
+      - ../../certs/edge-terrarium.crt:/kong/ssl/edge-terrarium.crt:ro
       # Mount SSL private key (read-only) - use absolute path from project root
-      - ../../certs/edge-terrarium.key:/etc/nginx/ssl/edge-terrarium.key:ro
+      - ../../certs/edge-terrarium.key:/kong/ssl/edge-terrarium.key:ro
     
     # Dependencies - start these services first
     depends_on:
       - cdp-client                  # Wait for CDP client to be ready
       - service-sink                # Wait for service sink to be ready
+      - logthon                     # Wait for logthon to be ready
     
     # Network configuration
     # Networks in Docker Compose allow containers to communicate securely with each other
@@ -236,10 +291,11 @@ services:
     
     # Health check
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health"]
+      test: ["CMD", "kong", "health"]
       interval: 30s                 # Check every 30 seconds
       timeout: 10s                  # Wait 10 seconds for response
       retries: 3                    # Try 3 times before marking unhealthy
+      start_period: 40s             # Wait 40 seconds before first check
 
 # =============================================================================
 # VOLUMES

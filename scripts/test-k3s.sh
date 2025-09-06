@@ -263,6 +263,65 @@ else
 fi
 
 echo ""
+echo "Testing Logthon log aggregation service:"
+echo "========================================"
+
+# Test logthon health endpoint via Kong ingress
+echo "Testing Logthon health endpoint via Kong:"
+echo "----------------------------------------"
+response=$(curl -k -s -H "Host: localhost" --connect-timeout 2 --max-time 2 "https://localhost:8443/logs/health")
+if echo "$response" | grep -q "healthy"; then
+    echo "✓ Logthon health check via Kong - SUCCESS"
+    echo "Response: $response"
+else
+    echo "✗ Logthon health check via Kong - FAILED"
+    echo "Response: $response"
+    echo "Note: This is expected due to the /logs path routing issue in Kong"
+fi
+echo ""
+
+# Test logthon web UI via Kong ingress
+echo "Testing Logthon web UI via Kong:"
+echo "-------------------------------"
+response=$(curl -k -s -H "Host: localhost" --connect-timeout 2 --max-time 2 "https://localhost:8443/logs/")
+if echo "$response" | grep -q "Logthon"; then
+    echo "✓ Logthon web UI via Kong - SUCCESS"
+    echo "Web UI is accessible and contains expected content"
+else
+    echo "✗ Logthon web UI via Kong - FAILED"
+    echo "Response: $response"
+    echo "Note: This is expected due to the /logs path routing issue in Kong"
+fi
+echo ""
+
+# Test logthon API endpoint via Kong ingress
+echo "Testing Logthon API endpoint via Kong:"
+echo "------------------------------------"
+response=$(curl -k -s -H "Host: localhost" --connect-timeout 2 --max-time 2 "https://localhost:8443/logs/api/logs")
+if echo "$response" | grep -q "logs"; then
+    echo "✓ Logthon API endpoint via Kong - SUCCESS"
+    echo "Response: $response"
+else
+    echo "✗ Logthon API endpoint via Kong - FAILED"
+    echo "Response: $response"
+    echo "Note: This is expected due to the /logs path routing issue in Kong"
+fi
+echo ""
+
+# Test logthon via direct LoadBalancer (fallback)
+echo "Testing Logthon via direct LoadBalancer (fallback):"
+echo "--------------------------------------------------"
+response=$(curl -s --connect-timeout 2 --max-time 2 "http://localhost:5001/health")
+if echo "$response" | grep -q "healthy"; then
+    echo "✓ Logthon health check via LoadBalancer - SUCCESS"
+    echo "Response: $response"
+else
+    echo "✗ Logthon health check via LoadBalancer - FAILED"
+    echo "Response: $response"
+fi
+echo ""
+
+echo ""
 
 # Test Vault connectivity
 echo "Testing Vault connectivity:"
@@ -339,6 +398,77 @@ if [ -n "$NEWEST_CDP_POD" ]; then
     fi
 else
     echo "✗ No CDP client pods found"
+fi
+
+echo ""
+
+# Test Logthon connectivity from CDP client and service-sink
+echo "Testing Logthon connectivity from applications:"
+echo "=============================================="
+
+echo "Testing CDP client to Logthon connectivity:"
+echo "-------------------------------------------"
+if kubectl exec -n edge-terrarium deployment/cdp-client -- curl -s --connect-timeout 5 --max-time 5 http://logthon-ingress-service.edge-terrarium.svc.cluster.local:5000/health >/dev/null 2>&1; then
+    echo "✓ CDP client can connect to Logthon"
+else
+    echo "✗ CDP client cannot connect to Logthon"
+    echo "This indicates a networking or DNS issue"
+fi
+
+echo "Testing service-sink to Logthon connectivity:"
+echo "--------------------------------------------"
+if kubectl exec -n edge-terrarium deployment/service-sink -- curl -s --connect-timeout 5 --max-time 5 http://logthon-ingress-service.edge-terrarium.svc.cluster.local:5000/health >/dev/null 2>&1; then
+    echo "✓ Service-sink can connect to Logthon"
+else
+    echo "✗ Service-sink cannot connect to Logthon"
+    echo "This indicates a networking or DNS issue"
+fi
+
+echo ""
+
+# Test if logs are being sent to Logthon
+echo "Testing log aggregation functionality:"
+echo "====================================="
+
+echo "Checking Logthon logs for application messages:"
+echo "----------------------------------------------"
+LOGTHON_LOGS=$(kubectl logs -n edge-terrarium deployment/logthon --tail=50 2>/dev/null)
+
+if echo "$LOGTHON_LOGS" | grep -q "cdp-client.*Request:"; then
+    echo "✓ CDP client logs are being sent to Logthon"
+else
+    echo "✗ CDP client logs are NOT being sent to Logthon"
+    echo "This indicates the log sending functionality is not working"
+fi
+
+if echo "$LOGTHON_LOGS" | grep -q "service-sink.*Request:"; then
+    echo "✓ Service-sink logs are being sent to Logthon"
+else
+    echo "✗ Service-sink logs are NOT being sent to Logthon"
+    echo "This indicates the log sending functionality is not working"
+fi
+
+echo ""
+
+# Check for any "Failed to send log" errors in application logs
+echo "Checking for log sending errors:"
+echo "==============================="
+
+CDP_LOGS=$(kubectl logs -n edge-terrarium deployment/cdp-client --tail=50 2>/dev/null)
+SERVICE_SINK_LOGS=$(kubectl logs -n edge-terrarium deployment/service-sink --tail=50 2>/dev/null)
+
+if echo "$CDP_LOGS" | grep -q "Failed to send log to logthon"; then
+    echo "✗ CDP client has log sending errors:"
+    echo "$CDP_LOGS" | grep "Failed to send log to logthon"
+else
+    echo "✓ CDP client has no log sending errors"
+fi
+
+if echo "$SERVICE_SINK_LOGS" | grep -q "Failed to send log to logthon"; then
+    echo "✗ Service-sink has log sending errors:"
+    echo "$SERVICE_SINK_LOGS" | grep "Failed to send log to logthon"
+else
+    echo "✓ Service-sink has no log sending errors"
 fi
 
 echo ""

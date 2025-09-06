@@ -95,18 +95,18 @@ enable_kv_engine() {
 check_tls_certificates() {
     log_info "Checking for TLS certificates..."
     
-    local cert_file="$CERTS_DIR/terrarium.crt"
-    local key_file="$CERTS_DIR/terrarium.key"
+    local cert_file="$CERTS_DIR/edge-terrarium.crt"
+    local key_file="$CERTS_DIR/edge-terrarium.key"
     
     if [ ! -f "$cert_file" ]; then
         log_warning "TLS certificate not found at $cert_file"
-        log_info "Run './scripts/generate-certs.sh' to generate certificates"
+        log_info "Run './scripts/generate-tls-certs.sh' to generate certificates"
         return 1
     fi
     
     if [ ! -f "$key_file" ]; then
         log_warning "TLS private key not found at $key_file"
-        log_info "Run './scripts/generate-certs.sh' to generate certificates"
+        log_info "Run './scripts/generate-tls-certs.sh' to generate certificates"
         return 1
     fi
     
@@ -118,8 +118,8 @@ check_tls_certificates() {
 store_tls_certificates() {
     log_info "Storing TLS certificates in Vault..."
     
-    local cert_file="$CERTS_DIR/terrarium.crt"
-    local key_file="$CERTS_DIR/terrarium.key"
+    local cert_file="$CERTS_DIR/edge-terrarium.crt"
+    local key_file="$CERTS_DIR/edge-terrarium.key"
     
     # Read and base64 encode the certificate
     local cert_b64

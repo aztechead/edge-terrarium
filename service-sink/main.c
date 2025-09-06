@@ -9,6 +9,8 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <sys/stat.h>
+#include <curl/curl.h>
+#include <json-c/json.h>
 
 #define PORT 8080
 #define MAX_REQUEST_SIZE 1048576  // 1MB max request size
@@ -108,6 +110,59 @@ void extract_query_params(const char* path, char* query_params, size_t query_par
     }
 }
 
+// Function to send log to logthon
+void send_log_to_logthon(const char* level, const char* message) {
+    CURL *curl;
+    CURLcode res;
+    char logthon_url[256];
+    char json_payload[2048];
+    
+    // Get logthon URL from environment or use default
+    const char* logthon_host = getenv("LOGTHON_HOST");
+    if (!logthon_host) {
+        logthon_host = "logthon";
+    }
+    const char* logthon_port = getenv("LOGTHON_PORT");
+    if (!logthon_port) {
+        logthon_port = "5000";
+    }
+    
+    snprintf(logthon_url, sizeof(logthon_url), "http://%s:%s/api/logs", logthon_host, logthon_port);
+    
+    // Create JSON payload
+    snprintf(json_payload, sizeof(json_payload),
+        "{"
+        "\"service\":\"service-sink\","
+        "\"level\":\"%s\","
+        "\"message\":\"%s\","
+        "\"metadata\":{\"timestamp\":\"%ld\"}"
+        "}",
+        level, message, time(NULL));
+    
+    curl = curl_easy_init();
+    if (curl) {
+        struct curl_slist *headers = NULL;
+        headers = curl_slist_append(headers, "Content-Type: application/json");
+        
+        curl_easy_setopt(curl, CURLOPT_URL, logthon_url);
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, json_payload);
+        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+        curl_easy_setopt(curl, CURLOPT_TIMEOUT, 2L); // 2 second timeout
+        curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 1L); // 1 second connect timeout
+        
+        // Perform the request
+        res = curl_easy_perform(curl);
+        
+        // Cleanup
+        curl_slist_free_all(headers);
+        curl_easy_cleanup(curl);
+        
+        if (res != CURLE_OK) {
+            printf("Failed to send log to logthon: %s\n", curl_easy_strerror(res));
+        }
+    }
+}
+
 void log_request(const http_request_t* req, const char* client_ip) {
     time_t now = time(0);
     char timestamp[64];
@@ -159,6 +214,15 @@ void log_request(const http_request_t* req, const char* client_ip) {
     } else {
         printf("Failed to open file for logging: %s\n", strerror(errno));
     }
+    
+    // Send log to logthon
+    char log_message[1024];
+    snprintf(log_message, sizeof(log_message), 
+        "Request: %s %s from %s (Query: %s, Body: %d bytes)", 
+        req->method, req->path, client_ip,
+        strlen(query_params) > 0 ? query_params : "none",
+        req->body_length);
+    send_log_to_logthon("INFO", log_message);
 }
 
 void send_http_response(int client_socket, int status_code, const char* message) {
@@ -211,10 +275,15 @@ void handle_client(int client_socket, const char* client_ip) {
 
 int main() {
     printf("Service Sink starting...\n");
+    send_log_to_logthon("INFO", "Service Sink service starting up");
     
     // Create request directory
     printf("Creating request directory...\n");
     mkdir("/tmp/requests", 0755);
+    
+    // Initialize curl
+    printf("Initializing curl...\n");
+    curl_global_init(CURL_GLOBAL_DEFAULT);
     
     int server_socket = socket(AF_INET, SOCK_STREAM, 0);
     if (server_socket < 0) {
@@ -266,5 +335,9 @@ int main() {
     }
     
     close(server_socket);
+    
+    // Cleanup curl
+    curl_global_cleanup();
+    
     return 0;
 }

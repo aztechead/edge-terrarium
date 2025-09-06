@@ -12,24 +12,32 @@
 # - Resources: Storage size and other resource requirements
 # - Persistent Storage: Data that survives pod restarts
 #
+# Impact:
+# - Ensures Vault secrets persist across pod restarts and deployments
+# - Provides 1GB of local storage for Vault data
+# - Uses K3s local-path storage class for development
+# - Prevents data loss when Vault pod is recreated
+# - Enables Vault to maintain its unsealed state and stored secrets
+#
 # Documentation: https://kubernetes.io/docs/concepts/storage/persistent-volumes/
 # =============================================================================
 
 apiVersion: v1                        # Core API version for PersistentVolumeClaim resources
 kind: PersistentVolumeClaim           # Resource type - creates a persistent volume claim
 metadata:                             # Metadata about this PVC
-  name: vault-data-pvc                # Name of the PVC
+  name: vault-data-pvc                # Name of the PVC (referenced in vault-deployment.yaml)
   namespace: edge-terrarium           # Namespace where this PVC lives
   labels:                             # Labels for organization and selection
-    app: vault                        # Identifies this as a Vault storage
+    app: vault                        # Identifies this as a Vault storage component
     project: edge-terrarium           # Identifies this as part of the edge-terrarium project
     environment: development          # Identifies this as a development environment
 spec:                                 # Specification for the PVC
   # Access modes define how the storage can be accessed
   # ReadWriteOnce means the volume can be mounted as read-write by a single node
   # This is appropriate for Vault since it typically runs as a single instance
+  # and doesn't need to be accessed by multiple pods simultaneously
   accessModes:
-    - ReadWriteOnce                   # Single node read-write access
+    - ReadWriteOnce                   # Single node read-write access (RWO)
   
   # Storage class defines the type of storage to use
   # K3s uses local-path as the default storage class
@@ -37,10 +45,12 @@ spec:                                 # Specification for the PVC
   # - local-path: K3s default local storage (recommended for development)
   # - ssd: Solid state drive for better performance
   # - local-ssd: Local SSD storage
+  # - nfs: Network file system for shared storage
   storageClassName: "local-path"      # Use K3s local-path storage class
   
   # Resource requirements
   resources:                          # Resource specifications
     requests:                         # Minimum resources required
-      storage: 1Gi                    # Request 1GB of storage
+      storage: 1Gi                    # Request 1GB of storage (sufficient for development)
     # Note: No limits specified, so the PVC can use more storage if available
+    # In production, you might want to set limits to prevent runaway storage usage

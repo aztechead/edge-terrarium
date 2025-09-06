@@ -98,7 +98,7 @@ deploy_docker() {
     # Generate certificates if they don't exist
     if [ ! -f "certs/edge-terrarium.crt" ] || [ ! -f "certs/edge-terrarium.key" ]; then
         print_status "Generating TLS certificates..."
-        ./scripts/generate-certs.sh
+        ./scripts/generate-tls-certs.sh
     fi
     
     # Build images
@@ -168,44 +168,59 @@ deploy_k3s() {
         exit 1
     fi
     
-    # Generate certificates if they don't exist
-    if [ ! -f "certs/edge-terrarium.crt" ] || [ ! -f "certs/edge-terrarium.key" ]; then
-        print_status "Generating TLS certificates..."
-        ./scripts/generate-certs.sh
-    fi
+    # Generate certificates and create K3s secret
+    print_status "Generating TLS certificates and creating K3s secret..."
+    ./scripts/create-k3s-tls-secret.sh
     
     # Build images for K3s
     print_status "Building Docker images for K3s..."
     ./scripts/build-images-k3s.sh
     
-    # Note: K3s comes with Traefik by default, but we're using Kong
-    print_status "Note: K3s comes with Traefik by default, but we're using Kong ingress controller"
-    print_status "Make sure Kong ingress controller is installed in your K3s cluster"
+    # Import images into k3d cluster
+    print_status "Importing Docker images into k3d cluster..."
+    k3d image import edge-terrarium-cdp-client:latest -c edge-terrarium
+    k3d image import edge-terrarium-service-sink:latest -c edge-terrarium
+    k3d image import edge-terrarium-logthon:latest -c edge-terrarium
     
-    # Apply base Kubernetes configurations (excluding problematic ingress)
-    print_status "Applying base Kubernetes configurations..."
-    kubectl apply -f configs/k3s/namespace.yaml
-    kubectl apply -f configs/k3s/vault-config.yaml
-    kubectl apply -f configs/k3s/vault-pvc.yaml
-    kubectl apply -f configs/k3s/vault-service.yaml
-    kubectl apply -f configs/k3s/services.yaml
-    kubectl apply -f configs/k3s/cdp-client-deployment.yaml
-    kubectl apply -f configs/k3s/service-sink-deployment.yaml
+    # Install Kong ingress controller (lightweight configuration)
+    print_status "Installing Kong ingress controller..."
+    helm repo add kong https://charts.konghq.com >/dev/null 2>&1 || true
+    helm repo update >/dev/null 2>&1
     
-    # Apply TLS secret
-    print_status "Applying TLS secret..."
-    kubectl apply -f certs/edge-terrarium-tls-secret.yaml
+    # Uninstall any existing Kong installation
+    helm uninstall kong >/dev/null 2>&1 || true
+    sleep 2
     
-    # Apply K3s-specific configurations
-    print_status "Applying K3s-specific configurations..."
-    kubectl apply -f configs/k3s/vault-deployment.yaml
-    kubectl apply -f configs/k3s/vault-init-job.yaml
-    kubectl apply -f configs/k3s/ingress.yaml
+    # Install Kong with K3s-compatible configuration
+    helm install kong kong/kong \
+        --set ingressController.enabled=true \
+        --set ingressController.ingressClass=kong \
+        --set admin.enabled=false \
+        --set manager.enabled=false \
+        --set portal.enabled=false \
+        --set postgresql.enabled=false \
+        --set replicaCount=1 \
+        --set proxy.type=NodePort \
+        --set proxy.http.nodePort=30080 \
+        --set proxy.tls.nodePort=30443 \
+        --set resources.requests.memory=128Mi \
+        --set resources.requests.cpu=100m \
+        --set resources.limits.memory=256Mi \
+        --set resources.limits.cpu=200m \
+        >/dev/null 2>&1
+    
+    print_status "Waiting for Kong to be ready..."
+    kubectl wait --for=condition=ready pod -l app=kong-kong -n default --timeout=120s >/dev/null 2>&1
+    
+    # Apply all Kubernetes configurations using kustomize
+    print_status "Applying Kubernetes configurations using kustomize..."
+    kubectl apply -k configs/k3s/
     
     # Wait for deployment to be ready
     print_status "Waiting for deployment to be ready..."
     kubectl wait --for=condition=available --timeout=300s deployment/cdp-client -n edge-terrarium
     kubectl wait --for=condition=available --timeout=300s deployment/service-sink -n edge-terrarium
+    kubectl wait --for=condition=available --timeout=300s deployment/logthon -n edge-terrarium
     kubectl wait --for=condition=available --timeout=300s deployment/vault -n edge-terrarium
     
     # Wait for Vault init job to complete

@@ -11,6 +11,13 @@
 # - Port: External port that the service exposes
 # - TargetPort: Port on the Pod that receives the traffic
 #
+# Impact:
+# - Provides stable network access to application pods
+# - Enables service discovery within the cluster
+# - Routes traffic to pods with matching labels
+# - Creates DNS names for internal cluster communication
+# - Enables ingress controller to route external traffic
+#
 # Documentation: https://kubernetes.io/docs/concepts/services-networking/service/
 # =============================================================================
 
@@ -23,7 +30,7 @@
 apiVersion: v1                    # Core API version for Service resources
 kind: Service                     # Resource type - creates a service
 metadata:                         # Metadata about this service
-  name: cdp-client-service        # Name of the service
+  name: cdp-client-service        # Name of the service (used in DNS resolution)
   namespace: edge-terrarium       # Namespace where this resource lives
   labels:                         # Labels for organizing resources
     app: cdp-client               # Identifies this service as part of the CDP client app
@@ -37,6 +44,7 @@ spec:                             # Specification of the service
     name: http                    # Name for referencing this port
   
   # Selector defines which Pods this service routes traffic to
+  # Must match the labels in the CDP client deployment pod template
   selector:
     app: cdp-client               # Routes traffic to Pods with this label
 
@@ -49,7 +57,7 @@ spec:                             # Specification of the service
 apiVersion: v1                    # Core API version for Service resources
 kind: Service                     # Resource type - creates a service
 metadata:                         # Metadata about this service
-  name: service-sink-service      # Name of the service
+  name: service-sink-service      # Name of the service (used in DNS resolution)
   namespace: edge-terrarium       # Namespace where this resource lives
   labels:                         # Labels for organizing resources
     app: service-sink             # Identifies this service as part of the service-sink app
@@ -63,5 +71,6 @@ spec:                             # Specification of the service
     name: http                    # Name for referencing this port
   
   # Selector defines which Pods this service routes traffic to
+  # Must match the labels in the service-sink deployment pod template
   selector:
     app: service-sink             # Routes traffic to Pods with this label
