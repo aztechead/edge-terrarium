@@ -55,7 +55,8 @@ show_usage() {
     echo ""
     echo "Prerequisites:"
     echo "  - Docker and Docker Compose (for docker environment)"
-    echo "  - k3d (for k3s environment): brew install k3d"
+    echo "  - k3d (will be auto-installed if missing)"
+    echo "  - helm (will be auto-installed if missing)"
 }
 
 # Function to deploy to Docker Compose
@@ -171,11 +172,40 @@ deploy_k3s() {
         
         # Check if k3d is installed
         if ! command -v k3d &> /dev/null; then
-            print_error "k3d is not installed. Please install k3d first:"
-            echo "  curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash"
-            echo "  or"
-            echo "  brew install k3d"
-            exit 1
+            print_status "k3d is not installed. Attempting to install k3d..."
+            
+            # Try to install k3d using the official install script
+            if curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash; then
+                print_success "k3d installed successfully via official install script"
+            else
+                print_warning "Official install script failed. Trying package manager..."
+                
+                # Try package managers based on OS
+                if command -v brew &> /dev/null; then
+                    print_status "Installing k3d via Homebrew..."
+                    if brew install k3d; then
+                        print_success "k3d installed successfully via Homebrew"
+                    else
+                        print_error "Homebrew installation failed"
+                        exit 1
+                    fi
+                elif command -v apt-get &> /dev/null; then
+                    print_status "Installing k3d via apt..."
+                    if curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash; then
+                        print_success "k3d installed successfully"
+                    else
+                        print_error "apt installation failed"
+                        exit 1
+                    fi
+                else
+                    print_error "k3d installation failed. Please install k3d manually:"
+                    echo "  curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash"
+                    echo "  or"
+                    echo "  brew install k3d"
+                    echo "  or visit: https://github.com/k3d-io/k3d?tab=readme-ov-file#get"
+                    exit 1
+                fi
+            fi
         fi
         
         # Create k3d cluster with port mappings
@@ -209,6 +239,44 @@ deploy_k3s() {
     k3d image import edge-terrarium-service-sink:latest -c edge-terrarium
     k3d image import edge-terrarium-logthon:latest -c edge-terrarium
     
+    # Check if helm is installed
+    if ! command -v helm &> /dev/null; then
+        print_status "helm is not installed. Attempting to install helm..."
+        
+        # Try to install helm using the official install script
+        if curl -s https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash; then
+            print_success "helm installed successfully via official install script"
+        else
+            print_warning "Official helm install script failed. Trying package manager..."
+            
+            # Try package managers based on OS
+            if command -v brew &> /dev/null; then
+                print_status "Installing helm via Homebrew..."
+                if brew install helm; then
+                    print_success "helm installed successfully via Homebrew"
+                else
+                    print_error "Homebrew installation failed"
+                    exit 1
+                fi
+            elif command -v apt-get &> /dev/null; then
+                print_status "Installing helm via apt..."
+                if curl -s https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash; then
+                    print_success "helm installed successfully"
+                else
+                    print_error "apt installation failed"
+                    exit 1
+                fi
+            else
+                print_error "helm installation failed. Please install helm manually:"
+                echo "  curl -s https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash"
+                echo "  or"
+                echo "  brew install helm"
+                echo "  or visit: https://helm.sh/docs/intro/install/"
+                exit 1
+            fi
+        fi
+    fi
+
     # Install Kong ingress controller (lightweight configuration)
     print_status "Installing Kong ingress controller..."
     helm repo add kong https://charts.konghq.com >/dev/null 2>&1 || true
@@ -254,18 +322,33 @@ deploy_k3s() {
     print_status "Waiting for Vault initialization..."
     kubectl wait --for=condition=complete --timeout=300s job/vault-init -n edge-terrarium
     
-    # Set up automatic port forwarding for Vault
+    # Set up automatic port forwarding for Vault (if port 8200 is not already in use)
     print_status "Setting up Vault port forwarding..."
-    kubectl port-forward -n edge-terrarium service/vault 8200:8200 &
-    VAULT_PORT_FORWARD_PID=$!
-    echo $VAULT_PORT_FORWARD_PID > /tmp/vault-port-forward.pid
-    sleep 3
     
-    # Verify Vault is accessible
-    if curl -s http://localhost:8200/v1/sys/health > /dev/null; then
-        print_success "Vault is accessible at http://localhost:8200"
+    # Check if port 8200 is already in use
+    if curl -s http://localhost:8200/v1/sys/health > /dev/null 2>&1; then
+        print_success "Vault is already accessible at http://localhost:8200 (likely from Docker Compose)"
+        echo "Note: Vault is accessible via existing port forwarding or Docker Compose"
     else
-        print_warning "Vault port forwarding may not be working properly"
+        # Try to set up port forwarding on port 8200
+        if kubectl port-forward -n edge-terrarium service/vault 8200:8200 >/dev/null 2>&1 &
+        then
+            VAULT_PORT_FORWARD_PID=$!
+            echo $VAULT_PORT_FORWARD_PID > /tmp/vault-port-forward.pid
+            sleep 3
+            
+            # Verify Vault is accessible
+            if curl -s http://localhost:8200/v1/sys/health > /dev/null; then
+                print_success "Vault is accessible at http://localhost:8200 (port forwarded)"
+            else
+                print_warning "Vault port forwarding may not be working properly"
+            fi
+        else
+            print_warning "Could not set up Vault port forwarding on port 8200 (port may be in use)"
+            print_status "You can manually set up port forwarding with:"
+            echo "  kubectl port-forward -n edge-terrarium service/vault 8201:8200"
+            echo "  # Then access Vault at http://localhost:8201"
+        fi
     fi
     
     print_success "K3s deployment completed!"

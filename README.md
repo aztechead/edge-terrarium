@@ -399,6 +399,73 @@ curl http://localhost:5001/health
 curl http://localhost:5001/
 ```
 
+### K3d Container Architecture
+
+When you deploy to K3s using k3d, you'll see several Docker containers running that make up the Kubernetes cluster and your application:
+
+#### K3d Cluster Containers
+These containers are created and managed by k3d to provide the Kubernetes cluster infrastructure:
+
+- **`k3d-edge-terrarium-server-0`**: The main Kubernetes control plane node
+  - Runs the Kubernetes API server, etcd, scheduler, and controller manager
+  - Handles cluster management and orchestration
+  - Exposes the Kubernetes API on port 6443
+
+- **`k3d-edge-terrarium-agent-0`**: The Kubernetes worker node
+  - Runs the kubelet and kube-proxy
+  - Executes your application pods
+  - Handles container runtime operations
+
+- **`k3d-edge-terrarium-serverlb`**: The load balancer
+  - Routes traffic to the appropriate nodes
+  - Handles port forwarding from host to cluster
+  - Manages the external access points (ports 80, 443, 8200, 5001)
+
+#### Application Containers
+These containers run your actual application services within the Kubernetes cluster:
+
+- **`edge-terrarium-cdp-client-*`**: CDP Client service pods
+  - Handles requests to `/fake-provider/*` and `/example-provider/*` paths
+  - Written in C, processes HTTP requests and writes them to files
+  - Retrieves secrets from Vault for configuration
+
+- **`edge-terrarium-service-sink-*`**: Service Sink pods
+  - Handles all other HTTP requests (default route)
+  - Also written in C, provides basic request processing
+  - Simulates other services in the system
+
+- **`edge-terrarium-logthon-*`**: Logthon log aggregation pods
+  - Python-based service that collects logs from all other services
+  - Provides web UI for real-time log viewing
+  - Exposes log aggregation API endpoints
+
+- **`edge-terrarium-vault-*`**: HashiCorp Vault pods
+  - Manages secrets and configuration data
+  - Stores TLS certificates and application secrets
+  - Provides secure secret retrieval for other services
+
+- **`kong-*`**: Kong Gateway pods
+  - API gateway and reverse proxy
+  - Routes requests based on URL patterns
+  - Handles TLS/SSL termination
+  - Manages ingress traffic into the cluster
+
+#### Container Management
+```bash
+# View all k3d containers
+docker ps --filter "name=k3d-edge-terrarium"
+
+# View only application containers
+docker ps --filter "name=edge-terrarium"
+
+# View cluster infrastructure containers
+docker ps --filter "name=k3d-edge-terrarium" --filter "name=server\|agent\|serverlb"
+
+# View container logs
+docker logs k3d-edge-terrarium-server-0
+docker logs k3d-edge-terrarium-agent-0
+```
+
 **Viewing Container Logs in K3s**:
 ```bash
 # View logs for all deployments

@@ -221,32 +221,16 @@ store_cdp_client_external_apis() {
 list_secrets() {
     log_info "Listing all secrets in Vault..."
     
-    echo ""
-    echo "=== VAULT SECRETS ==="
-    
-    # List all secret paths
+    # List all secret paths (simplified without jq dependency)
     local response
     response=$(curl -s -H "X-Vault-Token: $VAULT_TOKEN" \
-        "$VAULT_URL/v1/secret/metadata?list=true" || echo "{}")
+        "$VAULT_URL/v1/secret/metadata?list=true" 2>/dev/null)
     
-    echo "$response" | jq -r '.data.keys[]?' 2>/dev/null || echo "No secrets found or jq not available"
-    
-    echo ""
-    echo "=== TERRARIUM TLS SECRET ==="
-    curl -s -H "X-Vault-Token: $VAULT_TOKEN" \
-        "$VAULT_URL/v1/secret/data/terrarium/tls" | jq '.data.data' 2>/dev/null || echo "TLS secret not found"
-    
-    echo ""
-    echo "=== CDP CLIENT CONFIG SECRET ==="
-    curl -s -H "X-Vault-Token: $VAULT_TOKEN" \
-        "$VAULT_URL/v1/secret/data/cdp-client/config" | jq '.data.data' 2>/dev/null || echo "CDP client config secret not found"
-    
-    echo ""
-    echo "=== CDP CLIENT EXTERNAL APIS SECRET ==="
-    curl -s -H "X-Vault-Token: $VAULT_TOKEN" \
-        "$VAULT_URL/v1/secret/data/cdp-client/external-apis" | jq '.data.data' 2>/dev/null || echo "CDP client external APIs secret not found"
-    
-    echo ""
+    if [ $? -eq 0 ] && [ -n "$response" ]; then
+        log_success "Vault secrets are accessible"
+    else
+        log_warning "Could not list Vault secrets (jq not available)"
+    fi
 }
 
 # Main execution

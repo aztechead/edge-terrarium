@@ -125,7 +125,9 @@ test_logthon() {
     if [ "$response" = "200" ]; then
         echo "✓ Logthon API endpoint - SUCCESS"
         if [ -f /tmp/response.json ]; then
-            echo "Response: $(cat /tmp/response.json)"
+            # Count the number of logs in the response
+            log_count=$(grep -o '"id":' /tmp/response.json | wc -l)
+            echo "  ✓ Found $log_count log entries"
         fi
     else
         echo "✗ Logthon API endpoint - FAILED (HTTP $response)"
@@ -324,7 +326,12 @@ echo "=========================="
 if docker-compose -f configs/docker/docker-compose.yml -p c-edge-terrarium ps | grep -q "Up"; then
     echo "Docker Compose logs:"
     echo "CDP Client request files:"
-    docker exec edge-terrarium-cdp-client ls -la /tmp/requests/ 2>/dev/null || echo "No request files found"
+    file_count=$(docker exec edge-terrarium-cdp-client ls -1 /tmp/requests/ 2>/dev/null | wc -l)
+    if [ "$file_count" -gt 0 ]; then
+        echo "  ✓ Found $file_count request files"
+    else
+        echo "  No request files found"
+    fi
     echo ""
 fi
 
