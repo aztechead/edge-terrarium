@@ -21,6 +21,13 @@ docker build \
   -t edge-terrarium-service-sink:latest \
   ./service-sink
 
+# Build Logthon
+echo "Building Logthon image..."
+docker build \
+  --platform linux/amd64,linux/arm64 \
+  -t edge-terrarium-logthon:latest \
+  ./logthon
+
 echo "All images built successfully!"
 echo ""
 echo "Available images:"

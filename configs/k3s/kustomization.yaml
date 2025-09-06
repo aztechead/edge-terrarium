@@ -45,6 +45,7 @@ resources:
   - logthon-ingress-service.yaml     # Logthon ClusterIP service (ingress routing)
   - services.yaml                    # Kubernetes services for both applications
   - ingress.yaml                     # Ingress configuration for routing with Kong
+  - logthon-ingress.yaml             # Logthon-specific ingress with path stripping
 
 # Common labels applied to all resources
 # These labels help with organization and resource selection

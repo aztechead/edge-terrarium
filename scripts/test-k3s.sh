@@ -276,7 +276,6 @@ if echo "$response" | grep -q "healthy"; then
 else
     echo "✗ Logthon health check via Kong - FAILED"
     echo "Response: $response"
-    echo "Note: This is expected due to the /logs path routing issue in Kong"
 fi
 echo ""
 
@@ -290,7 +289,6 @@ if echo "$response" | grep -q "Logthon"; then
 else
     echo "✗ Logthon web UI via Kong - FAILED"
     echo "Response: $response"
-    echo "Note: This is expected due to the /logs path routing issue in Kong"
 fi
 echo ""
 
@@ -304,7 +302,6 @@ if echo "$response" | grep -q "logs"; then
 else
     echo "✗ Logthon API endpoint via Kong - FAILED"
     echo "Response: $response"
-    echo "Note: This is expected due to the /logs path routing issue in Kong"
 fi
 echo ""
 

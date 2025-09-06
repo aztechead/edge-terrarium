@@ -1,11 +1,28 @@
 #!/bin/bash
 
 # Build script for Edge-Terrarium Docker images in K3s environment
-# Single platform build for K3s compatibility
+# Auto-detects platform and builds for appropriate architecture
 
 set -e
 
 echo "Building Edge-Terrarium Docker images for K3s..."
+
+# Detect host architecture
+HOST_ARCH=$(uname -m)
+case $HOST_ARCH in
+    x86_64)
+        PLATFORM="linux/amd64"
+        echo "Detected AMD64 architecture, building for linux/amd64"
+        ;;
+    arm64|aarch64)
+        PLATFORM="linux/arm64"
+        echo "Detected ARM64 architecture, building for linux/arm64"
+        ;;
+    *)
+        echo "Warning: Unknown architecture $HOST_ARCH, defaulting to linux/amd64"
+        PLATFORM="linux/amd64"
+        ;;
+esac
 
 # Check if we're in K3s environment
 if ! docker info | grep -q "k3s"; then
@@ -14,24 +31,24 @@ if ! docker info | grep -q "k3s"; then
     echo "Note: K3s typically uses containerd, but docker images can be loaded manually"
 fi
 
-# Build CDP Client (single platform for K3s)
-echo "Building CDP Client image..."
+# Build CDP Client (platform-specific for K3s)
+echo "Building CDP Client image for $PLATFORM..."
 docker build \
-  --platform linux/arm64 \
+  --platform $PLATFORM \
   -t edge-terrarium-cdp-client:latest \
   ./cdp-client
 
-# Build Service Sink (single platform for K3s)
-echo "Building Service Sink image..."
+# Build Service Sink (platform-specific for K3s)
+echo "Building Service Sink image for $PLATFORM..."
 docker build \
-  --platform linux/arm64 \
+  --platform $PLATFORM \
   -t edge-terrarium-service-sink:latest \
   ./service-sink
 
-# Build Logthon (single platform for K3s)
-echo "Building Logthon image..."
+# Build Logthon (platform-specific for K3s)
+echo "Building Logthon image for $PLATFORM..."
 docker build \
-  --platform linux/arm64 \
+  --platform $PLATFORM \
   -t edge-terrarium-logthon:latest \
   ./logthon
 

@@ -217,11 +217,25 @@ This project supports two deployment environments for different use cases:
 
 **For Docker Compose**:
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/) (Windows/Mac/Linux)
+- Supports both AMD64 and ARM64 architectures
 
 **For K3s**:
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/) (Windows/Mac/Linux)
 - [kubectl](https://kubernetes.io/docs/tasks/tools/) (Windows/Mac/Linux)
 - [k3d](https://k3d.io/) (K3s in Docker)
+- Supports both AMD64 and ARM64 architectures (auto-detected)
+
+### Platform Compatibility
+
+This project automatically detects your host architecture and builds appropriate Docker images:
+
+- **AMD64 (x86_64)**: Intel/AMD processors on Windows, Mac, and Linux
+- **ARM64 (aarch64)**: Apple Silicon Macs, ARM-based Linux systems
+
+The build scripts will automatically:
+- Detect your host architecture using `uname -m`
+- Build Docker images for the appropriate platform
+- Ensure compatibility with your k3d cluster architecture
 
 ### Cross-Platform Deployment Commands
 
@@ -341,6 +355,7 @@ curl http://localhost:5001/
 k3d cluster create edge-terrarium --port "80:80@loadbalancer" --port "443:443@loadbalancer" --port "8200:8200@loadbalancer" --port "5001:5001@loadbalancer"
 
 # Note: K3s comes with Traefik by default, but we use Kong ingress controller
+# The cluster will automatically match your host architecture (AMD64/ARM64)
 ```
 
 **Deploy to K3s**:
@@ -739,6 +754,31 @@ kubectl logs -n edge-terrarium deployment/logthon
 ```
 
 ### Troubleshooting Common Issues
+
+#### Platform Compatibility Issues
+
+**Architecture Mismatch Errors**:
+```bash
+# If you see "no match for platform in manifest" errors:
+# 1. Check your host architecture
+uname -m
+
+# 2. Rebuild images for your platform
+./scripts/build-images-k3s.sh
+
+# 3. Re-import images into k3d cluster
+k3d image import edge-terrarium-cdp-client:latest -c edge-terrarium
+k3d image import edge-terrarium-service-sink:latest -c edge-terrarium
+k3d image import edge-terrarium-logthon:latest -c edge-terrarium
+```
+
+**Docker Buildx Issues on Windows/Mac**:
+```bash
+# Enable Docker Buildx for multi-platform builds
+docker buildx create --use
+
+# If buildx is not available, the scripts will fall back to single-platform builds
+```
 
 #### Docker Compose Issues
 

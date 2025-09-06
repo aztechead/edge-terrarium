@@ -66,15 +66,6 @@ spec:                               # Specification for the ingress
             port:
               number: 1337          # Port number on the service
       
-      # Route /logs/* to Logthon
-      - path: /logs                 # Path to match
-        pathType: Prefix            # Match paths that start with this prefix
-        backend:                    # Backend service to route to
-          service:
-            name: logthon-ingress-service   # Name of the ingress-specific service
-            port:
-              number: 5000          # Port number on the service
-      
       # Route all other requests to Service Sink (default route)
       - path: /                     # Path to match (root path)
         pathType: Prefix            # Match paths that start with this prefix
@@ -103,15 +94,6 @@ spec:                               # Specification for the ingress
             name: cdp-client-service # Name of the service
             port:
               number: 1337          # Port number on the service
-      
-      # Route /logs/* to Logthon
-      - path: /logs                 # Path to match
-        pathType: Prefix            # Match paths that start with this prefix
-        backend:                    # Backend service to route to
-          service:
-            name: logthon-ingress-service   # Name of the ingress-specific service
-            port:
-              number: 5000          # Port number on the service
       
       # Route all other requests to Service Sink (default route)
       - path: /                     # Path to match (root path)
