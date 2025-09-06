@@ -339,19 +339,33 @@ if timeout_cmd 15 kubectl exec -n edge-terrarium deployment/vault -- vault kv ge
     echo "========================="
     
     echo "=== VAULT SECRETS ==="
-    kubectl exec -n edge-terrarium deployment/vault -- vault kv list secret/ 2>/dev/null || echo "No secrets found"
+    secret_count=$(kubectl exec -n edge-terrarium deployment/vault -- vault kv list secret/ 2>/dev/null | wc -l)
+    if [ "$secret_count" -gt 0 ]; then
+        echo "✓ Found $secret_count secret paths in Vault"
+    else
+        echo "No secrets found"
+    fi
     echo ""
     
-    echo "=== TERRARIUM TLS SECRET ==="
-    kubectl exec -n edge-terrarium deployment/vault -- vault kv get -format=json secret/terrarium/tls 2>/dev/null | jq -r '.data.data' 2>/dev/null || echo "TLS secret not found"
-    echo ""
+    # Test if specific secrets exist (without jq dependency)
+    echo "Testing Vault secrets..."
+    if kubectl exec -n edge-terrarium deployment/vault -- vault kv get secret/terrarium/tls >/dev/null 2>&1; then
+        echo "✓ TLS certificates secret found"
+    else
+        echo "✗ TLS certificates secret not found"
+    fi
     
-    echo "=== CDP CLIENT CONFIG SECRET ==="
-    kubectl exec -n edge-terrarium deployment/vault -- vault kv get -format=json secret/cdp-client/config 2>/dev/null | jq -r '.data.data' 2>/dev/null || echo "CDP client config secret not found"
-    echo ""
+    if kubectl exec -n edge-terrarium deployment/vault -- vault kv get secret/cdp-client/config >/dev/null 2>&1; then
+        echo "✓ CDP client config secret found"
+    else
+        echo "✗ CDP client config secret not found"
+    fi
     
-    echo "=== CDP CLIENT EXTERNAL APIS SECRET ==="
-    kubectl exec -n edge-terrarium deployment/vault -- vault kv get -format=json secret/cdp-client/external-apis 2>/dev/null | jq -r '.data.data' 2>/dev/null || echo "CDP client external APIs secret not found"
+    if kubectl exec -n edge-terrarium deployment/vault -- vault kv get secret/cdp-client/external-apis >/dev/null 2>&1; then
+        echo "✓ CDP client external APIs secret found"
+    else
+        echo "✗ CDP client external APIs secret not found"
+    fi
     echo ""
 else
     echo "✗ Vault secrets are not accessible"

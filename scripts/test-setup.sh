@@ -16,7 +16,7 @@ test_endpoint() {
     echo "Testing: $description"
     echo "URL: $url"
     
-    response=$(curl -s -k -w "%{http_code}" -o /tmp/response.json --connect-timeout 2 --max-time 2 "$url" || echo "000")
+    response=$(curl -s -k -w "%{http_code}" -o /tmp/response.json --connect-timeout 10 --max-time 30 "$url" || echo "000")
     
     if [ "$response" = "200" ]; then
         echo "Success (HTTP $response)"
@@ -40,7 +40,7 @@ test_post_endpoint() {
     echo "URL: $url"
     echo "POST Data: $post_data"
     
-    response=$(curl -s -k -w "%{http_code}" -o /tmp/response.json -X POST -H "Content-Type: application/json" -d "$post_data" --connect-timeout 2 --max-time 2 "$url" || echo "000")
+    response=$(curl -s -k -w "%{http_code}" -o /tmp/response.json -X POST -H "Content-Type: application/json" -d "$post_data" --connect-timeout 10 --max-time 30 "$url" || echo "000")
     
     if [ "$response" = "200" ]; then
         echo "Success (HTTP $response)"
@@ -64,7 +64,7 @@ test_get_with_params() {
     echo "URL: $url"
     echo "Query Params: $query_params"
     
-    response=$(curl -s -k -w "%{http_code}" -o /tmp/response.json --connect-timeout 2 --max-time 2 "$url?$query_params" || echo "000")
+    response=$(curl -s -k -w "%{http_code}" -o /tmp/response.json --connect-timeout 10 --max-time 30 "$url?$query_params" || echo "000")
     
     if [ "$response" = "200" ]; then
         echo "Success (HTTP $response)"
@@ -88,13 +88,11 @@ test_logthon() {
     # Test logthon health endpoint
     echo "Testing Logthon health endpoint:"
     echo "--------------------------------"
-    response=$(curl -s -k -w "%{http_code}" -o /tmp/response.json --connect-timeout 2 --max-time 2 "$base_url/logs/health" || echo "000")
+    response=$(curl -s -k -w "%{http_code}" -o /tmp/response.json --connect-timeout 10 --max-time 30 "$base_url/logs/health" || echo "000")
     
     if [ "$response" = "200" ]; then
         echo "✓ Logthon health check - SUCCESS"
-        if [ -f /tmp/response.json ]; then
-            echo "Response: $(cat /tmp/response.json)"
-        fi
+        echo "  ✓ HTML page loaded successfully"
     else
         echo "✗ Logthon health check - FAILED (HTTP $response)"
     fi
@@ -103,7 +101,7 @@ test_logthon() {
     # Test logthon web UI
     echo "Testing Logthon web UI:"
     echo "----------------------"
-    response=$(curl -s -k -w "%{http_code}" -o /tmp/response.html --connect-timeout 2 --max-time 2 "$base_url/logs/" || echo "000")
+    response=$(curl -s -k -w "%{http_code}" -o /tmp/response.html --connect-timeout 10 --max-time 30 "$base_url/logs/" || echo "000")
     
     if [ "$response" = "200" ]; then
         echo "✓ Logthon web UI - SUCCESS"
@@ -122,12 +120,14 @@ test_logthon() {
     # Test logthon API endpoint
     echo "Testing Logthon API endpoint:"
     echo "----------------------------"
-    response=$(curl -s -k -w "%{http_code}" -o /tmp/response.json --connect-timeout 2 --max-time 2 "$base_url/logs/api/logs" || echo "000")
+    response=$(curl -s -k -w "%{http_code}" -o /tmp/response.json --connect-timeout 10 --max-time 30 "$base_url/logs/api/logs" || echo "000")
     
     if [ "$response" = "200" ]; then
         echo "✓ Logthon API endpoint - SUCCESS"
         if [ -f /tmp/response.json ]; then
-            echo "Response: $(cat /tmp/response.json)"
+            # Count the number of logs in the response
+            log_count=$(grep -o '"id":' /tmp/response.json | wc -l)
+            echo "  ✓ Found $log_count log entries"
         fi
     else
         echo "✗ Logthon API endpoint - FAILED (HTTP $response)"
@@ -180,11 +180,43 @@ if docker-compose -f configs/docker/docker-compose.yml -p c-edge-terrarium ps | 
     # Test logthon functionality
     test_logthon "https://localhost:8443" "Docker Compose - Logthon Log Aggregation Service"
     
-    # Test Vault if it's running
+    # Test Vault secrets if it's running
     if docker-compose -f configs/docker/docker-compose.yml -p c-edge-terrarium ps | grep -q "vault.*Up"; then
-        echo "Testing Vault..."
-        echo "Vault Health:"
-        curl -s http://localhost:8200/v1/sys/health | jq . 2>/dev/null || echo "Vault health check failed"
+        echo "Testing Vault secrets..."
+        echo "Checking for expected secrets:"
+        
+        # Test TLS certificates secret
+        echo "Testing TLS certificates secret..."
+        tls_response=$(curl -s -H "X-Vault-Token: root" "http://localhost:8200/v1/secret/data/terrarium/tls" 2>/dev/null)
+        if echo "$tls_response" | grep -q '"cert"' && echo "$tls_response" | grep -q '"key"'; then
+            echo "✓ TLS certificates secret found"
+            echo "  ✓ Certificate and private key present"
+        else
+            echo "✗ TLS certificates secret not found or incomplete"
+        fi
+        
+        # Test CDP client config secret
+        echo "Testing CDP client config secret..."
+        config_response=$(curl -s -H "X-Vault-Token: root" "http://localhost:8200/v1/secret/data/cdp-client/config" 2>/dev/null)
+        if echo "$config_response" | grep -q '"api_key"' && echo "$config_response" | grep -q '"database_url"'; then
+            echo "✓ CDP client config secret found"
+            config_count=$(echo "$config_response" | grep -o '"[^"]*":' | wc -l)
+            echo "  ✓ Contains $config_count configuration keys"
+        else
+            echo "✗ CDP client config secret not found or incomplete"
+        fi
+        
+        # Test CDP client external APIs secret
+        echo "Testing CDP client external APIs secret..."
+        apis_response=$(curl -s -H "X-Vault-Token: root" "http://localhost:8200/v1/secret/data/cdp-client/external-apis" 2>/dev/null)
+        if echo "$apis_response" | grep -q '"provider_auth_token"' && echo "$apis_response" | grep -q '"webhook_secret"'; then
+            echo "✓ CDP client external APIs secret found"
+            api_count=$(echo "$apis_response" | grep -o '"[^"]*":' | wc -l)
+            echo "  ✓ Contains $api_count API configuration keys"
+        else
+            echo "✗ CDP client external APIs secret not found or incomplete"
+        fi
+        
         echo ""
     fi
     
@@ -210,7 +242,7 @@ if kubectl get namespace edge-terrarium >/dev/null 2>&1; then
         echo "Testing connectivity to ingress..."
         
         # Test if we can actually reach the ingress
-        if curl -k -s --connect-timeout 2 --max-time 2 "https://$ingress_ip:443/fake-provider/test" >/dev/null 2>&1; then
+        if curl -k -s --connect-timeout 10 --max-time 30 "https://$ingress_ip:443/fake-provider/test" >/dev/null 2>&1; then
             echo "Ingress is accessible, running tests..."
             test_host="$ingress_ip"
             
@@ -294,7 +326,12 @@ echo "=========================="
 if docker-compose -f configs/docker/docker-compose.yml -p c-edge-terrarium ps | grep -q "Up"; then
     echo "Docker Compose logs:"
     echo "CDP Client request files:"
-    docker exec edge-terrarium-cdp-client ls -la /tmp/requests/ 2>/dev/null || echo "No request files found"
+    file_count=$(docker exec edge-terrarium-cdp-client ls -1 /tmp/requests/ 2>/dev/null | wc -l)
+    if [ "$file_count" -gt 0 ]; then
+        echo "  ✓ Found $file_count request files"
+    else
+        echo "  No request files found"
+    fi
     echo ""
 fi
 

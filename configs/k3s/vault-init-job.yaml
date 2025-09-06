@@ -44,18 +44,43 @@ spec:                                  # Specification for the job
         command: ['sh', '-c']        # Override the default entrypoint
         args:                        # Arguments for the command
           - |                        # Multi-line script
+            set -e  # Exit on any error
+            
             # Set Vault environment variables
             export VAULT_ADDR="http://vault.edge-terrarium.svc.cluster.local:8200"
             export VAULT_TOKEN="root"
             
+            echo "Vault initialization starting..."
+            echo "VAULT_ADDR: $VAULT_ADDR"
+            echo "VAULT_TOKEN: $VAULT_TOKEN"
+            
             # Wait for Vault to be ready before proceeding
             echo "Waiting for Vault to be ready..."
-            until vault status; do
-              echo "Vault is not ready yet. Waiting..."
+            for i in {1..30}; do
+              if vault status >/dev/null 2>&1; then
+                echo "Vault is ready!"
+                break
+              fi
+              echo "Vault is not ready yet. Waiting... (attempt $i/30)"
               sleep 2
             done
             
+            # Check if Vault is actually ready
+            if ! vault status >/dev/null 2>&1; then
+              echo "ERROR: Vault is not ready after 60 seconds"
+              exit 1
+            fi
+            
             echo "Vault is ready. Initializing secrets..."
+            
+            # Enable KV secrets engine if not already enabled
+            echo "Checking if KV secrets engine is enabled..."
+            if ! vault secrets list | grep -q "secret/"; then
+              echo "Enabling KV secrets engine..."
+              vault secrets enable -path=secret kv-v2
+            else
+              echo "KV secrets engine is already enabled"
+            fi
             
             # Store TLS certificates (if available)
             # This handles both real certificates and mock certificates
@@ -66,6 +91,7 @@ spec:                                  # Specification for the job
                 cert="$(cat /tmp/certs/edge-terrarium.crt | base64 -w 0)" \
                 key="$(cat /tmp/certs/edge-terrarium.key | base64 -w 0)" \
                 ca="$(cat /tmp/certs/edge-terrarium.crt | base64 -w 0)"
+              echo "TLS certificates stored successfully"
             else
               echo "TLS certificates not found, storing mock TLS secrets..."
               # Store mock TLS certificates for development
@@ -73,10 +99,12 @@ spec:                                  # Specification for the job
                 cert="mock-cert" \
                 key="mock-key" \
                 ca="mock-ca"
+              echo "Mock TLS secrets stored successfully"
             fi
             
             # Store CDP client configuration (matching Docker Compose)
             # These secrets are used by the CDP client application
+            echo "Storing CDP client configuration..."
             vault kv put secret/cdp-client/config \
               api_key="mock-api-key-12345" \
               database_url="postgresql://mock-user:mock-pass@mock-db:5432/mock-db" \
@@ -84,14 +112,40 @@ spec:                                  # Specification for the job
               encryption_key="mock-encryption-key-abcdef" \
               log_level="INFO" \
               max_connections="100"
+            echo "CDP client configuration stored successfully"
             
             # Store CDP client external APIs configuration
             # These secrets are used for external API integrations
+            echo "Storing CDP client external APIs configuration..."
             vault kv put secret/cdp-client/external-apis \
               provider_auth_token="mock-provider-token-xyz" \
               webhook_secret="mock-webhook-secret-123" \
               rate_limit="1000" \
               timeout_seconds="30"
+            echo "CDP client external APIs configuration stored successfully"
+            
+            # Verify secrets were stored
+            echo "Verifying secrets were stored..."
+            if vault kv get secret/cdp-client/config >/dev/null 2>&1; then
+              echo "✓ CDP client config secret verified"
+            else
+              echo "✗ ERROR: CDP client config secret not found"
+              exit 1
+            fi
+            
+            if vault kv get secret/cdp-client/external-apis >/dev/null 2>&1; then
+              echo "✓ CDP client external APIs secret verified"
+            else
+              echo "✗ ERROR: CDP client external APIs secret not found"
+              exit 1
+            fi
+            
+            if vault kv get secret/terrarium/tls >/dev/null 2>&1; then
+              echo "✓ TLS secrets verified"
+            else
+              echo "✗ ERROR: TLS secrets not found"
+              exit 1
+            fi
             
             echo "Vault initialization completed successfully!"
         
