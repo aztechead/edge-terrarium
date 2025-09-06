@@ -7,6 +7,15 @@ REM or Minikube based on the environment specified
 
 setlocal enabledelayedexpansion
 
+REM Check if bash is available (required for script execution)
+bash --version >nul 2>&1
+if errorlevel 1 (
+    echo [ERROR] bash is not available on this system
+    echo [ERROR] Please install Git for Windows, WSL, or another bash environment
+    echo [ERROR] The deploy script requires bash to execute shell scripts
+    exit /b 1
+)
+
 REM Check if at least one argument is provided
 if "%~1"=="" (
     echo [ERROR] Environment not specified
@@ -64,6 +73,11 @@ REM ============================================================================
 :show_usage
 echo Usage: %0 [ENVIRONMENT] [ACTION]
 echo.
+echo PREREQUISITES:
+echo   - Docker must be installed and running
+echo   - bash must be available (Git for Windows, WSL, or similar)
+echo   - For K3s deployment: kubectl and K3s must be installed
+echo.
 echo ENVIRONMENT:
 echo   docker     Deploy to Docker Compose (development)
 echo   k3s        Deploy to K3s (Kubernetes testing)
@@ -86,12 +100,20 @@ echo [INFO] Deploying to Docker Compose...
 REM Generate certificates if they don't exist
 if not exist "certs\edge-terrarium.crt" (
     echo [INFO] Generating TLS certificates...
-    call scripts\generate-tls-certs.sh
+    bash scripts/generate-tls-certs.sh
+    if errorlevel 1 (
+        echo [ERROR] Failed to generate TLS certificates
+        exit /b 1
+    )
 )
 
 REM Build images
 echo [INFO] Building Docker images...
-call scripts\build-images.sh
+bash scripts/build-images.sh
+if errorlevel 1 (
+    echo [ERROR] Failed to build Docker images
+    exit /b 1
+)
 
 REM Start services
 echo [INFO] Starting services with Docker Compose...
@@ -103,7 +125,11 @@ timeout /t 10 /nobreak >nul
 
 REM Initialize Vault
 echo [INFO] Initializing Vault with secrets...
-call scripts\init-vault.sh http://localhost:8200
+bash scripts/init-vault.sh http://localhost:8200
+if errorlevel 1 (
+    echo [ERROR] Failed to initialize Vault
+    exit /b 1
+)
 
 echo [SUCCESS] Docker Compose deployment completed!
 echo.
@@ -132,12 +158,20 @@ if errorlevel 1 (
 REM Generate certificates if they don't exist
 if not exist "certs\edge-terrarium.crt" (
     echo [INFO] Generating TLS certificates...
-    call scripts\generate-tls-certs.sh
+    bash scripts/generate-tls-certs.sh
+    if errorlevel 1 (
+        echo [ERROR] Failed to generate TLS certificates
+        exit /b 1
+    )
 )
 
 REM Build images for K3s
 echo [INFO] Building Docker images for K3s...
-call scripts\build-images-k3s.sh
+bash scripts/build-images-k3s.sh
+if errorlevel 1 (
+    echo [ERROR] Failed to build Docker images for K3s
+    exit /b 1
+)
 
 REM Note: K3s comes with Traefik by default, but we're using Kong
 echo [INFO] Note: K3s comes with Traefik by default, but we're using Kong ingress controller
@@ -201,12 +235,12 @@ exit /b 0
 
 :test_docker
 echo [INFO] Testing Docker Compose deployment...
-call scripts\test-setup.sh
+bash scripts/test-setup.sh
 exit /b 0
 
 :test_k3s
 echo [INFO] Testing K3s deployment...
-call scripts\test-k3s.sh
+bash scripts/test-k3s.sh
 exit /b 0
 
 :clean_docker

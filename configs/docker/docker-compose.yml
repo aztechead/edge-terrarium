@@ -34,8 +34,9 @@ services:
     
     # Port mapping - maps host port to container port
     # Format: "HOST_PORT:CONTAINER_PORT"
-    ports:
-      - "1337:1337"  # HTTP port - CDP client listens on port 1337 inside container
+    # Note: CDP client is accessed through Kong gateway, so no direct port mapping needed
+    # ports:
+    #   - "9001:1337"  # HTTP port - CDP client listens on port 1337 inside container
     
     # Volume mounts - persistent storage for the container
     volumes:
