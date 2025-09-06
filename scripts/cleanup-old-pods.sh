@@ -90,13 +90,13 @@ cleanup_app_pods() {
 }
 
 # Cleanup pods for each app
-cleanup_app_pods "cdp-client"
+cleanup_app_pods "custom-client"
 cleanup_app_pods "service-sink"
 cleanup_app_pods "vault"
 
 # Wait for pods to be ready
 print_status "Waiting for pods to be ready..."
-kubectl wait --for=condition=ready pod -l app=cdp-client -n edge-terrarium --timeout=60s 2>/dev/null || true
+kubectl wait --for=condition=ready pod -l app=custom-client -n edge-terrarium --timeout=60s 2>/dev/null || true
 kubectl wait --for=condition=ready pod -l app=service-sink -n edge-terrarium --timeout=60s 2>/dev/null || true
 kubectl wait --for=condition=ready pod -l app=vault -n edge-terrarium --timeout=60s 2>/dev/null || true
 

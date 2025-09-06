@@ -31,7 +31,7 @@ async def test_modular_functionality():
     print(f"   ✓ Server host: {config.server.host}")
     print(f"   ✓ Server port: {config.server.port}")
     print(f"   ✓ Services configured: {config.get_all_service_names()}")
-    print(f"   ✓ CDP Client color: {config.get_service_color('cdp-client')}")
+    print(f"   ✓ Custom Client color: {config.get_service_color('custom-client')}")
     
     # Test 3: Log Storage
     print("\n3. Testing Log Storage...")

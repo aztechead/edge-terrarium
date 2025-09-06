@@ -2,7 +2,7 @@
 # LOGTHON DEPLOYMENT
 # =============================================================================
 # This deployment runs the Logthon log aggregation service in Kubernetes.
-# Logthon collects logs from CDP client and service-sink containers and
+# Logthon collects logs from Custom client and service-sink containers and
 # provides a web UI for real-time log viewing with color-coded output.
 #
 # Key Concepts:
@@ -17,7 +17,7 @@
 # - Enables real-time log streaming via WebSocket
 # - Color-codes logs by service for easy identification
 # - Provides web UI accessible through ingress
-# - Collects logs from CDP client and service-sink
+# - Collects logs from Custom client and service-sink
 # - Runs with security best practices (non-root user)
 #
 # Documentation: https://kubernetes.io/docs/concepts/workloads/controllers/deployment/

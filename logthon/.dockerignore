@@ -1,0 +1,38 @@
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Test files (keep test_modular.py for reference)
+# test_*.py
+
+# Documentation (keep README.md)
+# *.md
+
+# Git
+.git/
+.gitignore
+
+# Temporary files
+tmp/
+temp/

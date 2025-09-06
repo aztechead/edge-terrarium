@@ -14,7 +14,7 @@
 #
 # Impact:
 # - Manages the order of resource deployment
-# - Ensures vault-init-job runs before CDP client
+# - Ensures vault-init-job runs before Custom client
 # - Applies consistent labels to all resources
 # - Transforms image tags to latest for development
 # - Provides single command deployment via kubectl apply -k
@@ -38,7 +38,7 @@ resources:
   - vault-deployment.yaml            # Vault deployment
   - vault-service.yaml               # Vault service
   - vault-init-job.yaml              # Vault initialization job (must run first)
-  - cdp-client-deployment.yaml       # CDP client application deployment (waits for vault-init)
+  - custom-client-deployment.yaml       # Custom client application deployment (waits for vault-init)
   - service-sink-deployment.yaml     # Service sink application deployment
   - logthon-deployment.yaml          # Logthon log aggregation service deployment
   - logthon-service.yaml             # Logthon LoadBalancer service (direct access)
@@ -57,7 +57,7 @@ commonLabels:
 # These rules modify image names and tags in the resource files
 # This ensures all images use the 'latest' tag for development
 images:
-  - name: edge-terrarium-cdp-client  # Name of the image to transform
+  - name: edge-terrarium-custom-client  # Name of the image to transform
     newTag: latest                   # New tag to apply to this image
   - name: edge-terrarium-service-sink # Name of the image to transform
     newTag: latest                   # New tag to apply to this image

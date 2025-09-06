@@ -5,7 +5,7 @@
 # =============================================================================
 # This script initializes HashiCorp Vault with the necessary secrets and
 # configuration for the Terrarium application. It sets up TLS certificates
-# and mock secrets for the CDP client.
+# and mock secrets for the Custom client.
 #
 # Usage:
 #   ./scripts/init-vault.sh [vault_url]
@@ -155,15 +155,15 @@ store_tls_certificates() {
     fi
 }
 
-# Function to store CDP client configuration secrets
-store_cdp_client_config() {
-    log_info "Storing CDP client configuration secrets..."
+# Function to store Custom client configuration secrets
+store_custom_client_config() {
+    log_info "Storing Custom client configuration secrets..."
     
     local response
     response=$(curl -s -w "%{http_code}" \
         -H "X-Vault-Token: $VAULT_TOKEN" \
         -X POST \
-        "$VAULT_URL/v1/secret/data/cdp-client/config" \
+        "$VAULT_URL/v1/secret/data/custom-client/config" \
         -d '{
             "data": {
                 "api_key": "mock-api-key-12345",
@@ -178,24 +178,24 @@ store_cdp_client_config() {
     local http_code="${response: -3}"
     
     if [ "$http_code" = "200" ] || [ "$http_code" = "204" ]; then
-        log_success "CDP client configuration secrets stored"
+        log_success "Custom client configuration secrets stored"
         return 0
     else
-        log_error "Failed to store CDP client configuration secrets (HTTP $http_code)"
+        log_error "Failed to store Custom client configuration secrets (HTTP $http_code)"
         log_error "Response: ${response%???}"
         return 1
     fi
 }
 
-# Function to store CDP client external API secrets
-store_cdp_client_external_apis() {
-    log_info "Storing CDP client external API secrets..."
+# Function to store Custom client external API secrets
+store_custom_client_external_apis() {
+    log_info "Storing Custom client external API secrets..."
     
     local response
     response=$(curl -s -w "%{http_code}" \
         -H "X-Vault-Token: $VAULT_TOKEN" \
         -X POST \
-        "$VAULT_URL/v1/secret/data/cdp-client/external-apis" \
+        "$VAULT_URL/v1/secret/data/custom-client/external-apis" \
         -d '{
             "data": {
                 "provider_auth_token": "mock-provider-token-xyz",
@@ -208,10 +208,10 @@ store_cdp_client_external_apis() {
     local http_code="${response: -3}"
     
     if [ "$http_code" = "200" ] || [ "$http_code" = "204" ]; then
-        log_success "CDP client external API secrets stored"
+        log_success "Custom client external API secrets stored"
         return 0
     else
-        log_error "Failed to store CDP client external API secrets (HTTP $http_code)"
+        log_error "Failed to store Custom client external API secrets (HTTP $http_code)"
         log_error "Response: ${response%???}"
         return 1
     fi
@@ -278,14 +278,14 @@ main() {
         log_warning "Skipping TLS certificate storage"
     fi
     
-    # Store CDP client secrets
-    if ! store_cdp_client_config; then
-        log_error "Failed to store CDP client configuration secrets"
+    # Store Custom client secrets
+    if ! store_custom_client_config; then
+        log_error "Failed to store Custom client configuration secrets"
         exit 1
     fi
     
-    if ! store_cdp_client_external_apis; then
-        log_error "Failed to store CDP client external API secrets"
+    if ! store_custom_client_external_apis; then
+        log_error "Failed to store Custom client external API secrets"
         exit 1
     fi
     
@@ -294,9 +294,9 @@ main() {
     
     log_success "Vault initialization completed successfully!"
     echo ""
-    echo "You can now start the CDP client and it will retrieve secrets from Vault."
+    echo "You can now start the Custom client and it will retrieve secrets from Vault."
     echo "To test the setup, run:"
-    echo "  docker-compose up cdp-client"
+    echo "  docker-compose up custom-client"
     echo ""
 }
 

@@ -129,15 +129,21 @@ void send_log_to_logthon(const char* level, const char* message) {
     
     snprintf(logthon_url, sizeof(logthon_url), "http://%s:%s/api/logs", logthon_host, logthon_port);
     
-    // Create JSON payload
+    // Get container ID from hostname (pod name in Kubernetes)
+    const char* container_id = getenv("HOSTNAME");
+    if (!container_id) {
+        container_id = "unknown";
+    }
+    
+    // Create JSON payload with container ID
     snprintf(json_payload, sizeof(json_payload),
         "{"
         "\"service\":\"service-sink\","
         "\"level\":\"%s\","
         "\"message\":\"%s\","
-        "\"metadata\":{\"timestamp\":\"%ld\"}"
+        "\"metadata\":{\"timestamp\":\"%ld\",\"container_id\":\"%s\"}"
         "}",
-        level, message, time(NULL));
+        level, message, time(NULL), container_id);
     
     curl = curl_easy_init();
     if (curl) {
@@ -252,19 +258,39 @@ void handle_client(int client_socket, const char* client_ip) {
     
     http_request_t req;
     if (parse_http_request(buffer, &req) == 0) {
-        printf("Service Sink received %s request to %s from %s\n", req.method, req.path, client_ip);
-        
-        // Log request to file and console
-        log_request(&req, client_ip);
-        
-        // Simple request processing - count characters in path
-        int path_length = strlen(req.path);
-        char response_message[256];
-        snprintf(response_message, sizeof(response_message), 
-                "Service Sink processed request to path '%s' (length: %d)", 
-                req.path, path_length);
-        
-        send_http_response(client_socket, 200, response_message);
+        // Check if this is a health check request first
+        if (strcmp(req.path, "/health") == 0) {
+            // Check for probe type header to identify liveness vs readiness
+            char probe_type[32] = "unknown";
+            if (strstr(req.headers, "X-Probe-Type: liveness") != NULL) {
+                strcpy(probe_type, "liveness");
+            } else if (strstr(req.headers, "X-Probe-Type: readiness") != NULL) {
+                strcpy(probe_type, "readiness");
+            }
+            
+            printf("Service Sink %s probe from %s\n", probe_type, client_ip);
+            
+            // Send detailed health check log to logthon (skip general request logging)
+            char health_log_message[512];
+            snprintf(health_log_message, sizeof(health_log_message), 
+                    "Health check: %s probe from %s", probe_type, client_ip);
+            send_log_to_logthon("INFO", health_log_message);
+            
+            send_http_response(client_socket, 200, "Service Sink is healthy");
+        } else {
+            // For non-health check requests, do normal logging
+            printf("Service Sink received %s request to %s from %s\n", req.method, req.path, client_ip);
+            log_request(&req, client_ip);
+            
+            // Simple request processing - count characters in path
+            int path_length = strlen(req.path);
+            char response_message[256];
+            snprintf(response_message, sizeof(response_message), 
+                    "Service Sink processed request to path '%s' (length: %d)", 
+                    req.path, path_length);
+            
+            send_http_response(client_socket, 200, response_message);
+        }
     } else {
         printf("Failed to parse request from %s\n", client_ip);
         send_http_response(client_socket, 400, "Bad Request - Service Sink");
@@ -275,15 +301,30 @@ void handle_client(int client_socket, const char* client_ip) {
 
 int main() {
     printf("Service Sink starting...\n");
-    send_log_to_logthon("INFO", "Service Sink service starting up");
+    fflush(stdout);
     
     // Create request directory
     printf("Creating request directory...\n");
-    mkdir("/tmp/requests", 0755);
+    fflush(stdout);
+    if (mkdir("/tmp/requests", 0755) != 0 && errno != EEXIST) {
+        perror("Failed to create requests directory");
+        return 1;
+    }
     
     // Initialize curl
     printf("Initializing curl...\n");
+    fflush(stdout);
     curl_global_init(CURL_GLOBAL_DEFAULT);
+    
+    // Send startup log after curl is initialized with a small delay
+    printf("Waiting for logthon to be ready...\n");
+    fflush(stdout);
+    sleep(2);  // Give logthon a moment to be fully ready
+    printf("Sending startup log to logthon...\n");
+    fflush(stdout);
+    send_log_to_logthon("INFO", "Service Sink service starting up");
+    printf("Startup log sent successfully\n");
+    fflush(stdout);
     
     int server_socket = socket(AF_INET, SOCK_STREAM, 0);
     if (server_socket < 0) {

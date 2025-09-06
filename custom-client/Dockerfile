@@ -1,4 +1,4 @@
-# Multi-stage build for CDP Client
+# Multi-stage build for Custom Client
 FROM alpine:3.18 AS builder
 
 # Install build dependencies
@@ -11,7 +11,7 @@ WORKDIR /app
 COPY main.c .
 
 # Compile the application with curl and json-c libraries
-RUN gcc -o cdp-client main.c -lcurl -ljson-c
+RUN gcc -o custom-client main.c -lcurl -ljson-c
 
 # Final stage
 FROM alpine:3.18
@@ -27,7 +27,7 @@ RUN addgroup -g 1001 -S appgroup && \
 WORKDIR /app
 
 # Copy binary from builder stage
-COPY --from=builder /app/cdp-client .
+COPY --from=builder /app/custom-client .
 
 # Create requests directory with proper permissions
 RUN mkdir -p /tmp/requests && \
@@ -42,14 +42,14 @@ RUN echo '#!/bin/sh' > /app/wait-for-vault.sh && \
     echo '  sleep 2' >> /app/wait-for-vault.sh && \
     echo 'done' >> /app/wait-for-vault.sh && \
     echo 'echo "Vault is ready! Waiting for initialization..."' >> /app/wait-for-vault.sh && \
-    echo 'until curl -s -H "X-Vault-Token: root" http://vault:8200/v1/secret/data/cdp-client/config > /dev/null; do' >> /app/wait-for-vault.sh && \
+    echo 'until curl -s -H "X-Vault-Token: root" http://vault:8200/v1/secret/data/custom-client/config > /dev/null; do' >> /app/wait-for-vault.sh && \
     echo '  echo "Vault initialization not complete yet. Waiting..."' >> /app/wait-for-vault.sh && \
     echo '  sleep 2' >> /app/wait-for-vault.sh && \
     echo 'done' >> /app/wait-for-vault.sh && \
     echo 'echo "Vault initialization complete! Waiting a moment for secrets to be fully available..."' >> /app/wait-for-vault.sh && \
     echo 'sleep 5' >> /app/wait-for-vault.sh && \
-    echo 'echo "Starting CDP client..."' >> /app/wait-for-vault.sh && \
-    echo 'exec ./cdp-client' >> /app/wait-for-vault.sh && \
+    echo 'echo "Starting Custom client..."' >> /app/wait-for-vault.sh && \
+    echo 'exec ./custom-client' >> /app/wait-for-vault.sh && \
     chmod +x /app/wait-for-vault.sh && \
     chown appuser:appgroup /app/wait-for-vault.sh
 

@@ -24,16 +24,16 @@ case $HOST_ARCH in
         ;;
 esac
 
-# Build CDP Client
-echo "Building CDP Client image for $PLATFORM..."
+# Build Custom Client
+echo "Building Custom Client image for $PLATFORM..."
 docker build \
   --no-cache \
   --platform $PLATFORM \
-  -t edge-terrarium-cdp-client:latest \
-  ./cdp-client
+  -t edge-terrarium-custom-client:latest \
+  ./custom-client
 
 if [ $? -ne 0 ]; then
-    echo "Error: Failed to build CDP Client image"
+    echo "Error: Failed to build Custom Client image"
     exit 1
 fi
 
@@ -60,6 +60,22 @@ docker build \
 
 if [ $? -ne 0 ]; then
     echo "Error: Failed to build Logthon image"
+    exit 1
+fi
+
+# Verify Logthon image has the required package structure
+echo "Verifying Logthon image structure..."
+docker run --rm edge-terrarium-logthon:latest sh -c "
+    if [ -d 'logthon' ] && [ -f 'logthon/__init__.py' ] && [ -f 'logthon/api.py' ] && [ -f 'logthon/storage.py' ]; then
+        echo '✓ Logthon package structure verified in image'
+    else
+        echo '✗ Logthon package structure missing in image'
+        exit 1
+    fi
+"
+
+if [ $? -ne 0 ]; then
+    echo "Error: Logthon image verification failed"
     exit 1
 fi
 

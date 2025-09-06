@@ -23,17 +23,17 @@
 
 ---
 # ==========================================================================
-# CDP CLIENT SERVICE
+# Custom CLIENT SERVICE
 # ==========================================================================
-# This service provides network access to the CDP client Pods.
-# It routes traffic to Pods with the label "app: cdp-client"
+# This service provides network access to the Custom client Pods.
+# It routes traffic to Pods with the label "app: custom-client"
 apiVersion: v1                    # Core API version for Service resources
 kind: Service                     # Resource type - creates a service
 metadata:                         # Metadata about this service
-  name: cdp-client-service        # Name of the service (used in DNS resolution)
+  name: custom-client-service        # Name of the service (used in DNS resolution)
   namespace: edge-terrarium       # Namespace where this resource lives
   labels:                         # Labels for organizing resources
-    app: cdp-client               # Identifies this service as part of the CDP client app
+    app: custom-client               # Identifies this service as part of the custom client app
 
 spec:                             # Specification of the service
   type: ClusterIP                 # Service type - only accessible within the cluster
@@ -44,9 +44,9 @@ spec:                             # Specification of the service
     name: http                    # Name for referencing this port
   
   # Selector defines which Pods this service routes traffic to
-  # Must match the labels in the CDP client deployment pod template
+  # Must match the labels in the Custom client deployment pod template
   selector:
-    app: cdp-client               # Routes traffic to Pods with this label
+    app: custom-client               # Routes traffic to Pods with this label
 
 ---
 # ==========================================================================

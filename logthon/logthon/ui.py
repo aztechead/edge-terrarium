@@ -33,7 +33,7 @@ def get_log_ui_html() -> str:
     <body>
         <div class="header">
             <h1>🐍 Logthon - Edge Terrarium Log Aggregator</h1>
-            <p>Real-time log viewing for CDP Client, Service Sink, and Logthon services</p>
+            <p>Real-time log viewing for Custom Client, Service Sink, and Logthon services</p>
         </div>
         
         <div class="status" id="status">
@@ -148,6 +148,13 @@ def _get_css_styles() -> str:
             margin: 0 5px;
         }
         
+        .container-id {
+            color: #888;
+            font-size: 10px;
+            margin: 0 5px;
+            font-style: italic;
+        }
+        
         .level {
             font-weight: bold;
             margin: 0 5px;
@@ -260,10 +267,11 @@ def _get_javascript_code(service_colors_json: str) -> str:
             
             container.innerHTML = filteredLogs.map(log => {{
                 const color = serviceColors[log.service] || '#ffffff';
+                const containerId = log.metadata && log.metadata.container_id ? log.metadata.container_id : 'unknown';
                 return `
                     <div class="log-entry" style="border-left: 3px solid ${{color}}">
                         <span class="timestamp">${{log.timestamp}}</span>
-                        <span class="service" style="color: ${{color}}">[${{log.service}}]</span>
+                        <span class="service" style="color: ${{color}}">[${{containerId}}]</span>
                         <span class="level ${{log.level}}">${{log.level}}</span>
                         <span class="message">${{escapeHtml(log.message)}}</span>
                     </div>

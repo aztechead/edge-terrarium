@@ -1,6 +1,6 @@
 # Logthon - Log Aggregation Service
 
-Logthon is a Python-based log aggregation service for the Edge Terrarium project. It collects logs from CDP client and service-sink containers and provides a real-time web UI for viewing them with color-coded output.
+Logthon is a Python-based log aggregation service for the Edge Terrarium project. It collects logs from Custom client and service-sink containers and provides a real-time web UI for viewing them with color-coded output.
 
 ## Features
 
@@ -38,7 +38,7 @@ docker run -p 5000:5000 edge-terrarium-logthon
 curl -X POST http://localhost:5000/api/logs \
   -H "Content-Type: application/json" \
   -d '{
-    "service": "cdp-client",
+    "service": "custom-client",
     "level": "INFO",
     "message": "Processing request from client",
     "metadata": {"request_id": "12345"}
@@ -51,7 +51,7 @@ Open your browser to `http://localhost:5000` to view the real-time log interface
 
 ## Service Colors
 
-- **CDP Client**: Green (#00ff00)
+- **Custom Client**: Green (#00ff00)
 - **Service Sink**: Blue (#0080ff)
 - **Logthon**: Orange (#ff8000)
 

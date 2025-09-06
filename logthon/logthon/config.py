@@ -61,10 +61,10 @@ class Config:
     def _initialize_services(self) -> Dict[str, ServiceConfig]:
         """Initialize service configurations with default values."""
         return {
-            'cdp-client': ServiceConfig(
-                name='cdp-client',
+            'custom-client': ServiceConfig(
+                name='custom-client',
                 color='#00ff00',  # Green
-                max_logs=int(os.getenv("LOGTHON_CDP_CLIENT_MAX_LOGS", "1000"))
+                max_logs=int(os.getenv("LOGTHON_Custom_CLIENT_MAX_LOGS", "1000"))
             ),
             'service-sink': ServiceConfig(
                 name='service-sink',

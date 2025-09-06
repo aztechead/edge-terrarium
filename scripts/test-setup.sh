@@ -151,30 +151,30 @@ if docker-compose -f configs/docker/docker-compose.yml -p c-edge-terrarium ps | 
         echo ""
     fi
     
-    # Test CDP Client routes
-    test_endpoint "https://localhost:8443/fake-provider/test" "cdp-client" "CDP Client - fake-provider route"
-    test_endpoint "https://localhost:8443/example-provider/test" "cdp-client" "CDP Client - example-provider route"
+    # Test Custom Client routes
+    test_endpoint "https://localhost:8443/fake-provider/test" "custom-client" "Custom Client - fake-provider route"
+    test_endpoint "https://localhost:8443/example-provider/test" "custom-client" "Custom Client - example-provider route"
     
     # Test Service Sink (default route)
     test_endpoint "https://localhost:8443/api/test" "service-sink" "Service Sink - default route"
     test_endpoint "https://localhost:8443/health" "service-sink" "Service Sink - health check"
     
     # Test port 1337
-    test_endpoint "https://localhost:8443/test" "cdp-client" "CDP Client - port 1337"
+    test_endpoint "https://localhost:8443/test" "custom-client" "Custom Client - port 1337"
     
     echo "Testing enhanced request logging..."
     echo "=================================="
     
     # Test GET requests with query parameters
-    test_get_with_params "https://localhost:8443/fake-provider/test" "cdp-client" "CDP Client - GET with query params" "param1=value1&param2=value2&test=query"
+    test_get_with_params "https://localhost:8443/fake-provider/test" "custom-client" "Custom Client - GET with query params" "param1=value1&param2=value2&test=query"
     test_get_with_params "https://localhost:8443/api/test" "service-sink" "Service Sink - GET with query params" "user=testuser&action=login&id=123"
     
     # Test POST requests with body content
-    test_post_endpoint "https://localhost:8443/fake-provider/test" "cdp-client" "CDP Client - POST with JSON body" '{"username":"testuser","password":"testpass","action":"login"}'
+    test_post_endpoint "https://localhost:8443/fake-provider/test" "custom-client" "Custom Client - POST with JSON body" '{"username":"testuser","password":"testpass","action":"login"}'
     test_post_endpoint "https://localhost:8443/api/test" "service-sink" "Service Sink - POST with JSON body" '{"data":"test data","timestamp":"2024-01-01","status":"active"}'
     
     # Test POST requests with form data
-    test_post_endpoint "https://localhost:8443/example-provider/test" "cdp-client" "CDP Client - POST with form data" "username=testuser&email=test@example.com&role=admin"
+    test_post_endpoint "https://localhost:8443/example-provider/test" "custom-client" "Custom Client - POST with form data" "username=testuser&email=test@example.com&role=admin"
     test_post_endpoint "https://localhost:8443/health" "service-sink" "Service Sink - POST with form data" "check=health&service=all&verbose=true"
     
     # Test logthon functionality
@@ -195,26 +195,26 @@ if docker-compose -f configs/docker/docker-compose.yml -p c-edge-terrarium ps | 
             echo "✗ TLS certificates secret not found or incomplete"
         fi
         
-        # Test CDP client config secret
-        echo "Testing CDP client config secret..."
-        config_response=$(curl -s -H "X-Vault-Token: root" "http://localhost:8200/v1/secret/data/cdp-client/config" 2>/dev/null)
+        # Test Custom client config secret
+        echo "Testing Custom client config secret..."
+        config_response=$(curl -s -H "X-Vault-Token: root" "http://localhost:8200/v1/secret/data/custom-client/config" 2>/dev/null)
         if echo "$config_response" | grep -q '"api_key"' && echo "$config_response" | grep -q '"database_url"'; then
-            echo "✓ CDP client config secret found"
+            echo "✓ Custom client config secret found"
             config_count=$(echo "$config_response" | grep -o '"[^"]*":' | wc -l)
             echo "  ✓ Contains $config_count configuration keys"
         else
-            echo "✗ CDP client config secret not found or incomplete"
+            echo "✗ Custom client config secret not found or incomplete"
         fi
         
-        # Test CDP client external APIs secret
-        echo "Testing CDP client external APIs secret..."
-        apis_response=$(curl -s -H "X-Vault-Token: root" "http://localhost:8200/v1/secret/data/cdp-client/external-apis" 2>/dev/null)
+        # Test Custom client external APIs secret
+        echo "Testing Custom client external APIs secret..."
+        apis_response=$(curl -s -H "X-Vault-Token: root" "http://localhost:8200/v1/secret/data/custom-client/external-apis" 2>/dev/null)
         if echo "$apis_response" | grep -q '"provider_auth_token"' && echo "$apis_response" | grep -q '"webhook_secret"'; then
-            echo "✓ CDP client external APIs secret found"
+            echo "✓ Custom client external APIs secret found"
             api_count=$(echo "$apis_response" | grep -o '"[^"]*":' | wc -l)
             echo "  ✓ Contains $api_count API configuration keys"
         else
-            echo "✗ CDP client external APIs secret not found or incomplete"
+            echo "✗ Custom client external APIs secret not found or incomplete"
         fi
         
         echo ""
@@ -231,7 +231,7 @@ if kubectl get namespace edge-terrarium >/dev/null 2>&1; then
     
     # Wait for pods to be ready
     echo "Waiting for pods to be ready..."
-    kubectl wait --for=condition=ready pod -l app=cdp-client -n edge-terrarium --timeout=60s
+    kubectl wait --for=condition=ready pod -l app=custom-client -n edge-terrarium --timeout=60s
     kubectl wait --for=condition=ready pod -l app=service-sink -n edge-terrarium --timeout=60s
     
     # Check if we can access the ingress directly
@@ -246,9 +246,9 @@ if kubectl get namespace edge-terrarium >/dev/null 2>&1; then
             echo "Ingress is accessible, running tests..."
             test_host="$ingress_ip"
             
-            # Test CDP Client routes
-            test_endpoint "https://$test_host:443/fake-provider/test" "cdp-client" "K8s CDP Client - fake-provider route"
-            test_endpoint "https://$test_host:443/example-provider/test" "cdp-client" "K8s CDP Client - example-provider route"
+            # Test Custom Client routes
+            test_endpoint "https://$test_host:443/fake-provider/test" "custom-client" "K8s Custom Client - fake-provider route"
+            test_endpoint "https://$test_host:443/example-provider/test" "custom-client" "K8s Custom Client - example-provider route"
             
             # Test Service Sink (default route)
             test_endpoint "https://$test_host:443/api/test" "service-sink" "K8s Service Sink - default route"
@@ -257,11 +257,11 @@ if kubectl get namespace edge-terrarium >/dev/null 2>&1; then
             echo "=================================="
             
             # Test GET requests with query parameters
-            test_get_with_params "https://$test_host:443/fake-provider/test" "cdp-client" "K8s CDP Client - GET with query params" "param1=value1&param2=value2&test=query"
+            test_get_with_params "https://$test_host:443/fake-provider/test" "custom-client" "K8s Custom Client - GET with query params" "param1=value1&param2=value2&test=query"
             test_get_with_params "https://$test_host:443/api/test" "service-sink" "K8s Service Sink - GET with query params" "user=testuser&action=login&id=123"
             
             # Test POST requests with body content
-            test_post_endpoint "https://$test_host:443/fake-provider/test" "cdp-client" "K8s CDP Client - POST with JSON body" '{"username":"testuser","password":"testpass","action":"login"}'
+            test_post_endpoint "https://$test_host:443/fake-provider/test" "custom-client" "K8s Custom Client - POST with JSON body" '{"username":"testuser","password":"testpass","action":"login"}'
             test_post_endpoint "https://$test_host:443/api/test" "service-sink" "K8s Service Sink - POST with JSON body" '{"data":"test data","timestamp":"2024-01-01","status":"active"}'
             
             # Test logthon functionality
@@ -284,8 +284,8 @@ if kubectl get namespace edge-terrarium >/dev/null 2>&1; then
             echo "4. Check pod status and logs:"
             kubectl get pods -n edge-terrarium
             echo ""
-            echo "CDP Client logs:"
-            kubectl logs -n edge-terrarium deployment/cdp-client --tail=5
+            echo "Custom Client logs:"
+            kubectl logs -n edge-terrarium deployment/custom-client --tail=5
             echo ""
             echo "Service Sink logs:"
             kubectl logs -n edge-terrarium deployment/service-sink --tail=5
@@ -308,8 +308,8 @@ if kubectl get namespace edge-terrarium >/dev/null 2>&1; then
         echo "4. Check pod status and logs:"
         kubectl get pods -n edge-terrarium
         echo ""
-        echo "CDP Client logs:"
-        kubectl logs -n edge-terrarium deployment/cdp-client --tail=5
+        echo "Custom Client logs:"
+        kubectl logs -n edge-terrarium deployment/custom-client --tail=5
         echo ""
         echo "Service Sink logs:"
         kubectl logs -n edge-terrarium deployment/service-sink --tail=5
@@ -325,8 +325,8 @@ echo "=========================="
 
 if docker-compose -f configs/docker/docker-compose.yml -p c-edge-terrarium ps | grep -q "Up"; then
     echo "Docker Compose logs:"
-    echo "CDP Client request files:"
-    file_count=$(docker exec edge-terrarium-cdp-client ls -1 /tmp/requests/ 2>/dev/null | wc -l)
+    echo "Custom Client request files:"
+    file_count=$(docker exec edge-terrarium-custom-client ls -1 /tmp/requests/ 2>/dev/null | wc -l)
     if [ "$file_count" -gt 0 ]; then
         echo "  ✓ Found $file_count request files"
     else
@@ -337,8 +337,8 @@ fi
 
 if kubectl get namespace edge-terrarium >/dev/null 2>&1; then
     echo "Kubernetes logs:"
-    echo "CDP Client pods:"
-    kubectl get pods -n edge-terrarium -l app=cdp-client
+    echo "Custom Client pods:"
+    kubectl get pods -n edge-terrarium -l app=custom-client
     echo ""
     echo "Service Sink pods:"
     kubectl get pods -n edge-terrarium -l app=service-sink
@@ -349,6 +349,6 @@ echo "Testing completed!"
 echo ""
 echo "Tips:"
 echo "   - Check application logs for detailed request processing"
-echo "   - View request files in /tmp/requests/ (CDP Client)"
+echo "   - View request files in /tmp/requests/ (Custom Client)"
 echo "   - Use 'kubectl logs -n edge-terrarium deployment/<service-name>' for K8s logs"
 echo "   - Use 'docker-compose -f configs/docker/docker-compose.yml logs <service-name>' for Docker Compose logs"

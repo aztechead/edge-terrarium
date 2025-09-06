@@ -145,32 +145,32 @@ int retrieve_vault_secrets(vault_secrets_t* secrets) {
     int success = 1;
     
     // Retrieve configuration secrets
-    if (get_vault_secret("cdp-client/config", "api_key", secrets->api_key, sizeof(secrets->api_key)) != 0) {
+    if (get_vault_secret("custom-client/config", "api_key", secrets->api_key, sizeof(secrets->api_key)) != 0) {
         printf("Failed to retrieve api_key from Vault\n");
         success = 0;
     }
     
-    if (get_vault_secret("cdp-client/config", "database_url", secrets->database_url, sizeof(secrets->database_url)) != 0) {
+    if (get_vault_secret("custom-client/config", "database_url", secrets->database_url, sizeof(secrets->database_url)) != 0) {
         printf("Failed to retrieve database_url from Vault\n");
         success = 0;
     }
     
-    if (get_vault_secret("cdp-client/config", "jwt_secret", secrets->jwt_secret, sizeof(secrets->jwt_secret)) != 0) {
+    if (get_vault_secret("custom-client/config", "jwt_secret", secrets->jwt_secret, sizeof(secrets->jwt_secret)) != 0) {
         printf("Failed to retrieve jwt_secret from Vault\n");
         success = 0;
     }
     
-    if (get_vault_secret("cdp-client/config", "encryption_key", secrets->encryption_key, sizeof(secrets->encryption_key)) != 0) {
+    if (get_vault_secret("custom-client/config", "encryption_key", secrets->encryption_key, sizeof(secrets->encryption_key)) != 0) {
         printf("Failed to retrieve encryption_key from Vault\n");
         success = 0;
     }
     
-    if (get_vault_secret("cdp-client/config", "log_level", secrets->log_level, sizeof(secrets->log_level)) != 0) {
+    if (get_vault_secret("custom-client/config", "log_level", secrets->log_level, sizeof(secrets->log_level)) != 0) {
         printf("Failed to retrieve log_level from Vault\n");
         success = 0;
     }
     
-    if (get_vault_secret("cdp-client/config", "max_connections", secrets->max_connections, sizeof(secrets->max_connections)) != 0) {
+    if (get_vault_secret("custom-client/config", "max_connections", secrets->max_connections, sizeof(secrets->max_connections)) != 0) {
         printf("Failed to retrieve max_connections from Vault\n");
         success = 0;
     }
@@ -230,15 +230,21 @@ void send_log_to_logthon(const char* level, const char* message) {
     
     snprintf(logthon_url, sizeof(logthon_url), "http://%s:%s/api/logs", logthon_host, logthon_port);
     
-    // Create JSON payload
+    // Get container ID from hostname (pod name in Kubernetes)
+    const char* container_id = getenv("HOSTNAME");
+    if (!container_id) {
+        container_id = "unknown";
+    }
+    
+    // Create JSON payload with container ID
     snprintf(json_payload, sizeof(json_payload),
         "{"
-        "\"service\":\"cdp-client\","
+        "\"service\":\"custom-client\","
         "\"level\":\"%s\","
         "\"message\":\"%s\","
-        "\"metadata\":{\"timestamp\":\"%ld\"}"
+        "\"metadata\":{\"timestamp\":\"%ld\",\"container_id\":\"%s\"}"
         "}",
-        level, message, time(NULL));
+        level, message, time(NULL), container_id);
     
     curl = curl_easy_init();
     if (curl) {
@@ -424,14 +430,36 @@ void handle_client(int client_socket, const char* client_ip) {
     
     http_request_t req;
     if (parse_http_request(buffer, &req) == 0) {
-        printf("Received %s request to %s from %s\n", req.method, req.path, client_ip);
-        log_request(&req, client_ip);
-        
-        // Check if this is a route we should handle
-        if (strstr(req.path, "/fake-provider/") || strstr(req.path, "/example-provider/")) {
-            send_http_response(client_socket, 200, "CDP Client processed request successfully");
+        // Check if this is a health check request first
+        if (strcmp(req.path, "/health") == 0) {
+            // Check for probe type header to identify liveness vs readiness
+            char probe_type[32] = "unknown";
+            if (strstr(req.headers, "X-Probe-Type: liveness") != NULL) {
+                strcpy(probe_type, "liveness");
+            } else if (strstr(req.headers, "X-Probe-Type: readiness") != NULL) {
+                strcpy(probe_type, "readiness");
+            }
+            
+            printf("Custom Client %s probe from %s\n", probe_type, client_ip);
+            
+            // Send detailed health check log to logthon (skip general request logging)
+            char health_log_message[512];
+            snprintf(health_log_message, sizeof(health_log_message), 
+                    "Health check: %s probe from %s", probe_type, client_ip);
+            send_log_to_logthon("INFO", health_log_message);
+            
+            send_http_response(client_socket, 200, "Custom Client is healthy");
         } else {
-            send_http_response(client_socket, 200, "CDP Client received request");
+            // For non-health check requests, do normal logging
+            printf("Received %s request to %s from %s\n", req.method, req.path, client_ip);
+            log_request(&req, client_ip);
+            
+            // Check if this is a route we should handle
+            if (strstr(req.path, "/fake-provider/") || strstr(req.path, "/example-provider/")) {
+                send_http_response(client_socket, 200, "Custom Client processed request successfully");
+            } else {
+                send_http_response(client_socket, 200, "Custom Client received request");
+            }
         }
     } else {
         printf("Failed to parse request from %s\n", client_ip);
@@ -476,8 +504,8 @@ int create_server_socket(int port) {
 }
 
 int main() {
-    printf("CDP Client starting...\n");
-    send_log_to_logthon("INFO", "CDP Client service starting up");
+    printf("Custom Client starting...\n");
+    send_log_to_logthon("INFO", "Custom Client service starting up");
     fflush(stdout);
     
     // Initialize curl
@@ -524,7 +552,7 @@ int main() {
         return 1;
     }
     
-    printf("CDP Client listening on port %d (HTTP)\n", PORT_HTTP);
+    printf("Custom Client listening on port %d (HTTP)\n", PORT_HTTP);
     fflush(stdout);
     
     while (1) {

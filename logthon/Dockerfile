@@ -22,6 +22,13 @@ RUN uv pip install --system fastapi uvicorn[standard] pydantic python-multipart 
 COPY main.py ./
 COPY logthon/ ./logthon/
 
+# Verify the logthon package is properly copied
+RUN ls -la logthon/ && \
+    test -f logthon/__init__.py && \
+    test -f logthon/api.py && \
+    test -f logthon/storage.py && \
+    echo "✓ Logthon package structure verified"
+
 # Create non-root user
 RUN groupadd -r appgroup && useradd -r -g appgroup appuser
 RUN chown -R appuser:appgroup /app

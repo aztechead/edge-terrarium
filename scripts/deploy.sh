@@ -112,7 +112,7 @@ deploy_docker() {
     check_and_handle_port_conflicts 8200 "Vault"
     check_and_handle_port_conflicts 80 "HTTP"
     check_and_handle_port_conflicts 443 "HTTPS"
-    check_and_handle_port_conflicts 1337 "CDP Client"
+    check_and_handle_port_conflicts 1337 "Custom Client"
     check_and_handle_port_conflicts 8080 "Service Sink"
     check_and_handle_port_conflicts 5001 "Logthon"
     
@@ -165,10 +165,22 @@ deploy_docker() {
         print_warning "Vault initialization may still be in progress. Check logs with: docker logs edge-terrarium-vault-init"
     fi
     
+    # Verify logthon service is working
+    print_status "Verifying logthon service is working..."
+    sleep 5  # Give logthon time to start
+    
+    if curl -s http://localhost:5001/health >/dev/null 2>&1; then
+        print_success "Logthon service is healthy"
+    else
+        print_warning "Logthon service may not be fully ready yet"
+        print_status "Checking logthon container logs..."
+        docker logs edge-terrarium-logthon --tail 10
+    fi
+    
     print_success "Docker Compose deployment completed!"
     echo ""
     echo "Services are running:"
-    echo "  - CDP Client: https://localhost:443/fake-provider/* and /example-provider/*"
+    echo "  - Custom Client: https://localhost:443/fake-provider/* and /example-provider/*"
     echo "  - Service Sink: https://localhost:443/ (default route)"
     echo "  - Logthon: http://localhost:5001"
     echo "  - Vault: http://localhost:8200"
@@ -328,7 +340,9 @@ deploy_k3s() {
                 --port "443:443@loadbalancer" \
                 --port "8200:8200@loadbalancer" \
                 --port "5001:5001@loadbalancer" \
+                --port "8443:8443@loadbalancer" \
                 --api-port 6443 \
+                --k3s-arg "--disable=traefik@server:0" \
                 --wait
             
             print_success "k3d cluster 'edge-terrarium' created successfully"
@@ -366,9 +380,9 @@ deploy_k3s() {
     # Import images into k3d cluster
     print_status "Importing Docker images into k3d cluster..."
     
-    print_status "Importing CDP Client image..."
-    if ! k3d image import edge-terrarium-cdp-client:latest -c edge-terrarium; then
-        print_error "Failed to import CDP Client image into k3d cluster"
+    print_status "Importing Custom Client image..."
+    if ! k3d image import edge-terrarium-custom-client:latest -c edge-terrarium; then
+        print_error "Failed to import Custom Client image into k3d cluster"
         exit 1
     fi
     
@@ -451,9 +465,9 @@ deploy_k3s() {
         --set portal.enabled=false \
         --set postgresql.enabled=false \
         --set replicaCount=1 \
-        --set proxy.type=NodePort \
-        --set proxy.http.nodePort=30080 \
-        --set proxy.tls.nodePort=30443 \
+        --set proxy.type=LoadBalancer \
+        --set proxy.http.enabled=true \
+        --set proxy.tls.enabled=true \
         --set resources.requests.memory=128Mi \
         --set resources.requests.cpu=100m \
         --set resources.limits.memory=256Mi \
@@ -477,6 +491,92 @@ deploy_k3s() {
     
     print_success "Kong is ready"
     
+    # Install Kubernetes Dashboard
+    print_status "Installing Kubernetes Dashboard..."
+    helm repo add kubernetes-dashboard https://kubernetes.github.io/dashboard/ >/dev/null 2>&1 || true
+    helm repo update >/dev/null 2>&1
+    
+    # Uninstall any existing dashboard installation
+    helm uninstall kubernetes-dashboard -n kubernetes-dashboard >/dev/null 2>&1 || true
+    sleep 2
+    
+    # Install Kubernetes Dashboard
+    helm upgrade --install kubernetes-dashboard kubernetes-dashboard/kubernetes-dashboard \
+        --create-namespace \
+        --namespace kubernetes-dashboard \
+        --set kong.proxy.type=LoadBalancer \
+        --set kong.proxy.http.enabled=true \
+        --set kong.proxy.http.containerPort=8000 \
+        --set kong.proxy.http.servicePort=80 \
+        >/dev/null 2>&1
+    
+    print_status "Waiting for Kubernetes Dashboard to be ready..."
+    kubectl wait --for=condition=available --timeout=120s deployment/kubernetes-dashboard-kong -n kubernetes-dashboard
+    
+    if [ $? -ne 0 ]; then
+        print_warning "Kubernetes Dashboard deployment may not be ready yet"
+        print_status "Checking dashboard pod status..."
+        kubectl get pods -n kubernetes-dashboard
+    else
+        print_success "Kubernetes Dashboard is ready"
+    fi
+    
+    # Create dashboard admin service account and token
+    print_status "Setting up Kubernetes Dashboard authentication..."
+    kubectl create serviceaccount dashboard-admin -n kubernetes-dashboard --dry-run=client -o yaml | kubectl apply -f -
+    kubectl create clusterrolebinding dashboard-admin --clusterrole=cluster-admin --serviceaccount=kubernetes-dashboard:dashboard-admin --dry-run=client -o yaml | kubectl apply -f -
+    
+    # Generate and display the token
+    DASHBOARD_TOKEN=$(kubectl -n kubernetes-dashboard create token dashboard-admin)
+    print_success "Kubernetes Dashboard authentication configured"
+    echo ""
+    echo "=========================================="
+    echo "KUBERNETES DASHBOARD ACCESS INFORMATION"
+    echo "=========================================="
+    echo "Dashboard Token: $DASHBOARD_TOKEN"
+    echo ""
+    echo "Access Methods:"
+    echo "1. Port Forward Access (Recommended):"
+    echo "   Command: kubectl -n kubernetes-dashboard port-forward svc/kubernetes-dashboard-kong-proxy 9443:443"
+    echo "   URL: https://localhost:9443"
+    echo "   Token: $DASHBOARD_TOKEN"
+    echo ""
+    echo "2. Direct LoadBalancer Access (Alternative):"
+    echo "   URL: https://localhost:443 (may conflict with main Kong ingress)"
+    echo "   Token: $DASHBOARD_TOKEN"
+    echo ""
+    echo "=========================================="
+    echo ""
+    
+    # Set up automatic port forwarding for Dashboard
+    print_status "Setting up Kubernetes Dashboard port forwarding..."
+    
+    # Check if port 9443 is already in use
+    if lsof -i :9443 > /dev/null 2>&1; then
+        print_warning "Port 9443 is already in use. Dashboard port forwarding may not work properly."
+        print_status "You can manually set up port forwarding with:"
+        echo "  kubectl -n kubernetes-dashboard port-forward svc/kubernetes-dashboard-kong-proxy 9443:443"
+    else
+        # Try to set up port forwarding on port 9443
+        if kubectl -n kubernetes-dashboard port-forward svc/kubernetes-dashboard-kong-proxy 9443:443 >/dev/null 2>&1 &
+        then
+            DASHBOARD_PORT_FORWARD_PID=$!
+            echo $DASHBOARD_PORT_FORWARD_PID > /tmp/dashboard-port-forward.pid
+            sleep 3
+            
+            # Verify Dashboard is accessible
+            if curl -k -s https://localhost:9443 > /dev/null; then
+                print_success "Kubernetes Dashboard is accessible at https://localhost:9443 (port forwarded)"
+            else
+                print_warning "Dashboard port forwarding may not be working properly"
+            fi
+        else
+            print_warning "Could not set up Dashboard port forwarding on port 9443"
+            print_status "You can manually set up port forwarding with:"
+            echo "  kubectl -n kubernetes-dashboard port-forward svc/kubernetes-dashboard-kong-proxy 9443:443"
+        fi
+    fi
+    
     # Clean up any existing Vault init job to ensure fresh initialization
     print_status "Cleaning up any existing Vault initialization job..."
     kubectl delete job vault-init -n edge-terrarium --ignore-not-found=true
@@ -488,7 +588,7 @@ deploy_k3s() {
     
     # Wait for deployment to be ready
     print_status "Waiting for deployment to be ready..."
-    kubectl wait --for=condition=available --timeout=300s deployment/cdp-client -n edge-terrarium
+    kubectl wait --for=condition=available --timeout=300s deployment/custom-client -n edge-terrarium
     kubectl wait --for=condition=available --timeout=300s deployment/service-sink -n edge-terrarium
     kubectl wait --for=condition=available --timeout=300s deployment/logthon -n edge-terrarium
     kubectl wait --for=condition=available --timeout=300s deployment/vault -n edge-terrarium
@@ -518,18 +618,18 @@ deploy_k3s() {
     sleep 3
     
     # Check if secrets exist
-    if curl -s -H "X-Vault-Token: root" http://localhost:8201/v1/secret/data/cdp-client/config >/dev/null 2>&1; then
-        print_success "CDP client config secrets verified in Vault"
+    if curl -s -H "X-Vault-Token: root" http://localhost:8201/v1/secret/data/custom-client/config >/dev/null 2>&1; then
+        print_success "Custom client config secrets verified in Vault"
     else
-        print_error "CDP client config secrets not found in Vault"
+        print_error "Custom client config secrets not found in Vault"
         kill $VAULT_VERIFY_PID 2>/dev/null || true
         exit 1
     fi
     
-    if curl -s -H "X-Vault-Token: root" http://localhost:8201/v1/secret/data/cdp-client/external-apis >/dev/null 2>&1; then
-        print_success "CDP client external APIs secrets verified in Vault"
+    if curl -s -H "X-Vault-Token: root" http://localhost:8201/v1/secret/data/custom-client/external-apis >/dev/null 2>&1; then
+        print_success "Custom client external APIs secrets verified in Vault"
     else
-        print_error "CDP client external APIs secrets not found in Vault"
+        print_error "Custom client external APIs secrets not found in Vault"
         kill $VAULT_VERIFY_PID 2>/dev/null || true
         exit 1
     fi
@@ -600,10 +700,11 @@ deploy_k3s() {
     print_success "K3s deployment completed!"
     echo ""
     echo "Services are running in K3s:"
-    echo "  - CDP Client: Available via Kong ingress"
+    echo "  - Custom Client: Available via Kong ingress"
     echo "  - Service Sink: Available via Kong ingress"
     echo "  - Logthon: Available via Kong ingress at /logs/*"
     echo "  - Vault: Available at http://localhost:8200 (port forwarded)"
+    echo "  - Kubernetes Dashboard: Available via port forwarding"
     echo ""
     echo "External Access Information:"
     echo "  Host IP: $EXTERNAL_IP"
@@ -614,11 +715,17 @@ deploy_k3s() {
     echo "  URL: http://localhost:8200"
     echo "  Token: root"
     echo ""
+    echo "Kubernetes Dashboard Access:"
+    echo "  URL: https://localhost:9443 (port forwarded)"
+    echo "  Token: $DASHBOARD_TOKEN"
+    echo "  Alternative: kubectl -n kubernetes-dashboard port-forward svc/kubernetes-dashboard-kong-proxy 9443:443"
+    echo ""
     echo "To test the deployment:"
     echo "  ./scripts/test-k3s.sh"
     echo ""
-    echo "To stop Vault port forwarding:"
-    echo "  kill \$(cat /tmp/vault-port-forward.pid) && rm /tmp/vault-port-forward.pid"
+    echo "To stop port forwarding:"
+    echo "  Vault: kill \$(cat /tmp/vault-port-forward.pid) && rm /tmp/vault-port-forward.pid"
+    echo "  Dashboard: kill \$(cat /tmp/dashboard-port-forward.pid) && rm /tmp/dashboard-port-forward.pid"
     echo ""
     echo "To access via Kong ingress:"
     echo "  # Get Kong proxy IP: kubectl get svc -n kong kong-proxy"
@@ -654,9 +761,18 @@ clean_k3s() {
         rm -f /tmp/vault-port-forward.pid
     fi
     
+    if [ -f /tmp/dashboard-port-forward.pid ]; then
+        kill $(cat /tmp/dashboard-port-forward.pid) 2>/dev/null || true
+        rm -f /tmp/dashboard-port-forward.pid
+    fi
+    
     # Clean up Kubernetes resources
     kubectl delete -k configs/k3s/ --ignore-not-found=true
     kubectl delete secret edge-terrarium-tls -n edge-terrarium --ignore-not-found=true
+    
+    # Clean up Kubernetes Dashboard
+    helm uninstall kubernetes-dashboard -n kubernetes-dashboard --ignore-not-found=true
+    kubectl delete namespace kubernetes-dashboard --ignore-not-found=true
     
     # Optionally delete the entire k3d cluster
     if kubectl config current-context | grep -q "k3d-edge-terrarium"; then
@@ -677,8 +793,8 @@ show_logs() {
         docker-compose -f configs/docker/docker-compose.yml -p c-edge-terrarium logs -f
     elif [ "$environment" = "k3s" ]; then
         print_status "Showing K3s logs..."
-        echo "CDP Client logs:"
-        kubectl logs -n edge-terrarium deployment/cdp-client
+        echo "Custom Client logs:"
+        kubectl logs -n edge-terrarium deployment/custom-client
         echo ""
         echo "Service Sink logs:"
         kubectl logs -n edge-terrarium deployment/service-sink

@@ -21,30 +21,30 @@ name: c-edge-terrarium
 
 services:
   # ==========================================================================
-  # CDP CLIENT SERVICE
+  # Custom CLIENT SERVICE
   # ==========================================================================
   # This service handles requests to /fake-provider/* and /example-provider/* paths
   # It's written in C and parses HTTP requests, writing them to files
-  cdp-client:
+  custom-client:
     # Use pre-built image from build script
-    image: edge-terrarium-cdp-client:latest
+    image: edge-terrarium-custom-client:latest
     
     # Container name - makes it easier to reference in logs and commands
-    container_name: edge-terrarium-cdp-client
+    container_name: edge-terrarium-custom-client
     
     # Port mapping - maps host port to container port
     # Format: "HOST_PORT:CONTAINER_PORT"
-    # Note: CDP client is accessed through Kong gateway, so no direct port mapping needed
+    # Note: Custom client is accessed through Kong gateway, so no direct port mapping needed
     # ports:
-    #   - "9001:1337"  # HTTP port - CDP client listens on port 1337 inside container
+    #   - "9001:1337"  # HTTP port - Custom client listens on port 1337 inside container
     
     # Volume mounts - persistent storage for the container
     volumes:
-      - cdp-requests:/tmp/requests   # Named volume for storing request logs
+      - custom-requests:/tmp/requests   # Named volume for storing request logs
     
     # Environment variables - passed to the container at runtime
     environment:
-      - SERVICE_NAME=cdp-client      # Identifies this service in logs
+      - SERVICE_NAME=custom-client      # Identifies this service in logs
       - VAULT_ADDR=http://vault:8200 # Vault API address for Docker Compose
       - VAULT_TOKEN=root             # Vault authentication token
     
@@ -117,7 +117,7 @@ services:
   # ==========================================================================
   # This service provides secrets management for the Terrarium application.
   # Vault securely stores and manages sensitive data like TLS certificates,
-  # API keys, and other secrets that the CDP client needs.
+  # API keys, and other secrets that the Custom client needs.
   vault:
     # Use official Vault image
     image: hashicorp/vault:latest    # Official HashiCorp Vault image
@@ -193,7 +193,7 @@ services:
   # ==========================================================================
   # LOGTHON LOG AGGREGATION SERVICE
   # ==========================================================================
-  # This service collects logs from CDP client and service-sink containers
+  # This service collects logs from Custom client and service-sink containers
   # and provides a web UI for real-time log viewing with color-coded output
   logthon:
     # Build from local Dockerfile
@@ -271,7 +271,7 @@ services:
     
     # Dependencies - start these services first
     depends_on:
-      - cdp-client                  # Wait for CDP client to be ready
+      - custom-client                  # Wait for custom client to be ready
       - service-sink                # Wait for service sink to be ready
       - logthon                     # Wait for logthon to be ready
     
@@ -304,7 +304,7 @@ services:
 # Volumes provide persistent storage for containers
 # Data in volumes survives container restarts and removals
 volumes:
-  cdp-requests:                     # Named volume for CDP client request logs
+  custom-requests:                     # Named volume for Custom client request logs
     driver: local                   # Store on local filesystem
   vault-data:                       # Named volume for Vault data storage
     driver: local                   # Store on local filesystem

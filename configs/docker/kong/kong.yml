@@ -14,7 +14,7 @@
 # - Protocols: HTTP and HTTPS support
 #
 # Impact:
-# - Routes CDP client requests to appropriate endpoints
+# - Routes Custom client requests to appropriate endpoints
 # - Routes logthon requests to log aggregation service
 # - Routes all other requests to service-sink (default)
 # - Provides CORS support for web applications
@@ -28,12 +28,12 @@
 _format_version: "3.0"            # Kong declarative configuration format version
 
 services:                         # List of backend services
-  # CDP Client Service
-  # Routes traffic to the CDP client application for specific endpoints
-  - name: cdp-client-service      # Name of the service
-    url: http://cdp-client:1337   # Backend URL (Docker Compose service name)
+  # Custom Client Service
+  # Routes traffic to the Custom client application for specific endpoints
+  - name: custom-client-service      # Name of the service
+    url: http://custom-client:1337   # Backend URL (Docker Compose service name)
     routes:                       # List of routes for this service
-      - name: cdp-client-fake-provider  # Route name
+      - name: custom-client-fake-provider  # Route name
         paths:                    # URL paths that match this route
           - /fake-provider        # Path pattern to match
         strip_path: false         # Don't remove the path when forwarding
@@ -41,7 +41,7 @@ services:                         # List of backend services
         protocols:                # Supported protocols
           - http                  # HTTP protocol
           - https                 # HTTPS protocol
-      - name: cdp-client-example-provider  # Route name
+      - name: custom-client-example-provider  # Route name
         paths:                    # URL paths that match this route
           - /example-provider     # Path pattern to match
         strip_path: false         # Don't remove the path when forwarding

@@ -2,7 +2,7 @@
 # KUBERNETES DEPLOYMENT - SERVICE SINK
 # =============================================================================
 # This deployment manages the Service Sink application, which handles all
-# HTTP requests that don't match the CDP client routing patterns.
+# HTTP requests that don't match the Custom client routing patterns.
 #
 # The Service Sink is a simple C application that processes requests and
 # returns JSON responses with path analysis information.
@@ -16,7 +16,7 @@
 #
 # Impact:
 # - Runs the service-sink application in Kubernetes
-# - Handles default routing for all non-CDP client requests
+# - Handles default routing for all non-Custom client requests
 # - Provides health checks for automatic recovery
 # - Uses single replica to prevent conflicts
 # - Processes requests and logs them to logthon
@@ -87,19 +87,27 @@ spec:                              # Specification of the deployment
         
         # Liveness probe - checks if container is alive
         livenessProbe:
-          tcpSocket:               # Check if TCP socket is open
+          httpGet:                 # HTTP GET request to check health
+            path: /health          # Health check endpoint
             port: 8080             # Port to check
+            httpHeaders:           # Custom headers to identify probe type
+            - name: X-Probe-Type
+              value: "liveness"
           initialDelaySeconds: 30  # Wait 30 seconds before first check
-          periodSeconds: 10        # Check every 10 seconds
+          periodSeconds: 30        # Check every 30 seconds (industry standard)
           timeoutSeconds: 5        # Wait 5 seconds for response
           failureThreshold: 3      # Mark unhealthy after 3 failures
         
         # Readiness probe - checks if container is ready to serve traffic
         readinessProbe:
-          tcpSocket:               # Check if TCP socket is open
+          httpGet:                 # HTTP GET request to check readiness
+            path: /health          # Health check endpoint
             port: 8080             # Port to check
+            httpHeaders:           # Custom headers to identify probe type
+            - name: X-Probe-Type
+              value: "readiness"
           initialDelaySeconds: 5   # Wait 5 seconds before first check
-          periodSeconds: 5         # Check every 5 seconds
+          periodSeconds: 10        # Check every 10 seconds (industry standard)
           timeoutSeconds: 3        # Wait 3 seconds for response
           failureThreshold: 3      # Mark not ready after 3 failures
 

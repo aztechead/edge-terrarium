@@ -13,7 +13,7 @@
 #
 # Impact:
 # - Provides external access to all services via HTTPS
-# - Routes CDP client requests to appropriate endpoints
+# - Routes Custom client requests to appropriate endpoints
 # - Routes logthon requests to log aggregation service
 # - Routes all other requests to service-sink (default)
 # - Enables SSL/TLS termination with self-signed certificates
@@ -46,7 +46,7 @@ spec:                               # Specification for the ingress
   
   # Routing rules
   rules:                            # List of routing rules
-  # Route /fake-provider/* and /example-provider/* to CDP Client
+  # Route /fake-provider/* and /example-provider/* to Custom Client
   - host: edge-terrarium.local      # Hostname to match
     http:                           # HTTP routing rules
       paths:                        # List of path-based routing rules
@@ -54,7 +54,7 @@ spec:                               # Specification for the ingress
         pathType: Prefix            # Match paths that start with this prefix
         backend:                    # Backend service to route to
           service:
-            name: cdp-client-service # Name of the service
+            name: custom-client-service # Name of the service
             port:
               number: 1337          # Port number on the service
       
@@ -62,7 +62,7 @@ spec:                               # Specification for the ingress
         pathType: Prefix            # Match paths that start with this prefix
         backend:                    # Backend service to route to
           service:
-            name: cdp-client-service # Name of the service
+            name: custom-client-service # Name of the service
             port:
               number: 1337          # Port number on the service
       
@@ -83,7 +83,7 @@ spec:                               # Specification for the ingress
         pathType: Prefix            # Match paths that start with this prefix
         backend:                    # Backend service to route to
           service:
-            name: cdp-client-service # Name of the service
+            name: custom-client-service # Name of the service
             port:
               number: 1337          # Port number on the service
       
@@ -91,7 +91,7 @@ spec:                               # Specification for the ingress
         pathType: Prefix            # Match paths that start with this prefix
         backend:                    # Backend service to route to
           service:
-            name: cdp-client-service # Name of the service
+            name: custom-client-service # Name of the service
             port:
               number: 1337          # Port number on the service
       

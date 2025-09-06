@@ -12,7 +12,7 @@
 #
 # Impact:
 # - Automatically populates Vault with required secrets
-# - Ensures CDP client can retrieve secrets on startup
+# - Ensures Custom client can retrieve secrets on startup
 # - Handles both real and mock TLS certificates
 # - Runs once and completes successfully
 # - Provides consistent secrets between Docker Compose and K3s
@@ -102,41 +102,41 @@ spec:                                  # Specification for the job
               echo "Mock TLS secrets stored successfully"
             fi
             
-            # Store CDP client configuration (matching Docker Compose)
-            # These secrets are used by the CDP client application
-            echo "Storing CDP client configuration..."
-            vault kv put secret/cdp-client/config \
+            # Store Custom client configuration (matching Docker Compose)
+            # These secrets are used by the Custom client application
+            echo "Storing Custom client configuration..."
+            vault kv put secret/custom-client/config \
               api_key="mock-api-key-12345" \
               database_url="postgresql://mock-user:mock-pass@mock-db:5432/mock-db" \
               jwt_secret="mock-jwt-secret-67890" \
               encryption_key="mock-encryption-key-abcdef" \
               log_level="INFO" \
               max_connections="100"
-            echo "CDP client configuration stored successfully"
+            echo "Custom client configuration stored successfully"
             
-            # Store CDP client external APIs configuration
+            # Store Custom client external APIs configuration
             # These secrets are used for external API integrations
-            echo "Storing CDP client external APIs configuration..."
-            vault kv put secret/cdp-client/external-apis \
+            echo "Storing Custom client external APIs configuration..."
+            vault kv put secret/custom-client/external-apis \
               provider_auth_token="mock-provider-token-xyz" \
               webhook_secret="mock-webhook-secret-123" \
               rate_limit="1000" \
               timeout_seconds="30"
-            echo "CDP client external APIs configuration stored successfully"
+            echo "Custom client external APIs configuration stored successfully"
             
             # Verify secrets were stored
             echo "Verifying secrets were stored..."
-            if vault kv get secret/cdp-client/config >/dev/null 2>&1; then
-              echo "✓ CDP client config secret verified"
+            if vault kv get secret/custom-client/config >/dev/null 2>&1; then
+              echo "✓ Custom client config secret verified"
             else
-              echo "✗ ERROR: CDP client config secret not found"
+              echo "✗ ERROR: Custom client config secret not found"
               exit 1
             fi
             
-            if vault kv get secret/cdp-client/external-apis >/dev/null 2>&1; then
-              echo "✓ CDP client external APIs secret verified"
+            if vault kv get secret/custom-client/external-apis >/dev/null 2>&1; then
+              echo "✓ Custom client external APIs secret verified"
             else
-              echo "✗ ERROR: CDP client external APIs secret not found"
+              echo "✗ ERROR: Custom client external APIs secret not found"
               exit 1
             fi
             
