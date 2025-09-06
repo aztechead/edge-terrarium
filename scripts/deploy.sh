@@ -38,7 +38,7 @@ show_usage() {
     echo ""
     echo "ENVIRONMENT:"
     echo "  docker     Deploy to Docker Compose (development)"
-    echo "  k3s        Deploy to K3s (Kubernetes testing)"
+    echo "  k3s        Deploy to K3s via k3d (Kubernetes testing)"
     echo ""
     echo "ACTION:"
     echo "  deploy     Deploy the application (default)"
@@ -48,8 +48,14 @@ show_usage() {
     echo ""
     echo "Examples:"
     echo "  $0 docker deploy    # Deploy to Docker Compose"
+    echo "  $0 k3s deploy       # Deploy to K3s (auto-creates k3d cluster if needed)"
     echo "  $0 k3s test         # Test K3s deployment"
     echo "  $0 docker clean     # Clean up Docker Compose"
+    echo "  $0 k3s clean        # Clean up K3s deployment (deletes k3d cluster)"
+    echo ""
+    echo "Prerequisites:"
+    echo "  - Docker and Docker Compose (for docker environment)"
+    echo "  - k3d (for k3s environment): brew install k3d"
 }
 
 # Function to deploy to Docker Compose
@@ -159,13 +165,34 @@ deploy_k3s() {
     check_k3s_port_conflicts 80 "HTTP"
     check_k3s_port_conflicts 443 "HTTPS"
     
-    # Check if K3s is running
+    # Check if k3d cluster exists and create if needed
     if ! kubectl cluster-info >/dev/null 2>&1; then
-        print_error "K3s is not running. Please start K3s first:"
-        echo "  curl -sfL https://get.k3s.io | sh -"
-        echo "  or"
-        echo "  sudo systemctl start k3s"
-        exit 1
+        print_status "K3s cluster not found. Creating k3d cluster..."
+        
+        # Check if k3d is installed
+        if ! command -v k3d &> /dev/null; then
+            print_error "k3d is not installed. Please install k3d first:"
+            echo "  curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash"
+            echo "  or"
+            echo "  brew install k3d"
+            exit 1
+        fi
+        
+        # Create k3d cluster with port mappings
+        k3d cluster create edge-terrarium \
+            --port "80:80@loadbalancer" \
+            --port "443:443@loadbalancer" \
+            --port "8200:8200@loadbalancer" \
+            --port "5001:5001@loadbalancer"
+        
+        print_success "k3d cluster 'edge-terrarium' created successfully"
+    else
+        # Check if we're connected to the right cluster
+        if ! kubectl config current-context | grep -q "k3d-edge-terrarium"; then
+            print_warning "Connected to different cluster. Switching to k3d-edge-terrarium..."
+            kubectl config use-context k3d-edge-terrarium
+        fi
+        print_status "K3s cluster is running"
     fi
     
     # Generate certificates and create K3s secret
@@ -285,8 +312,24 @@ clean_docker() {
 # Function to clean up K3s
 clean_k3s() {
     print_status "Cleaning up K3s deployment..."
+    
+    # Stop any running port forwards
+    if [ -f /tmp/vault-port-forward.pid ]; then
+        kill $(cat /tmp/vault-port-forward.pid) 2>/dev/null || true
+        rm -f /tmp/vault-port-forward.pid
+    fi
+    
+    # Clean up Kubernetes resources
     kubectl delete -k configs/k3s/ --ignore-not-found=true
     kubectl delete secret edge-terrarium-tls -n edge-terrarium --ignore-not-found=true
+    
+    # Optionally delete the entire k3d cluster
+    if kubectl config current-context | grep -q "k3d-edge-terrarium"; then
+        print_status "Deleting k3d cluster 'edge-terrarium'..."
+        k3d cluster delete edge-terrarium
+        print_success "k3d cluster deleted"
+    fi
+    
     print_success "K3s cleanup completed!"
 }
 
