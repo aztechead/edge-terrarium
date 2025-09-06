@@ -63,6 +63,21 @@ show_usage() {
 deploy_docker() {
     print_status "Deploying to Docker Compose..."
     
+    # First, ensure K3s is completely cleaned up
+    print_status "Ensuring K3s deployment is completely cleaned up..."
+    if command -v k3d >/dev/null 2>&1 && k3d cluster list | grep -q "edge-terrarium"; then
+        print_warning "K3s cluster 'edge-terrarium' exists. Cleaning it up completely..."
+        k3d cluster delete edge-terrarium
+        print_success "K3s cluster deleted"
+    fi
+    
+    # Stop any running kubectl port forwards
+    if [ -f /tmp/vault-port-forward.pid ]; then
+        print_status "Stopping any running kubectl port forwards..."
+        kill $(cat /tmp/vault-port-forward.pid) 2>/dev/null || true
+        rm -f /tmp/vault-port-forward.pid
+    fi
+    
     # Check for port conflicts and handle them
     check_and_handle_port_conflicts() {
         local port=$1
@@ -71,26 +86,24 @@ deploy_docker() {
         if lsof -i :$port | grep -q "LISTEN"; then
             print_warning "Port $port is already in use. Checking for conflicting services..."
             
-            # Check if k3d cluster is running
-            if command -v k3d >/dev/null 2>&1 && k3d cluster list | grep -q "edge-terrarium"; then
-                print_warning "k3d cluster 'edge-terrarium' is running and using port $port"
-                print_status "Stopping k3d cluster to free up port $port..."
-                k3d cluster stop edge-terrarium
+            # Check if it's a Docker container using the port
+            local container_using_port=$(docker ps --format "table {{.Names}}\t{{.Ports}}" | grep ":$port->" | awk '{print $1}' | head -1)
+            if [ -n "$container_using_port" ]; then
+                print_warning "Docker container '$container_using_port' is using port $port"
+                print_status "Stopping container '$container_using_port'..."
+                docker stop "$container_using_port" 2>/dev/null || true
+                docker rm "$container_using_port" 2>/dev/null || true
                 sleep 2
-                
-                # Verify port is now free
-                if lsof -i :$port | grep -q "LISTEN"; then
-                    print_error "Port $port is still in use after stopping k3d cluster"
-                    print_error "Please manually stop the service using port $port and try again"
-                    exit 1
-                else
-                    print_success "Port $port is now available"
-                fi
-            else
-                print_error "Port $port is in use by another service"
-                print_error "Please stop the service using port $port and try again"
+            fi
+            
+            # Verify port is now free
+            if lsof -i :$port | grep -q "LISTEN"; then
+                print_error "Port $port is still in use after cleanup attempts"
+                print_error "Please manually stop the service using port $port and try again"
                 print_error "You can check what's using the port with: lsof -i :$port"
                 exit 1
+            else
+                print_success "Port $port is now available"
             fi
         fi
     }
@@ -101,6 +114,27 @@ deploy_docker() {
     check_and_handle_port_conflicts 443 "HTTPS"
     check_and_handle_port_conflicts 1337 "CDP Client"
     check_and_handle_port_conflicts 8080 "Service Sink"
+    check_and_handle_port_conflicts 5001 "Logthon"
+    
+    # Final verification that all required ports are free
+    print_status "Verifying all required ports are available..."
+    local required_ports=(8200 80 443 1337 8080 5001)
+    local ports_in_use=()
+    
+    for port in "${required_ports[@]}"; do
+        if lsof -i :$port | grep -q "LISTEN"; then
+            ports_in_use+=($port)
+        fi
+    done
+    
+    if [ ${#ports_in_use[@]} -gt 0 ]; then
+        print_error "The following ports are still in use: ${ports_in_use[*]}"
+        print_error "Please manually stop the services using these ports and try again"
+        print_error "You can check what's using the ports with: lsof -i :<port>"
+        exit 1
+    fi
+    
+    print_success "All required ports are available"
     
     # Generate certificates if they don't exist
     if [ ! -f "certs/edge-terrarium.crt" ] || [ ! -f "certs/edge-terrarium.key" ]; then
@@ -133,6 +167,7 @@ deploy_docker() {
     echo "Services are running:"
     echo "  - CDP Client: https://localhost:443/fake-provider/* and /example-provider/*"
     echo "  - Service Sink: https://localhost:443/ (default route)"
+    echo "  - Logthon: http://localhost:5001"
     echo "  - Vault: http://localhost:8200"
     echo ""
     echo "To test the deployment:"
@@ -143,21 +178,51 @@ deploy_docker() {
 deploy_k3s() {
     print_status "Deploying to K3s..."
     
-    # Check if Docker Compose is running and stop it
+    # First, ensure Docker Compose is completely cleaned up
+    print_status "Ensuring Docker Compose deployment is completely cleaned up..."
     if docker-compose -f configs/docker/docker-compose.yml -p c-edge-terrarium ps | grep -q "Up"; then
-        print_warning "Docker Compose deployment is running. Stopping it first..."
-        docker-compose -f configs/docker/docker-compose.yml -p c-edge-terrarium down
-        print_success "Docker Compose deployment stopped."
+        print_warning "Docker Compose deployment is running. Stopping it completely..."
+        docker-compose -f configs/docker/docker-compose.yml -p c-edge-terrarium down -v
+        print_success "Docker Compose deployment stopped and volumes removed."
     fi
     
-    # Check for port conflicts with Docker Compose services
+    # Also check for any individual containers that might be running
+    local running_containers=$(docker ps --filter "name=edge-terrarium" --format "{{.Names}}" 2>/dev/null || true)
+    if [ -n "$running_containers" ]; then
+        print_warning "Found running edge-terrarium containers. Stopping them..."
+        echo "$running_containers" | xargs docker stop 2>/dev/null || true
+        echo "$running_containers" | xargs docker rm 2>/dev/null || true
+        print_success "Edge-terrarium containers stopped and removed."
+    fi
+    
+    # Check for port conflicts and handle them
     check_k3s_port_conflicts() {
         local port=$1
         local service_name=$2
         
         if lsof -i :$port | grep -q "LISTEN"; then
-            print_warning "Port $port is already in use. This may conflict with K3s deployment..."
-            print_warning "K3s will use different ports for external access via k3d loadbalancer"
+            print_warning "Port $port is already in use. Checking for conflicting services..."
+            
+            # Check if it's a Docker container using the port
+            local container_using_port=$(docker ps --format "table {{.Names}}\t{{.Ports}}" | grep ":$port->" | awk '{print $1}' | head -1)
+            if [ -n "$container_using_port" ]; then
+                print_warning "Docker container '$container_using_port' is using port $port"
+                print_status "Stopping container '$container_using_port'..."
+                docker stop "$container_using_port" 2>/dev/null || true
+                docker rm "$container_using_port" 2>/dev/null || true
+                sleep 2
+                
+                # Verify port is now free
+                if lsof -i :$port | grep -q "LISTEN"; then
+                    print_warning "Port $port is still in use after stopping container"
+                    print_warning "K3s will use different ports for external access via k3d loadbalancer"
+                else
+                    print_success "Port $port is now available"
+                fi
+            else
+                print_warning "Port $port is in use by another service"
+                print_warning "K3s will use different ports for external access via k3d loadbalancer"
+            fi
         fi
     }
     
@@ -165,57 +230,116 @@ deploy_k3s() {
     check_k3s_port_conflicts 8200 "Vault"
     check_k3s_port_conflicts 80 "HTTP"
     check_k3s_port_conflicts 443 "HTTPS"
+    check_k3s_port_conflicts 5001 "Logthon"
+    
+    # Final verification that critical ports are free
+    print_status "Verifying critical ports are available for K3s..."
+    local critical_ports=(8200 80 443 5001)
+    local ports_in_use=()
+    
+    for port in "${critical_ports[@]}"; do
+        if lsof -i :$port | grep -q "LISTEN"; then
+            ports_in_use+=($port)
+        fi
+    done
+    
+    if [ ${#ports_in_use[@]} -gt 0 ]; then
+        print_warning "The following ports are still in use: ${ports_in_use[*]}"
+        print_warning "K3s will use different ports for external access via k3d loadbalancer"
+        print_warning "This may cause conflicts - consider stopping the services using these ports"
+    else
+        print_success "All critical ports are available"
+    fi
     
     # Check if k3d cluster exists and create if needed
     if ! kubectl cluster-info >/dev/null 2>&1; then
         print_status "K3s cluster not found. Creating k3d cluster..."
         
-        # Check if k3d is installed
-        if ! command -v k3d &> /dev/null; then
-            print_status "k3d is not installed. Attempting to install k3d..."
+        # Check if k3d cluster already exists by name
+        if command -v k3d &> /dev/null && k3d cluster list | grep -q "edge-terrarium"; then
+            print_warning "k3d cluster 'edge-terrarium' already exists but kubectl is not connected"
+            print_status "Starting existing k3d cluster..."
+            k3d cluster start edge-terrarium
+            sleep 10
             
-            # Try to install k3d using the official install script
-            if curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash; then
-                print_success "k3d installed successfully via official install script"
-            else
-                print_warning "Official install script failed. Trying package manager..."
+            # Verify cluster is now accessible
+            if kubectl cluster-info >/dev/null 2>&1; then
+                print_success "Successfully connected to existing k3d cluster"
                 
-                # Try package managers based on OS
-                if command -v brew &> /dev/null; then
-                    print_status "Installing k3d via Homebrew..."
-                    if brew install k3d; then
-                        print_success "k3d installed successfully via Homebrew"
-                    else
-                        print_error "Homebrew installation failed"
-                        exit 1
-                    fi
-                elif command -v apt-get &> /dev/null; then
-                    print_status "Installing k3d via apt..."
-                    if curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash; then
-                        print_success "k3d installed successfully"
-                    else
-                        print_error "apt installation failed"
-                        exit 1
-                    fi
+                # Ensure we're using the correct context
+                if ! kubectl config current-context | grep -q "k3d-edge-terrarium"; then
+                    print_status "Switching to k3d-edge-terrarium context..."
+                    kubectl config use-context k3d-edge-terrarium
+                fi
+            else
+                print_error "Failed to connect to existing k3d cluster"
+                print_status "Checking cluster status..."
+                k3d cluster list
+                print_status "Attempting to get cluster info..."
+                kubectl cluster-info
+                exit 1
+            fi
+        else
+            # Check if k3d is installed
+            if ! command -v k3d &> /dev/null; then
+                print_status "k3d is not installed. Attempting to install k3d..."
+                
+                # Try to install k3d using the official install script
+                if curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash; then
+                    print_success "k3d installed successfully via official install script"
                 else
-                    print_error "k3d installation failed. Please install k3d manually:"
-                    echo "  curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash"
-                    echo "  or"
-                    echo "  brew install k3d"
-                    echo "  or visit: https://github.com/k3d-io/k3d?tab=readme-ov-file#get"
-                    exit 1
+                    print_warning "Official install script failed. Trying package manager..."
+                    
+                    # Try package managers based on OS
+                    if command -v brew &> /dev/null; then
+                        print_status "Installing k3d via Homebrew..."
+                        if brew install k3d; then
+                            print_success "k3d installed successfully via Homebrew"
+                        else
+                            print_error "Homebrew installation failed"
+                            exit 1
+                        fi
+                    elif command -v apt-get &> /dev/null; then
+                        print_status "Installing k3d via apt..."
+                        if curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash; then
+                            print_success "k3d installed successfully"
+                        else
+                            print_error "apt installation failed"
+                            exit 1
+                        fi
+                    else
+                        print_error "k3d installation failed. Please install k3d manually:"
+                        echo "  curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash"
+                        echo "  or"
+                        echo "  brew install k3d"
+                        echo "  or visit: https://github.com/k3d-io/k3d?tab=readme-ov-file#get"
+                        exit 1
+                    fi
                 fi
             fi
+            
+            # Create k3d cluster with port mappings
+            print_status "Creating new k3d cluster 'edge-terrarium'..."
+            k3d cluster create edge-terrarium \
+                --port "80:80@loadbalancer" \
+                --port "443:443@loadbalancer" \
+                --port "8200:8200@loadbalancer" \
+                --port "5001:5001@loadbalancer" \
+                --api-port 6443 \
+                --wait
+            
+            print_success "k3d cluster 'edge-terrarium' created successfully"
+            
+            # Wait for the cluster to be fully ready
+            print_status "Waiting for cluster to be fully ready..."
+            sleep 10
+            
+            # Verify cluster is accessible
+            if ! kubectl cluster-info >/dev/null 2>&1; then
+                print_error "Failed to connect to newly created k3d cluster"
+                exit 1
+            fi
         fi
-        
-        # Create k3d cluster with port mappings
-        k3d cluster create edge-terrarium \
-            --port "80:80@loadbalancer" \
-            --port "443:443@loadbalancer" \
-            --port "8200:8200@loadbalancer" \
-            --port "5001:5001@loadbalancer"
-        
-        print_success "k3d cluster 'edge-terrarium' created successfully"
     else
         # Check if we're connected to the right cluster
         if ! kubectl config current-context | grep -q "k3d-edge-terrarium"; then
@@ -277,6 +401,15 @@ deploy_k3s() {
         fi
     fi
 
+    # Verify cluster is accessible before installing Kong
+    print_status "Verifying cluster connectivity..."
+    if ! kubectl cluster-info >/dev/null 2>&1; then
+        print_error "Cannot connect to Kubernetes cluster"
+        print_status "Checking cluster status..."
+        kubectl cluster-info
+        exit 1
+    fi
+    
     # Install Kong ingress controller (lightweight configuration)
     print_status "Installing Kong ingress controller..."
     helm repo add kong https://charts.konghq.com >/dev/null 2>&1 || true
@@ -305,7 +438,26 @@ deploy_k3s() {
         >/dev/null 2>&1
     
     print_status "Waiting for Kong to be ready..."
-    kubectl wait --for=condition=ready pod -l app=kong-kong -n default --timeout=120s >/dev/null 2>&1
+    
+    # Wait for Kong pods to be created first
+    print_status "Waiting for Kong pods to be created..."
+    kubectl wait --for=condition=ready pod -l app=kong-kong -n default --timeout=120s
+    
+    if [ $? -ne 0 ]; then
+        print_error "Kong pods failed to become ready"
+        print_status "Checking Kong pod status..."
+        kubectl get pods -l app=kong-kong -n default
+        print_status "Checking Kong pod logs..."
+        kubectl logs -l app=kong-kong -n default --tail=50
+        exit 1
+    fi
+    
+    print_success "Kong is ready"
+    
+    # Clean up any existing Vault init job to ensure fresh initialization
+    print_status "Cleaning up any existing Vault initialization job..."
+    kubectl delete job vault-init -n edge-terrarium --ignore-not-found=true
+    sleep 2
     
     # Apply all Kubernetes configurations using kustomize
     print_status "Applying Kubernetes configurations using kustomize..."
@@ -321,6 +473,54 @@ deploy_k3s() {
     # Wait for Vault init job to complete
     print_status "Waiting for Vault initialization..."
     kubectl wait --for=condition=complete --timeout=300s job/vault-init -n edge-terrarium
+    
+    # Check if the Vault init job succeeded
+    if [ $? -ne 0 ]; then
+        print_error "Vault initialization job failed or timed out"
+        print_status "Checking Vault init job status..."
+        kubectl describe job vault-init -n edge-terrarium
+        print_status "Checking Vault init job logs..."
+        kubectl logs job/vault-init -n edge-terrarium --tail=50
+        exit 1
+    fi
+    
+    print_success "Vault initialization job completed successfully"
+    
+    # Verify that secrets were actually stored in Vault
+    print_status "Verifying Vault secrets were stored..."
+    
+    # Set up temporary port forwarding for verification
+    kubectl port-forward -n edge-terrarium service/vault 8201:8200 >/dev/null 2>&1 &
+    VAULT_VERIFY_PID=$!
+    sleep 3
+    
+    # Check if secrets exist
+    if curl -s -H "X-Vault-Token: root" http://localhost:8201/v1/secret/data/cdp-client/config >/dev/null 2>&1; then
+        print_success "CDP client config secrets verified in Vault"
+    else
+        print_error "CDP client config secrets not found in Vault"
+        kill $VAULT_VERIFY_PID 2>/dev/null || true
+        exit 1
+    fi
+    
+    if curl -s -H "X-Vault-Token: root" http://localhost:8201/v1/secret/data/cdp-client/external-apis >/dev/null 2>&1; then
+        print_success "CDP client external APIs secrets verified in Vault"
+    else
+        print_error "CDP client external APIs secrets not found in Vault"
+        kill $VAULT_VERIFY_PID 2>/dev/null || true
+        exit 1
+    fi
+    
+    if curl -s -H "X-Vault-Token: root" http://localhost:8201/v1/secret/data/terrarium/tls >/dev/null 2>&1; then
+        print_success "TLS secrets verified in Vault"
+    else
+        print_error "TLS secrets not found in Vault"
+        kill $VAULT_VERIFY_PID 2>/dev/null || true
+        exit 1
+    fi
+    
+    # Clean up temporary port forward
+    kill $VAULT_VERIFY_PID 2>/dev/null || true
     
     # Set up automatic port forwarding for Vault (if port 8200 is not already in use)
     print_status "Setting up Vault port forwarding..."
@@ -351,12 +551,41 @@ deploy_k3s() {
         fi
     fi
     
+    # Get external IP for accessing services
+    print_status "Getting external access information..."
+    
+    # Try to get the external IP that can be used to access the services
+    EXTERNAL_IP="localhost"
+    
+    # Check if we can get the host machine's IP
+    if command -v hostname >/dev/null 2>&1; then
+        # Try to get the primary network interface IP
+        if command -v ip >/dev/null 2>&1; then
+            # Linux
+            HOST_IP=$(ip route get 1.1.1.1 | awk '{print $7; exit}' 2>/dev/null)
+        elif command -v ifconfig >/dev/null 2>&1; then
+            # macOS/BSD
+            HOST_IP=$(ifconfig | grep -E "inet.*broadcast" | awk '{print $2}' | head -1)
+        fi
+        
+        # Use host IP if we found one and it's not localhost
+        if [ -n "$HOST_IP" ] && [ "$HOST_IP" != "127.0.0.1" ] && [ "$HOST_IP" != "::1" ]; then
+            EXTERNAL_IP="$HOST_IP"
+        fi
+    fi
+    
     print_success "K3s deployment completed!"
     echo ""
     echo "Services are running in K3s:"
     echo "  - CDP Client: Available via Kong ingress"
     echo "  - Service Sink: Available via Kong ingress"
+    echo "  - Logthon: Available via Kong ingress at /logs/*"
     echo "  - Vault: Available at http://localhost:8200 (port forwarded)"
+    echo ""
+    echo "External Access Information:"
+    echo "  Host IP: $EXTERNAL_IP"
+    echo "  Access via: http://$EXTERNAL_IP or https://$EXTERNAL_IP"
+    echo "  Kong LoadBalancer ports: 80 (HTTP), 443 (HTTPS), 8200 (Vault), 5001 (Logthon)"
     echo ""
     echo "Vault UI Access:"
     echo "  URL: http://localhost:8200"
