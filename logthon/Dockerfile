@@ -20,6 +20,7 @@ RUN uv pip install --system fastapi uvicorn[standard] pydantic python-multipart 
 
 # Copy application code
 COPY main.py ./
+COPY logthon/ ./logthon/
 
 # Create non-root user
 RUN groupadd -r appgroup && useradd -r -g appgroup appuser

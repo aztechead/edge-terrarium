@@ -144,7 +144,10 @@ deploy_docker() {
     
     # Build images
     print_status "Building Docker images..."
-    ./scripts/build-images.sh
+    if ! ./scripts/build-images.sh; then
+        print_error "Failed to build Docker images"
+        exit 1
+    fi
     
     # Start services (includes automatic Vault initialization)
     print_status "Starting services with Docker Compose..."
@@ -355,13 +358,33 @@ deploy_k3s() {
     
     # Build images for K3s
     print_status "Building Docker images for K3s..."
-    ./scripts/build-images-k3s.sh
+    if ! ./scripts/build-images-k3s.sh; then
+        print_error "Failed to build Docker images for K3s"
+        exit 1
+    fi
     
     # Import images into k3d cluster
     print_status "Importing Docker images into k3d cluster..."
-    k3d image import edge-terrarium-cdp-client:latest -c edge-terrarium
-    k3d image import edge-terrarium-service-sink:latest -c edge-terrarium
-    k3d image import edge-terrarium-logthon:latest -c edge-terrarium
+    
+    print_status "Importing CDP Client image..."
+    if ! k3d image import edge-terrarium-cdp-client:latest -c edge-terrarium; then
+        print_error "Failed to import CDP Client image into k3d cluster"
+        exit 1
+    fi
+    
+    print_status "Importing Service Sink image..."
+    if ! k3d image import edge-terrarium-service-sink:latest -c edge-terrarium; then
+        print_error "Failed to import Service Sink image into k3d cluster"
+        exit 1
+    fi
+    
+    print_status "Importing Logthon image..."
+    if ! k3d image import edge-terrarium-logthon:latest -c edge-terrarium; then
+        print_error "Failed to import Logthon image into k3d cluster"
+        exit 1
+    fi
+    
+    print_success "All images imported successfully into k3d cluster"
     
     # Check if helm is installed
     if ! command -v helm &> /dev/null; then
