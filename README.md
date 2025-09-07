@@ -328,6 +328,97 @@ The script automatically:
 - Manage services and ingress
 - Access cluster configuration
 
+### YAML Configuration Architecture
+
+The following diagram shows how YAML configuration files work together for both Docker Compose and K3s deployments:
+
+```mermaid
+%%{init: {'themeVariables': {'darkMode': true}}}%%
+flowchart TD
+    subgraph "Docker Compose Deployment"
+        DC[docker-compose.yml]
+        DK[kong.yml]
+        DC --> DK
+        DC --> |"Build Context"| CC[custom-client/Dockerfile]
+        DC --> |"Build Context"| SC[service-sink/Dockerfile]
+        DC --> |"Build Context"| LC[logthon/Dockerfile]
+        DC --> |"Build Context"| VC[vault/Dockerfile]
+        DC --> |"Build Context"| KC[kong/Dockerfile]
+    end
+    
+    subgraph "K3s Deployment"
+        subgraph "Core Resources"
+            NS[namespace.yaml]
+            VD[vault-deployment.yaml]
+            VS[vault-service.yaml]
+            VP[vault-pvc.yaml]
+            VI[vault-init-job.yaml]
+        end
+        
+        subgraph "Application Resources"
+            CD[custom-client-deployment.yaml]
+            SD[service-sink-deployment.yaml]
+            LD[logthon-deployment.yaml]
+            CS[custom-client-service]
+            SS[service-sink-service]
+            LS[logthon-service.yaml]
+            LIS[logthon-ingress-service.yaml]
+        end
+        
+        subgraph "Networking Resources"
+            IY[ingress.yaml]
+            IH[ingress-http.yaml]
+            KY[kustomization.yaml]
+        end
+        
+        NS --> VD
+        NS --> VS
+        NS --> VP
+        NS --> VI
+        NS --> CD
+        NS --> SD
+        NS --> LD
+        NS --> CS
+        NS --> SS
+        NS --> LS
+        NS --> LIS
+        NS --> IY
+        NS --> IH
+        
+        KY --> |"Manages All Resources"| NS
+        KY --> |"Manages All Resources"| VD
+        KY --> |"Manages All Resources"| VS
+        KY --> |"Manages All Resources"| VP
+        KY --> |"Manages All Resources"| VI
+        KY --> |"Manages All Resources"| CD
+        KY --> |"Manages All Resources"| SD
+        KY --> |"Manages All Resources"| LD
+        KY --> |"Manages All Resources"| CS
+        KY --> |"Manages All Resources"| SS
+        KY --> |"Manages All Resources"| LS
+        KY --> |"Manages All Resources"| LIS
+        KY --> |"Manages All Resources"| IY
+        KY --> |"Manages All Resources"| IH
+    end
+    
+    classDef docker fill:#e3f2fd,stroke:#1976d2,stroke-width:2px,color:#000
+    classDef k3s fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#000
+    classDef core fill:#e8f5e8,stroke:#388e3c,stroke-width:2px,color:#000
+    classDef app fill:#fff3e0,stroke:#f57c00,stroke-width:2px,color:#000
+    classDef net fill:#fce4ec,stroke:#c2185b,stroke-width:2px,color:#000
+    
+    class DC,DK,CC,SC,LC,VC,KC docker
+    class NS,VD,VS,VP,VI core
+    class CD,SD,LD,CS,SS,LS,LIS app
+    class IY,IH,KY net
+```
+
+**Key Relationships**:
+- **Docker Compose**: Single `docker-compose.yml` orchestrates all services with Kong configuration
+- **K3s**: Multiple YAML files managed by `kustomization.yaml` for declarative deployment
+- **Build Context**: Dockerfiles define how each service is containerized
+- **Resource Dependencies**: Namespace must be created before other resources
+
 ### Understanding K3s Resources
 
 #### Pods
@@ -380,6 +471,93 @@ spec:
             port:
               number: 1337
 ```
+
+### K3d Cluster Architecture
+
+When you run `./scripts/deploy.sh k3s deploy`, k3d creates a local K3s cluster using Docker containers. Understanding these containers helps with troubleshooting and cluster management.
+
+#### K3d Container Components
+
+```mermaid
+%%{init: {'themeVariables': {'darkMode': true}}}%%
+flowchart TD
+    subgraph "Host Machine"
+        subgraph "k3d Cluster: edge-terrarium"
+            subgraph "Control Plane"
+                SERVER[k3d-edge-terrarium-server-0<br/>K3s Server Node]
+            end
+            
+            subgraph "Load Balancer"
+                SERVERLB[k3d-edge-terrarium-serverlb<br/>HAProxy Load Balancer]
+            end
+            
+            subgraph "Worker Nodes"
+                AGENT1[k3d-edge-terrarium-agent-0<br/>K3s Agent Node]
+                AGENT2[k3d-edge-terrarium-agent-1<br/>K3s Agent Node]
+            end
+        end
+        
+        subgraph "Port Mappings"
+            PM1[localhost:443 → serverlb:80]
+            PM2[localhost:5001 → serverlb:5001]
+            PM3[localhost:8200 → serverlb:8200]
+            PM4[localhost:9443 → serverlb:9443]
+        end
+    end
+    
+    PM1 --> SERVERLB
+    PM2 --> SERVERLB
+    PM3 --> SERVERLB
+    PM4 --> SERVERLB
+    
+    SERVERLB --> SERVER
+    SERVERLB --> AGENT1
+    SERVERLB --> AGENT2
+    
+    classDef server fill:#e3f2fd,stroke:#1976d2,stroke-width:2px,color:#000
+    classDef agent fill:#e8f5e8,stroke:#388e3c,stroke-width:2px,color:#000
+    classDef lb fill:#fff3e0,stroke:#f57c00,stroke-width:2px,color:#000
+    classDef port fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#000
+    
+    class SERVER server
+    class AGENT1,AGENT2 agent
+    class SERVERLB lb
+    class PM1,PM2,PM3,PM4 port
+```
+
+#### Container Descriptions
+
+| Container | Purpose | Key Functions |
+|-----------|---------|---------------|
+| **k3d-edge-terrarium-server-0** | K3s control plane node | - Runs K3s server (API server, etcd, scheduler, controller-manager)<br/>- Manages cluster state and configuration<br/>- Handles API requests and resource management<br/>- Runs system pods (CoreDNS, Traefik, etc.) |
+| **k3d-edge-terrarium-agent-0/1** | K3s worker nodes | - Run application pods and workloads<br/>- Execute container runtime (containerd)<br/>- Report node status to server<br/>- Handle pod networking and storage |
+| **k3d-edge-terrarium-serverlb** | HAProxy load balancer | - Distributes traffic across server nodes<br/>- Provides external access to cluster services<br/>- Maps host ports to cluster services<br/>- Handles TLS termination for ingress |
+
+#### Container Management Commands
+
+```bash
+# View all k3d containers
+docker ps --filter "label=k3d.cluster=edge-terrarium"
+
+# View specific container logs
+docker logs k3d-edge-terrarium-server-0
+docker logs k3d-edge-terrarium-agent-0
+docker logs k3d-edge-terrarium-serverlb
+
+# Access container shell
+docker exec -it k3d-edge-terrarium-server-0 sh
+docker exec -it k3d-edge-terrarium-agent-0 sh
+
+# View container resource usage
+docker stats k3d-edge-terrarium-server-0 k3d-edge-terrarium-agent-0 k3d-edge-terrarium-serverlb
+```
+
+#### Container Networking
+
+- **Internal Network**: All containers communicate via `k3d-edge-terrarium` Docker network
+- **Port Mapping**: serverlb container maps host ports to cluster services
+- **Service Discovery**: Pods use Kubernetes DNS for internal communication
+- **Ingress**: Kong ingress controller runs in the cluster and routes external traffic
 
 ### K3s vs Docker: Key Differences
 
@@ -584,6 +762,137 @@ The dashboard is configured with:
 - **Namespace Isolation**: Runs in dedicated `kubernetes-dashboard` namespace
 - **LoadBalancer Access**: Direct access via k3d port mapping
 
+### K3s Container and Pod Management
+
+#### Viewing Pods and Containers
+
+```bash
+# List all pods in the edge-terrarium namespace
+kubectl get pods -n edge-terrarium
+
+# List all pods across all namespaces
+kubectl get pods --all-namespaces
+
+# Get detailed pod information
+kubectl describe pod <pod-name> -n edge-terrarium
+
+# List pods with wide output (shows node and IP)
+kubectl get pods -n edge-terrarium -o wide
+
+# Watch pods in real-time
+kubectl get pods -n edge-terrarium -w
+```
+
+#### Container Logs
+
+```bash
+# View logs for a specific pod
+kubectl logs <pod-name> -n edge-terrarium
+
+# View logs for a specific container in a pod
+kubectl logs <pod-name> -c <container-name> -n edge-terrarium
+
+# Follow logs in real-time (like tail -f)
+kubectl logs -f <pod-name> -n edge-terrarium
+
+# View logs from all containers in a pod
+kubectl logs <pod-name> --all-containers=true -n edge-terrarium
+
+# View logs from previous container instance (if pod restarted)
+kubectl logs <pod-name> --previous -n edge-terrarium
+
+# View logs with timestamps
+kubectl logs <pod-name> --timestamps=true -n edge-terrarium
+
+# View logs from deployment (gets logs from all pods in deployment)
+kubectl logs deployment/<deployment-name> -n edge-terrarium
+```
+
+#### Container Management
+
+```bash
+# Execute commands in a running container
+kubectl exec -it <pod-name> -n edge-terrarium -- /bin/sh
+kubectl exec -it <pod-name> -c <container-name> -n edge-terrarium -- /bin/sh
+
+# Run a one-time command in a container
+kubectl exec <pod-name> -n edge-terrarium -- ls -la
+
+# Copy files to/from containers
+kubectl cp <local-file> <pod-name>:/path/to/destination -n edge-terrarium
+kubectl cp <pod-name>:/path/to/file <local-destination> -n edge-terrarium
+
+# Port forward to access services locally
+kubectl port-forward pod/<pod-name> 8080:8080 -n edge-terrarium
+kubectl port-forward service/<service-name> 8080:8080 -n edge-terrarium
+```
+
+#### Pod Lifecycle Management
+
+```bash
+# Restart a deployment (rolling restart)
+kubectl rollout restart deployment/<deployment-name> -n edge-terrarium
+
+# Scale a deployment
+kubectl scale deployment <deployment-name> --replicas=3 -n edge-terrarium
+
+# Delete a pod (will be recreated by deployment)
+kubectl delete pod <pod-name> -n edge-terrarium
+
+# Delete a deployment
+kubectl delete deployment <deployment-name> -n edge-terrarium
+
+# Get deployment status
+kubectl rollout status deployment/<deployment-name> -n edge-terrarium
+
+# View deployment history
+kubectl rollout history deployment/<deployment-name> -n edge-terrarium
+```
+
+#### Resource Monitoring
+
+```bash
+# View resource usage for pods
+kubectl top pods -n edge-terrarium
+
+# View resource usage for nodes
+kubectl top nodes
+
+# View resource usage for specific pod
+kubectl top pod <pod-name> -n edge-terrarium
+
+# Get resource quotas
+kubectl describe quota -n edge-terrarium
+
+# View events in namespace
+kubectl get events -n edge-terrarium --sort-by='.lastTimestamp'
+```
+
+#### Troubleshooting Commands
+
+```bash
+# Check pod status and events
+kubectl describe pod <pod-name> -n edge-terrarium
+
+# Check service endpoints
+kubectl get endpoints -n edge-terrarium
+
+# Check ingress status
+kubectl describe ingress -n edge-terrarium
+
+# Check persistent volumes
+kubectl get pv,pvc -n edge-terrarium
+
+# Check secrets and configmaps
+kubectl get secrets,configmaps -n edge-terrarium
+
+# View cluster info
+kubectl cluster-info
+
+# Check node status
+kubectl get nodes -o wide
+```
+
 ---
 
 ## Part 4: Advanced Features
@@ -608,6 +917,242 @@ get_vault_secret("custom-client/config", "api_key", secrets->api_key, sizeof(sec
 // Vault returns: "mock-api-key-12345"
 ```
 
+#### Pod-to-Vault Communication
+
+Pods in the K3s cluster communicate with Vault using Kubernetes internal DNS addresses. This ensures secure, internal communication without exposing Vault to external networks.
+
+##### Internal Address Resolution
+
+```mermaid
+%%{init: {'themeVariables': {'darkMode': true}}}%%
+flowchart TD
+    subgraph "K3s Cluster"
+        subgraph "edge-terrarium Namespace"
+            CC[custom-client Pod]
+            SS[service-sink Pod]
+            LT[logthon Pod]
+        end
+        
+        subgraph "Vault Service"
+            VS[vault-service<br/>ClusterIP: 10.43.x.x]
+            VP[vault Pod<br/>IP: 10.42.x.x]
+        end
+    end
+    
+    CC --> |"DNS: vault-service.edge-terrarium.svc.cluster.local:8200"| VS
+    SS --> |"DNS: vault-service.edge-terrarium.svc.cluster.local:8200"| VS
+    LT --> |"DNS: vault-service.edge-terrarium.svc.cluster.local:8200"| VS
+    
+    VS --> VP
+    
+    classDef pod fill:#e8f5e8,stroke:#388e3c,stroke-width:2px,color:#000
+    classDef service fill:#e3f2fd,stroke:#1976d2,stroke-width:2px,color:#000
+    classDef vault fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#000
+    
+    class CC,SS,LT pod
+    class VS service
+    class VP vault
+```
+
+##### Address Formats
+
+| Environment | Vault Address | DNS Resolution |
+|-------------|---------------|----------------|
+| **Docker Compose** | `http://vault:8200` | Container name resolution |
+| **K3s** | `http://vault-service.edge-terrarium.svc.cluster.local:8200` | Kubernetes DNS resolution |
+
+##### Environment Variables
+
+Pods are configured with the following environment variables to reach Vault:
+
+```yaml
+env:
+- name: VAULT_ADDR
+  value: "http://vault-service.edge-terrarium.svc.cluster.local:8200"
+- name: VAULT_TOKEN
+  value: "root"
+```
+
+##### DNS Resolution Process
+
+1. **Pod makes request** to `vault-service.edge-terrarium.svc.cluster.local:8200`
+2. **Kubernetes DNS** resolves to Vault service ClusterIP (e.g., `10.43.123.45:8200`)
+3. **Service** forwards request to Vault pod IP (e.g., `10.42.67.89:8200`)
+4. **Vault pod** processes the request and returns response
+5. **Response** follows the same path back to the requesting pod
+
+##### Network Security
+
+- **Internal Communication**: All Vault communication happens within the cluster network
+- **No External Exposure**: Vault is not accessible from outside the cluster
+- **Service Mesh**: Traffic is encrypted and authenticated within the cluster
+- **Namespace Isolation**: Only pods in the same namespace can access Vault by default
+
+#### Vault CRUD Operations
+
+Vault provides a REST API for managing secrets. Here are common operations using curl:
+
+##### Authentication
+
+```bash
+# Set Vault address and token
+export VAULT_ADDR="http://localhost:8200"  # Docker
+# export VAULT_ADDR="http://localhost:8200"  # K3s (via port-forward)
+export VAULT_TOKEN="root"
+
+# Verify authentication
+curl -H "X-Vault-Token: $VAULT_TOKEN" $VAULT_ADDR/v1/auth/token/lookup-self
+```
+
+##### Secret Management (KV v2 Engine)
+
+```bash
+# Create/Update a secret
+curl -X POST \
+  -H "X-Vault-Token: $VAULT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"data": {"api_key": "secret-api-key-12345", "database_url": "postgresql://user:pass@db:5432/app"}}' \
+  $VAULT_ADDR/v1/secret/data/custom-client/config
+
+# Read a secret
+curl -H "X-Vault-Token: $VAULT_TOKEN" \
+  $VAULT_ADDR/v1/secret/data/custom-client/config
+
+# Read specific field from secret
+curl -H "X-Vault-Token: $VAULT_TOKEN" \
+  $VAULT_ADDR/v1/secret/data/custom-client/config | jq '.data.data.api_key'
+
+# List secrets (shows keys, not values)
+curl -H "X-Vault-Token: $VAULT_TOKEN" \
+  $VAULT_ADDR/v1/secret/metadata/custom-client
+
+# Delete a secret
+curl -X DELETE \
+  -H "X-Vault-Token: $VAULT_TOKEN" \
+  $VAULT_ADDR/v1/secret/data/custom-client/config
+
+# Delete secret metadata (permanent deletion)
+curl -X DELETE \
+  -H "X-Vault-Token: $VAULT_TOKEN" \
+  $VAULT_ADDR/v1/secret/metadata/custom-client/config
+```
+
+##### Policy Management
+
+```bash
+# Create a policy
+curl -X POST \
+  -H "X-Vault-Token: $VAULT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"policy": "path \"secret/data/custom-client/*\" { capabilities = [\"read\"] }"}' \
+  $VAULT_ADDR/v1/sys/policies/acl/custom-client-policy
+
+# List policies
+curl -H "X-Vault-Token: $VAULT_TOKEN" \
+  $VAULT_ADDR/v1/sys/policies/acl
+
+# Read a policy
+curl -H "X-Vault-Token: $VAULT_TOKEN" \
+  $VAULT_ADDR/v1/sys/policies/acl/custom-client-policy
+
+# Delete a policy
+curl -X DELETE \
+  -H "X-Vault-Token: $VAULT_TOKEN" \
+  $VAULT_ADDR/v1/sys/policies/acl/custom-client-policy
+```
+
+##### Token Management
+
+```bash
+# Create a new token
+curl -X POST \
+  -H "X-Vault-Token: $VAULT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"policies": ["custom-client-policy"], "ttl": "1h"}' \
+  $VAULT_ADDR/v1/auth/token/create
+
+# Renew a token
+curl -X POST \
+  -H "X-Vault-Token: $VAULT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"token": "your-token-here"}' \
+  $VAULT_ADDR/v1/auth/token/renew
+
+# Revoke a token
+curl -X POST \
+  -H "X-Vault-Token: $VAULT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"token": "your-token-here"}' \
+  $VAULT_ADDR/v1/auth/token/revoke
+```
+
+##### Health and Status
+
+```bash
+# Check Vault health
+curl $VAULT_ADDR/v1/sys/health
+
+# Get Vault status
+curl -H "X-Vault-Token: $VAULT_TOKEN" \
+  $VAULT_ADDR/v1/sys/status
+
+# List enabled auth methods
+curl -H "X-Vault-Token: $VAULT_TOKEN" \
+  $VAULT_ADDR/v1/sys/auth
+
+# List enabled secret engines
+curl -H "X-Vault-Token: $VAULT_TOKEN" \
+  $VAULT_ADDR/v1/sys/mounts
+```
+
+##### Example: Complete Secret Lifecycle
+
+```bash
+# 1. Create a secret
+curl -X POST \
+  -H "X-Vault-Token: $VAULT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"data": {"username": "admin", "password": "secure-password-123"}}' \
+  $VAULT_ADDR/v1/secret/data/app/credentials
+
+# 2. Read the secret
+curl -H "X-Vault-Token: $VAULT_TOKEN" \
+  $VAULT_ADDR/v1/secret/data/app/credentials
+
+# 3. Update the secret
+curl -X POST \
+  -H "X-Vault-Token: $VAULT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"data": {"username": "admin", "password": "new-secure-password-456"}}' \
+  $VAULT_ADDR/v1/secret/data/app/credentials
+
+# 4. List all secrets under app/
+curl -H "X-Vault-Token: $VAULT_TOKEN" \
+  $VAULT_ADDR/v1/secret/metadata/app
+
+# 5. Delete the secret
+curl -X DELETE \
+  -H "X-Vault-Token: $VAULT_TOKEN" \
+  $VAULT_ADDR/v1/secret/data/app/credentials
+```
+
+##### Error Handling
+
+```bash
+# Common error responses
+# 400 Bad Request - Invalid JSON or missing required fields
+# 403 Forbidden - Insufficient permissions
+# 404 Not Found - Secret or path doesn't exist
+# 500 Internal Server Error - Vault server error
+
+# Example error response
+{
+  "errors": [
+    "permission denied"
+  ]
+}
+```
+
 ### API Gateway with Kong
 
 **Problem**: Multiple services need a single entry point for external traffic.
@@ -615,11 +1160,93 @@ get_vault_secret("custom-client/config", "api_key", secrets->api_key, sizeof(sec
 **Solution**: Kong acts as a reverse proxy that routes requests to the appropriate service.
 
 #### Kong Routing Rules
-| Request Path | Destination Service | Why |
-|-------------|-------------------|-----|
-| `/fake-provider/*` | Custom Client | Special handling for fake provider requests |
-| `/example-provider/*` | Custom Client | Special handling for example provider requests |
-| Everything else | Service Sink | Default handler for all other requests |
+
+| Request Path | Destination Service | Port | Method | Purpose |
+|-------------|-------------------|------|--------|---------|
+| `/fake-provider/*` | Custom Client | 1337 | GET/POST | Special handling for fake provider requests |
+| `/example-provider/*` | Custom Client | 1337 | GET/POST | Special handling for example provider requests |
+| `/health` | Custom Client | 1337 | GET | Health check endpoint |
+| `/api/*` | Service Sink | 8080 | GET/POST | API endpoint requests |
+| `/admin/*` | Service Sink | 8080 | GET/POST | Admin interface requests |
+| `/` (root) | Service Sink | 8080 | GET | Default handler for all other requests |
+| `/*` (catch-all) | Service Sink | 8080 | GET/POST | Fallback for unmatched routes |
+
+#### Kong Configuration Details
+
+**Docker Compose Configuration** (`configs/docker/kong/kong.yml`):
+```yaml
+services:
+  - name: custom-client
+    url: http://custom-client:1337
+    routes:
+      - name: custom-client-route
+        paths:
+          - /fake-provider
+          - /example-provider
+        methods:
+          - GET
+          - POST
+        strip_path: true
+        preserve_host: true
+
+  - name: service-sink
+    url: http://service-sink:8080
+    routes:
+      - name: service-sink-route
+        paths:
+          - /
+        methods:
+          - GET
+          - POST
+        strip_path: false
+        preserve_host: true
+```
+
+**K3s Ingress Configuration** (`configs/k3s/ingress.yaml`):
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: edge-terrarium-ingress
+  annotations:
+    konghq.com/strip-path: "true"
+spec:
+  ingressClassName: kong
+  rules:
+  - host: localhost
+    http:
+      paths:
+      - path: /fake-provider
+        pathType: Prefix
+        backend:
+          service:
+            name: custom-client-service
+            port:
+              number: 1337
+      - path: /example-provider
+        pathType: Prefix
+        backend:
+          service:
+            name: custom-client-service
+            port:
+              number: 1337
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: service-sink-service
+            port:
+              number: 8080
+```
+
+#### Routing Priority
+
+Kong processes routes in the following order:
+1. **Exact path matches** (e.g., `/fake-provider/test`)
+2. **Prefix matches** (e.g., `/fake-provider/*`)
+3. **Catch-all routes** (e.g., `/`)
+
+This ensures that specific routes are handled before general ones.
 
 ### Health Checks and Monitoring
 
@@ -659,6 +1286,69 @@ livenessProbe:
 
 ## Project Structure
 
+### Directory Tree Visualization
+
+```mermaid
+%%{init: {'themeVariables': {'darkMode': true}}}%%
+flowchart TD
+    ROOT[c-edge-terrarium/]
+    
+    subgraph "Application Services"
+        CC[custom-client/]
+        SS[service-sink/]
+        LT[logthon/]
+    end
+    
+    subgraph "Configuration"
+        CONFIG[configs/]
+        DOCKER[configs/docker/]
+        K3S[configs/k3s/]
+        KONG[configs/docker/kong/]
+    end
+    
+    subgraph "Automation"
+        SCRIPTS[scripts/]
+        DEPLOY[deploy.sh]
+        BUILD[build-images.sh]
+        TEST[test-*.sh]
+    end
+    
+    subgraph "Security"
+        CERTS[certs/]
+        DOCKER_CERTS[configs/docker/certs/]
+    end
+    
+    ROOT --> CC
+    ROOT --> SS
+    ROOT --> LT
+    ROOT --> CONFIG
+    ROOT --> SCRIPTS
+    ROOT --> CERTS
+    
+    CONFIG --> DOCKER
+    CONFIG --> K3S
+    DOCKER --> KONG
+    DOCKER --> DOCKER_CERTS
+    
+    SCRIPTS --> DEPLOY
+    SCRIPTS --> BUILD
+    SCRIPTS --> TEST
+    
+    classDef app fill:#e8f5e8,stroke:#388e3c,stroke-width:2px,color:#000
+    classDef config fill:#e3f2fd,stroke:#1976d2,stroke-width:2px,color:#000
+    classDef script fill:#fff3e0,stroke:#f57c00,stroke-width:2px,color:#000
+    classDef security fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#000
+    classDef root fill:#fce4ec,stroke:#c2185b,stroke-width:3px,color:#000
+    
+    class CC,SS,LT app
+    class CONFIG,DOCKER,K3S,KONG config
+    class SCRIPTS,DEPLOY,BUILD,TEST script
+    class CERTS,DOCKER_CERTS security
+    class ROOT root
+```
+
+### Detailed Directory Structure
+
 ```
 c-edge-terrarium/
 ├── custom-client/           # C application for special requests
@@ -670,23 +1360,65 @@ c-edge-terrarium/
 ├── logthon/                # Python log aggregation service
 │   ├── main.py             # FastAPI application
 │   ├── logthon/            # Python package
+│   │   ├── __init__.py
+│   │   ├── api.py          # API endpoints
+│   │   ├── app.py          # FastAPI app
+│   │   ├── config.py       # Configuration
+│   │   ├── models.py       # Data models
+│   │   ├── storage.py      # Log storage
+│   │   ├── ui.py           # Web UI
+│   │   └── websocket_manager.py
+│   ├── pyproject.toml      # Python dependencies
+│   ├── test_modular.py     # Tests
 │   └── Dockerfile          # Container build instructions
 ├── configs/
 │   ├── docker/             # Docker Compose configuration
 │   │   ├── docker-compose.yml
+│   │   ├── certs/          # TLS certificates for Docker
 │   │   └── kong/           # Kong Gateway configuration
+│   │       └── kong.yml
 │   └── k3s/                # Kubernetes manifests
 │       ├── namespace.yaml
-│       ├── *-deployment.yaml
+│       ├── custom-client-deployment.yaml
+│       ├── service-sink-deployment.yaml
+│       ├── logthon-deployment.yaml
+│       ├── vault-deployment.yaml
+│       ├── vault-service.yaml
+│       ├── vault-pvc.yaml
+│       ├── vault-init-job.yaml
+│       ├── vault-config.yaml
+│       ├── vault-ingress.yaml
 │       ├── services.yaml
-│       └── ingress.yaml
+│       ├── logthon-service.yaml
+│       ├── logthon-ingress-service.yaml
+│       ├── logthon-ingress.yaml
+│       ├── ingress.yaml
+│       ├── ingress-http.yaml
+│       └── kustomization.yaml
 ├── scripts/                # Automation scripts
 │   ├── deploy.sh           # Main deployment script
 │   ├── build-images.sh     # Docker image building
+│   ├── build-images-k3s.sh # K3s image building
 │   ├── test-setup.sh       # Docker testing
-│   └── test-k3s.sh         # Kubernetes testing
+│   ├── test-k3s.sh         # Kubernetes testing
+│   ├── generate-tls-certs.sh # Certificate generation
+│   ├── init-vault.sh       # Vault initialization
+│   ├── create-k3s-tls-secret.sh # K3s TLS secret creation
+│   └── cleanup-old-pods.sh # Pod cleanup
 └── certs/                  # TLS certificates
 ```
+
+### Directory Purpose
+
+| Directory | Purpose | Key Files |
+|-----------|---------|-----------|
+| `custom-client/` | C application handling `/fake-provider/*` and `/example-provider/*` routes | `main.c`, `Dockerfile` |
+| `service-sink/` | C application handling all other HTTP requests | `main.c`, `Dockerfile` |
+| `logthon/` | Python FastAPI service for log aggregation and web UI | `main.py`, `logthon/`, `pyproject.toml` |
+| `configs/docker/` | Docker Compose orchestration and Kong configuration | `docker-compose.yml`, `kong/kong.yml` |
+| `configs/k3s/` | Kubernetes manifests for declarative deployment | `*-deployment.yaml`, `services.yaml`, `ingress.yaml` |
+| `scripts/` | Automation scripts for building, deploying, and testing | `deploy.sh`, `build-images.sh`, `test-*.sh` |
+| `certs/` | TLS certificates for secure communication | Certificate files |
 
 ---
 
@@ -765,6 +1497,227 @@ spec:
 - Service discovery
 - Secrets retrieval
 - Log aggregation
+
+### K3s Testing Methods
+
+K3s provides multiple ways to access and test your applications. Understanding these methods helps with development, debugging, and production deployment.
+
+#### Method 1: Load Balancer Access (Recommended)
+
+The k3d cluster automatically creates a load balancer that maps host ports to cluster services.
+
+##### Access Points
+
+| Service | Load Balancer URL | Purpose |
+|---------|------------------|---------|
+| **Kong Ingress** | `https://localhost:443` | Main application gateway |
+| **Logthon Service** | `http://localhost:5001` | Log aggregation web UI |
+| **Vault Service** | `http://localhost:8200` | Secrets management |
+| **Kubernetes Dashboard** | `https://localhost:9443` | Cluster management UI |
+
+##### Testing Commands
+
+```bash
+# Test Kong ingress routing
+curl -k -H "Host: localhost" https://localhost:443/fake-provider/test
+curl -k -H "Host: localhost" https://localhost:443/example-provider/test
+curl -k -H "Host: localhost" https://localhost:443/api/test
+
+# Test Logthon web UI
+curl http://localhost:5001
+
+# Test Vault API
+curl http://localhost:8200/v1/sys/health
+
+# Test Kubernetes Dashboard
+curl -k https://localhost:9443
+```
+
+##### Advantages
+- **Direct Access**: No additional setup required
+- **Production-like**: Similar to real load balancer behavior
+- **Persistent**: Access remains available across pod restarts
+- **TLS Support**: Automatic HTTPS termination
+
+#### Method 2: Port Forwarding
+
+Port forwarding creates a direct tunnel from your local machine to a specific pod or service.
+
+##### Service Port Forwarding
+
+```bash
+# Forward to a service (recommended)
+kubectl port-forward service/custom-client-service 1337:1337 -n edge-terrarium
+kubectl port-forward service/service-sink-service 8080:8080 -n edge-terrarium
+kubectl port-forward service/logthon-service 5000:5000 -n edge-terrarium
+kubectl port-forward service/vault-service 8200:8200 -n edge-terrarium
+
+# Test forwarded services
+curl http://localhost:1337/health
+curl http://localhost:8080/health
+curl http://localhost:5000
+curl http://localhost:8200/v1/sys/health
+```
+
+##### Pod Port Forwarding
+
+```bash
+# Get pod name
+kubectl get pods -n edge-terrarium
+
+# Forward to specific pod
+kubectl port-forward pod/custom-client-844879c699-qs76w 1337:1337 -n edge-terrarium
+kubectl port-forward pod/service-sink-7d4f8b9c6e-abc12 8080:8080 -n edge-terrarium
+
+# Test pod directly
+curl http://localhost:1337/health
+curl http://localhost:8080/health
+```
+
+##### Multiple Port Forwarding
+
+```bash
+# Forward multiple services simultaneously
+kubectl port-forward service/custom-client-service 1337:1337 -n edge-terrarium &
+kubectl port-forward service/service-sink-service 8080:8080 -n edge-terrarium &
+kubectl port-forward service/logthon-service 5000:5000 -n edge-terrarium &
+kubectl port-forward service/vault-service 8200:8200 -n edge-terrarium &
+
+# Test all services
+curl http://localhost:1337/health
+curl http://localhost:8080/health
+curl http://localhost:5000
+curl http://localhost:8200/v1/sys/health
+
+# Stop port forwarding
+pkill -f "kubectl port-forward"
+```
+
+##### Advantages
+- **Direct Pod Access**: Bypasses service load balancing
+- **Debugging**: Access specific pod instances
+- **Development**: Test individual services in isolation
+- **Flexible**: Can forward to any pod or service
+
+#### Method 3: Ingress Testing
+
+Test the Kong ingress controller routing directly.
+
+##### Ingress Access
+
+```bash
+# Test ingress routing through Kong
+curl -k -H "Host: localhost" https://localhost:443/fake-provider/test
+curl -k -H "Host: localhost" https://localhost:443/example-provider/test
+curl -k -H "Host: localhost" https://localhost:443/api/test
+curl -k -H "Host: localhost" https://localhost:443/health
+
+# Test with different HTTP methods
+curl -k -X POST -H "Host: localhost" -H "Content-Type: application/json" \
+  -d '{"test": "data"}' https://localhost:443/fake-provider/test
+
+# Test with custom headers
+curl -k -H "Host: localhost" -H "X-Test-Header: value" \
+  https://localhost:443/api/test
+```
+
+##### Ingress Debugging
+
+```bash
+# Check ingress status
+kubectl get ingress -n edge-terrarium
+kubectl describe ingress edge-terrarium-ingress -n edge-terrarium
+
+# Check Kong ingress controller logs
+kubectl logs -n kong deployment/ingress-kong -f
+
+# Check service endpoints
+kubectl get endpoints -n edge-terrarium
+```
+
+#### Method 4: Cluster Internal Testing
+
+Test services from within the cluster using a debug pod.
+
+##### Create Debug Pod
+
+```bash
+# Create a debug pod with curl
+kubectl run debug-pod --image=curlimages/curl:latest -it --rm --restart=Never -n edge-terrarium -- sh
+
+# Inside the debug pod, test services
+curl http://custom-client-service.edge-terrarium.svc.cluster.local:1337/health
+curl http://service-sink-service.edge-terrarium.svc.cluster.local:8080/health
+curl http://logthon-service.edge-terrarium.svc.cluster.local:5000
+curl http://vault-service.edge-terrarium.svc.cluster.local:8200/v1/sys/health
+```
+
+##### Test Service Discovery
+
+```bash
+# Test DNS resolution
+nslookup custom-client-service.edge-terrarium.svc.cluster.local
+nslookup service-sink-service.edge-terrarium.svc.cluster.local
+nslookup logthon-service.edge-terrarium.svc.cluster.local
+nslookup vault-service.edge-terrarium.svc.cluster.local
+
+# Test service connectivity
+telnet custom-client-service.edge-terrarium.svc.cluster.local 1337
+telnet service-sink-service.edge-terrarium.svc.cluster.local 8080
+```
+
+#### Testing Best Practices
+
+##### 1. Health Check Testing
+
+```bash
+# Test all health endpoints
+curl -f http://localhost:1337/health || echo "Custom Client unhealthy"
+curl -f http://localhost:8080/health || echo "Service Sink unhealthy"
+curl -f http://localhost:5000/health || echo "Logthon unhealthy"
+curl -f http://localhost:8200/v1/sys/health || echo "Vault unhealthy"
+```
+
+##### 2. Load Testing
+
+```bash
+# Simple load test with curl
+for i in {1..10}; do
+  curl -k -H "Host: localhost" https://localhost:443/fake-provider/test &
+done
+wait
+
+# Test with different endpoints
+for endpoint in "/fake-provider/test" "/example-provider/test" "/api/test"; do
+  curl -k -H "Host: localhost" "https://localhost:443$endpoint"
+done
+```
+
+##### 3. Error Testing
+
+```bash
+# Test non-existent endpoints
+curl -k -H "Host: localhost" https://localhost:443/nonexistent
+curl -k -H "Host: localhost" https://localhost:443/fake-provider/invalid
+
+# Test with invalid methods
+curl -k -X DELETE -H "Host: localhost" https://localhost:443/fake-provider/test
+```
+
+##### 4. Monitoring and Logs
+
+```bash
+# Monitor pod logs during testing
+kubectl logs -f deployment/custom-client -n edge-terrarium &
+kubectl logs -f deployment/service-sink -n edge-terrarium &
+kubectl logs -f deployment/logthon -n edge-terrarium &
+
+# Run tests
+curl -k -H "Host: localhost" https://localhost:443/fake-provider/test
+
+# Stop monitoring
+pkill -f "kubectl logs"
+```
 
 ### Manual Testing
 
