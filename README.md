@@ -73,7 +73,7 @@ This project teaches you:
 
 ## Quick Start
 
-### Option 1: Docker (Recommended for Beginners)
+### Option 1: Docker (Recommended to start here)
 ```bash
 # Clone the repository
 git clone <repository-url>
@@ -86,7 +86,7 @@ cd c-edge-terrarium
 ./scripts/test-setup.sh
 ```
 
-### Option 2: K3s (After learning Docker)
+### Option 2: K3s (Recommended if you're familiar with containers)
 ```bash
 # Deploy to K3s
 ./scripts/deploy.sh k3s deploy
