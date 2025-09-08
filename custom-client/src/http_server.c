@@ -75,14 +75,21 @@ int parse_http_request(const char* request, http_request_t* req) {
 
 void send_http_response(int client_socket, int status_code, const char* message) {
     char response[1024];
+    char json_body[512];
+    
+    // Create the JSON body first to calculate its actual length
+    snprintf(json_body, sizeof(json_body),
+        "{\"status\":\"success\",\"message\":\"%s\",\"timestamp\":%ld}",
+        message, time(0));
+    
     snprintf(response, sizeof(response),
         "HTTP/1.1 %d %s\r\n"
         "Content-Type: application/json\r\n"
         "Content-Length: %zu\r\n"
         "Connection: close\r\n"
         "\r\n"
-        "{\"status\":\"success\",\"message\":\"%s\",\"timestamp\":%ld}",
-        status_code, message, strlen(message) + 50, message, time(0));
+        "%s",
+        status_code, message, strlen(json_body), json_body);
     
     send(client_socket, response, strlen(response), 0);
 }

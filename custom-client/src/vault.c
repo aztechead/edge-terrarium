@@ -5,7 +5,22 @@
 size_t write_callback(void* contents, size_t size, size_t nmemb, void* userp) {
     size_t realsize = size * nmemb;
     char* response = (char*)userp;
-    strncat(response, (char*)contents, realsize);
+    
+    // Find the current end of the string (null terminator)
+    size_t current_len = strlen(response);
+    size_t available_space = MAX_SECRET_SIZE - current_len - 1; // -1 for null terminator
+    
+    // Don't write more than available space
+    if (realsize > available_space) {
+        realsize = available_space;
+    }
+    
+    // Copy the new data to the end of the existing string
+    if (realsize > 0) {
+        memcpy(response + current_len, contents, realsize);
+        response[current_len + realsize] = '\0'; // Ensure null termination
+    }
+    
     return realsize;
 }
 
@@ -15,6 +30,7 @@ int get_vault_secret(const char* secret_path, const char* key, char* output, siz
     CURLcode res;
     char url[512];
     char response[MAX_SECRET_SIZE] = {0};
+    response[0] = '\0'; // Ensure null termination
     char auth_header[256];
     char* vault_addr;
     char* vault_token;
