@@ -135,14 +135,118 @@ test_logthon() {
     echo ""
 }
 
+# Function to test file storage functionality
+test_file_storage() {
+    local base_url=$1
+    local description=$2
+    
+    echo "Testing: $description"
+    echo "================================="
+    
+    # Test file storage health endpoint
+    echo "Testing File Storage health endpoint:"
+    echo "------------------------------------"
+    response=$(curl -s -k -w "%{http_code}" -o /tmp/response.json --connect-timeout 10 --max-time 30 "$base_url/storage/health" || echo "000")
+    
+    if [ "$response" = "200" ]; then
+        echo "✓ File Storage health check - SUCCESS"
+        if [ -f /tmp/response.json ]; then
+            echo "  ✓ Health response: $(cat /tmp/response.json)"
+        fi
+    else
+        echo "✗ File Storage health check - FAILED (HTTP $response)"
+    fi
+    echo ""
+    
+    # Test file storage info endpoint
+    echo "Testing File Storage info endpoint:"
+    echo "----------------------------------"
+    response=$(curl -s -k -w "%{http_code}" -o /tmp/response.json --connect-timeout 10 --max-time 30 "$base_url/storage/storage/info" || echo "000")
+    
+    if [ "$response" = "200" ]; then
+        echo "✓ File Storage info endpoint - SUCCESS"
+        if [ -f /tmp/response.json ]; then
+            echo "  ✓ Storage info: $(cat /tmp/response.json)"
+        fi
+    else
+        echo "✗ File Storage info endpoint - FAILED (HTTP $response)"
+    fi
+    echo ""
+    
+    # Test file storage list endpoint
+    echo "Testing File Storage list endpoint:"
+    echo "----------------------------------"
+    response=$(curl -s -k -w "%{http_code}" -o /tmp/response.json --connect-timeout 10 --max-time 30 "$base_url/storage/files" || echo "000")
+    
+    if [ "$response" = "200" ]; then
+        echo "✓ File Storage list endpoint - SUCCESS"
+        if [ -f /tmp/response.json ]; then
+            file_count=$(grep -o '"filename":' /tmp/response.json | wc -l)
+            echo "  ✓ Found $file_count files"
+        fi
+    else
+        echo "✗ File Storage list endpoint - FAILED (HTTP $response)"
+    fi
+    echo ""
+    
+    # Test file creation endpoint
+    echo "Testing File Storage create endpoint:"
+    echo "------------------------------------"
+    test_data='{"content": "Test file content from test script", "filename_prefix": "test", "extension": ".txt"}'
+    response=$(curl -s -k -w "%{http_code}" -o /tmp/response.json -X PUT -H "Content-Type: application/json" -d "$test_data" --connect-timeout 10 --max-time 30 "$base_url/storage/files" || echo "000")
+    
+    if [ "$response" = "200" ]; then
+        echo "✓ File Storage create endpoint - SUCCESS"
+        if [ -f /tmp/response.json ]; then
+            echo "  ✓ File created: $(cat /tmp/response.json)"
+            # Extract filename for later tests
+            created_filename=$(grep -o '"filename":"[^"]*"' /tmp/response.json | cut -d'"' -f4)
+        fi
+    else
+        echo "✗ File Storage create endpoint - FAILED (HTTP $response)"
+    fi
+    echo ""
+    
+    
+    # Test file retrieval if we created a file
+    if [ -n "$created_filename" ]; then
+        echo "Testing File Storage get endpoint:"
+        echo "---------------------------------"
+        response=$(curl -s -k -w "%{http_code}" -o /tmp/response.json --connect-timeout 10 --max-time 30 "$base_url/storage/files/$created_filename" || echo "000")
+        
+        if [ "$response" = "200" ]; then
+            echo "✓ File Storage get endpoint - SUCCESS"
+            if [ -f /tmp/response.json ]; then
+                echo "  ✓ File content retrieved: $(cat /tmp/response.json)"
+            fi
+        else
+            echo "✗ File Storage get endpoint - FAILED (HTTP $response)"
+        fi
+        echo ""
+    fi
+    
+    # Test logthon file storage integration
+    echo "Testing Logthon File Storage integration:"
+    echo "----------------------------------------"
+    response=$(curl -s -k -w "%{http_code}" -o /tmp/response.json --connect-timeout 10 --max-time 30 "$base_url/logs/api/files" || echo "000")
+    
+    if [ "$response" = "200" ]; then
+        echo "✓ Logthon File Storage integration - SUCCESS"
+        if [ -f /tmp/response.json ]; then
+            file_count=$(grep -o '"filename":' /tmp/response.json | wc -l)
+            echo "  ✓ Found $file_count files via logthon proxy"
+        fi
+    else
+        echo "✗ Logthon File Storage integration - FAILED (HTTP $response)"
+    fi
+    echo ""
+}
+
 # Check if Docker Compose is running
 if docker-compose -f configs/docker/docker-compose.yml -p c-edge-terrarium ps | grep -q "Up"; then
     echo "Testing Docker Compose setup..."
     echo "================================"
     
-    # Wait for services to be ready
-    echo "Waiting for services to be ready..."
-    sleep 10
     
     # Initialize Vault if it's running
     if docker-compose -f configs/docker/docker-compose.yml -p c-edge-terrarium ps | grep -q "vault.*Up"; then
@@ -179,6 +283,9 @@ if docker-compose -f configs/docker/docker-compose.yml -p c-edge-terrarium ps | 
     
     # Test logthon functionality
     test_logthon "https://localhost:8443" "Docker Compose - Logthon Log Aggregation Service"
+    
+    # Test File Storage Service
+    test_file_storage "https://localhost:8443" "Docker Compose - File Storage Service"
     
     # Test Vault secrets if it's running
     if docker-compose -f configs/docker/docker-compose.yml -p c-edge-terrarium ps | grep -q "vault.*Up"; then
@@ -266,6 +373,9 @@ if kubectl get namespace edge-terrarium >/dev/null 2>&1; then
             
             # Test logthon functionality
             test_logthon "https://$test_host:443" "Kubernetes - Logthon Log Aggregation Service"
+            
+            # Test File Storage Service
+            test_file_storage "https://$test_host:443" "Kubernetes - File Storage Service"
         else
             echo "Ingress IP found but not accessible (no tunnel or firewall blocking)"
             echo "To test Kubernetes deployment, use one of these methods:"

@@ -63,13 +63,33 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-# Verify Logthon image has the required package structure
-echo "Verifying Logthon image structure..."
+# Build File Storage
+echo "Building File Storage image for $PLATFORM..."
+docker build \
+  --no-cache \
+  --platform $PLATFORM \
+  -t edge-terrarium-file-storage:latest \
+  ./file-storage
+
+if [ $? -ne 0 ]; then
+    echo "Error: Failed to build File Storage image"
+    exit 1
+fi
+
+# Verify Logthon image has the required package structure and dependencies
+echo "Verifying Logthon image structure and dependencies..."
 docker run --rm edge-terrarium-logthon:latest sh -c "
     if [ -d 'logthon' ] && [ -f 'logthon/__init__.py' ] && [ -f 'logthon/api.py' ] && [ -f 'logthon/storage.py' ]; then
         echo '✓ Logthon package structure verified in image'
     else
         echo '✗ Logthon package structure missing in image'
+        exit 1
+    fi
+    
+    if python -c 'import httpx' 2>/dev/null; then
+        echo '✓ httpx dependency verified in image'
+    else
+        echo '✗ httpx dependency missing in image'
         exit 1
     fi
 "

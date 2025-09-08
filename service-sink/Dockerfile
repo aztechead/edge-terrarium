@@ -8,10 +8,10 @@ RUN apk add --no-cache gcc musl-dev curl-dev json-c-dev
 WORKDIR /app
 
 # Copy source code
-COPY main.c .
+COPY src/ ./src/
 
 # Compile the application
-RUN gcc -o service-sink main.c -lcurl -ljson-c
+RUN gcc -o service-sink src/*.c -lcurl -ljson-c
 
 # Final stage
 FROM alpine:3.18

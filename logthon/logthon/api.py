@@ -7,6 +7,8 @@ Principle by separating API concerns from the rest of the application logic.
 
 import json
 import logging
+import os
+import httpx
 from typing import Optional
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -144,3 +146,69 @@ def _add_routes(app: FastAPI) -> None:
         except Exception as e:
             logger.error(f"Error getting WebSocket info: {e}")
             raise HTTPException(status_code=500, detail="Failed to get WebSocket info")
+    
+    # File Storage Proxy Endpoints
+    @app.get("/api/files")
+    async def get_files():
+        """Proxy request to file storage service to get list of files."""
+        try:
+            file_storage_url = os.getenv("FILE_STORAGE_URL", "http://file-storage-service.edge-terrarium.svc.cluster.local:9000")
+            
+            async with httpx.AsyncClient() as client:
+                response = await client.get(f"{file_storage_url}/files", timeout=10.0)
+                response.raise_for_status()
+                return JSONResponse(content=response.json())
+        except Exception as e:
+            logger.error(f"Error getting files: {e}")
+            raise HTTPException(status_code=500, detail="Failed to get files")
+    
+    @app.get("/api/files/{filename}")
+    async def get_file(filename: str):
+        """Proxy request to file storage service to get specific file content."""
+        try:
+            file_storage_url = os.getenv("FILE_STORAGE_URL", "http://file-storage-service.edge-terrarium.svc.cluster.local:9000")
+            
+            async with httpx.AsyncClient() as client:
+                response = await client.get(f"{file_storage_url}/files/{filename}", timeout=10.0)
+                response.raise_for_status()
+                return JSONResponse(content=response.json())
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 404:
+                raise HTTPException(status_code=404, detail=f"File '{filename}' not found")
+            raise HTTPException(status_code=e.response.status_code, detail="Failed to get file")
+        except Exception as e:
+            logger.error(f"Error getting file {filename}: {e}")
+            raise HTTPException(status_code=500, detail="Failed to get file")
+    
+    @app.delete("/api/files/{filename}")
+    async def delete_file(filename: str):
+        """Proxy request to file storage service to delete specific file."""
+        try:
+            file_storage_url = os.getenv("FILE_STORAGE_URL", "http://file-storage-service.edge-terrarium.svc.cluster.local:9000")
+            
+            async with httpx.AsyncClient() as client:
+                response = await client.delete(f"{file_storage_url}/files/{filename}", timeout=10.0)
+                response.raise_for_status()
+                return JSONResponse(content=response.json())
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 404:
+                raise HTTPException(status_code=404, detail=f"File '{filename}' not found")
+            raise HTTPException(status_code=e.response.status_code, detail="Failed to delete file")
+        except Exception as e:
+            logger.error(f"Error deleting file {filename}: {e}")
+            raise HTTPException(status_code=500, detail="Failed to delete file")
+    
+    @app.delete("/api/files")
+    async def clear_all_files():
+        """Proxy request to file storage service to clear all files."""
+        try:
+            file_storage_url = os.getenv("FILE_STORAGE_URL", "http://file-storage-service.edge-terrarium.svc.cluster.local:9000")
+            
+            async with httpx.AsyncClient() as client:
+                response = await client.delete(f"{file_storage_url}/files", timeout=10.0)
+                response.raise_for_status()
+                return JSONResponse(content=response.json())
+        except Exception as e:
+            logger.error(f"Error clearing files: {e}")
+            raise HTTPException(status_code=500, detail="Failed to clear files")
+    

@@ -74,3 +74,30 @@ spec:                             # Specification of the service
   # Must match the labels in the service-sink deployment pod template
   selector:
     app: service-sink             # Routes traffic to Pods with this label
+
+---
+# ==========================================================================
+# FILE STORAGE SERVICE
+# ==========================================================================
+# This service provides network access to the File Storage Pods.
+# It routes traffic to Pods with the label "app: file-storage"
+apiVersion: v1                    # Core API version for Service resources
+kind: Service                     # Resource type - creates a service
+metadata:                         # Metadata about this service
+  name: file-storage-service      # Name of the service (used in DNS resolution)
+  namespace: edge-terrarium       # Namespace where this resource lives
+  labels:                         # Labels for organizing resources
+    app: file-storage             # Identifies this service as part of the file-storage app
+
+spec:                             # Specification of the service
+  type: ClusterIP                 # Service type - only accessible within the cluster
+  ports:                          # List of ports exposed by the service
+  - port: 9000                    # External port that the service exposes
+    targetPort: 9000              # Port on the Pod that receives the traffic
+    protocol: TCP                 # Protocol (TCP or UDP)
+    name: http                    # Name for referencing this port
+  
+  # Selector defines which Pods this service routes traffic to
+  # Must match the labels in the file-storage deployment pod template
+  selector:
+    app: file-storage             # Routes traffic to Pods with this label

@@ -40,20 +40,48 @@ def get_log_ui_html() -> str:
             <span id="status-text">Connecting...</span>
         </div>
         
-        <div class="controls">
-            <div class="control-group">
-                <label>Filter Services:</label>
-                <button class="service-filter active" data-service="all">All</button>
-                {_generate_service_filter_buttons()}
+        <!-- Tab Navigation -->
+        <div class="tab-navigation">
+            <button class="tab-button active" onclick="switchTab('logs')">📋 Logs</button>
+            <button class="tab-button" onclick="switchTab('files')">📁 File Storage</button>
+        </div>
+        
+        <!-- Logs Tab -->
+        <div id="logs-tab" class="tab-content active">
+            <div class="controls">
+                <div class="control-group">
+                    <label>Filter Services:</label>
+                    <button class="service-filter active" data-service="all">All</button>
+                    {_generate_service_filter_buttons()}
+                </div>
+                <div class="control-group">
+                    <button class="clear-btn" onclick="clearLogs()">Clear Logs</button>
+                </div>
             </div>
-            <div class="control-group">
-                <button class="clear-btn" onclick="clearLogs()">Clear Logs</button>
+            
+            <div class="log-container" id="log-container">
+                <div class="log-entry">
+                    <span class="timestamp">Waiting for logs...</span>
+                </div>
             </div>
         </div>
         
-        <div class="log-container" id="log-container">
-            <div class="log-entry">
-                <span class="timestamp">Waiting for logs...</span>
+        <!-- File Storage Tab -->
+        <div id="files-tab" class="tab-content">
+            <div class="controls">
+                <div class="control-group">
+                    <button class="refresh-btn" onclick="refreshFiles()">🔄 Refresh</button>
+                    <button class="clear-btn" onclick="clearAllFiles()">🗑️ Clear All Files</button>
+                </div>
+                <div class="control-group">
+                    <span id="file-storage-info">Loading file storage info...</span>
+                </div>
+            </div>
+            
+            <div class="file-container" id="file-container">
+                <div class="file-entry">
+                    <span class="timestamp">Loading files...</span>
+                </div>
             </div>
         </div>
         
@@ -100,6 +128,149 @@ def _get_css_styles() -> str:
             display: flex;
             gap: 5px;
             align-items: center;
+        }
+        
+        /* Tab Navigation Styles */
+        .tab-navigation {
+            background-color: #2a2a2a;
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            display: flex;
+            gap: 5px;
+        }
+        
+        .tab-button {
+            background-color: #3a3a3a;
+            color: #ffffff;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            transition: background-color 0.3s;
+        }
+        
+        .tab-button:hover {
+            background-color: #4a4a4a;
+        }
+        
+        .tab-button.active {
+            background-color: #007acc;
+        }
+        
+        /* Tab Content Styles */
+        .tab-content {
+            display: none;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+        
+        /* File Storage Styles */
+        .file-container {
+            background-color: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 5px;
+            padding: 10px;
+            max-height: 600px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+        }
+        
+        .file-entry {
+            background-color: #2a2a2a;
+            border: 1px solid #444;
+            border-radius: 3px;
+            padding: 10px;
+            margin-bottom: 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        
+        .file-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-weight: bold;
+            color: #00ff00;
+        }
+        
+        .file-name {
+            color: #00ff00;
+            font-weight: bold;
+        }
+        
+        .file-size {
+            color: #ffff00;
+            font-size: 12px;
+        }
+        
+        .file-meta {
+            display: flex;
+            gap: 15px;
+            font-size: 12px;
+            color: #cccccc;
+        }
+        
+        .file-preview {
+            background-color: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 3px;
+            padding: 8px;
+            margin-top: 5px;
+            font-size: 11px;
+            color: #aaaaaa;
+            max-height: 100px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+        }
+        
+        .file-actions {
+            display: flex;
+            gap: 5px;
+            margin-top: 5px;
+        }
+        
+        .file-action-btn {
+            background-color: #4a4a4a;
+            color: #ffffff;
+            border: none;
+            padding: 3px 8px;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 10px;
+            font-family: 'Courier New', monospace;
+        }
+        
+        .file-action-btn:hover {
+            background-color: #5a5a5a;
+        }
+        
+        .file-action-btn.delete {
+            background-color: #cc0000;
+        }
+        
+        .file-action-btn.delete:hover {
+            background-color: #ff0000;
+        }
+        
+        .refresh-btn {
+            background-color: #007acc;
+            color: #ffffff;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 3px;
+            cursor: pointer;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+        }
+        
+        .refresh-btn:hover {
+            background-color: #0088dd;
         }
         
         .service-filter {
@@ -215,6 +386,8 @@ def _get_javascript_code(service_colors_json: str) -> str:
         let websocket = null;
         let currentFilter = 'all';
         let logs = [];
+        let files = [];
+        let currentTab = 'logs';
         
         const serviceColors = {service_colors_json};
         
@@ -267,11 +440,12 @@ def _get_javascript_code(service_colors_json: str) -> str:
             
             container.innerHTML = filteredLogs.map(log => {{
                 const color = serviceColors[log.service] || '#ffffff';
-                const containerId = log.metadata && log.metadata.container_id ? log.metadata.container_id : 'unknown';
+                const containerName = log.metadata && log.metadata.container_name ? log.metadata.container_name : 
+                                    (log.metadata && log.metadata.container_id ? log.metadata.container_id : 'unknown');
                 return `
                     <div class="log-entry" style="border-left: 3px solid ${{color}}">
                         <span class="timestamp">${{log.timestamp}}</span>
-                        <span class="service" style="color: ${{color}}">[${{containerId}}]</span>
+                        <span class="service" style="color: ${{color}}">[${{containerName}}]</span>
                         <span class="level ${{log.level}}">${{log.level}}</span>
                         <span class="message">${{escapeHtml(log.message)}}</span>
                     </div>
@@ -290,6 +464,144 @@ def _get_javascript_code(service_colors_json: str) -> str:
         function clearLogs() {{
             logs = [];
             renderLogs();
+        }}
+        
+        // Tab switching functionality
+        function switchTab(tabName) {{
+            currentTab = tabName;
+            
+            // Update tab buttons
+            document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
+            document.querySelector(`[onclick="switchTab('${{tabName}}')"]`).classList.add('active');
+            
+            // Update tab content
+            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+            document.getElementById(`${{tabName}}-tab`).classList.add('active');
+            
+            // Load files if switching to files tab
+            if (tabName === 'files') {{
+                refreshFiles();
+            }}
+            
+        }}
+        
+        // File storage functionality
+        async function refreshFiles() {{
+            try {{
+                const response = await fetch('/api/files');
+                const data = await response.json();
+                files = data.files || [];
+                renderFiles();
+                updateFileStorageInfo(data);
+            }} catch (error) {{
+                console.error('Failed to fetch files:', error);
+                document.getElementById('file-container').innerHTML = '<div class="file-entry"><span class="timestamp">Error loading files</span></div>';
+            }}
+        }}
+        
+        function renderFiles() {{
+            const container = document.getElementById('file-container');
+            
+            if (files.length === 0) {{
+                container.innerHTML = '<div class="file-entry"><span class="timestamp">No files found</span></div>';
+                return;
+            }}
+            
+            container.innerHTML = files.map(file => {{
+                const sizeKB = (file.size / 1024).toFixed(2);
+                const createdDate = new Date(file.created_at).toLocaleString();
+                const modifiedDate = new Date(file.modified_at).toLocaleString();
+                
+                return `
+                    <div class="file-entry">
+                        <div class="file-header">
+                            <span class="file-name">${{escapeHtml(file.filename)}}</span>
+                            <span class="file-size">${{sizeKB}} KB</span>
+                        </div>
+                        <div class="file-meta">
+                            <span>Created: ${{createdDate}}</span>
+                            <span>Modified: ${{modifiedDate}}</span>
+                            <span>Extension: ${{file.extension}}</span>
+                        </div>
+                        <div class="file-preview">${{escapeHtml(file.content_preview || 'No preview available')}}</div>
+                        <div class="file-actions">
+                            <button class="file-action-btn" onclick="viewFile('${{file.filename}}')">View</button>
+                            <button class="file-action-btn delete" onclick="deleteFile('${{file.filename}}')">Delete</button>
+                        </div>
+                    </div>
+                `;
+            }}).join('');
+        }}
+        
+        function updateFileStorageInfo(data) {{
+            const infoEl = document.getElementById('file-storage-info');
+            infoEl.textContent = `Storage: ${{data.storage_path}} | Files: ${{data.count}}/${{data.max_files}}`;
+        }}
+        
+        async function viewFile(filename) {{
+            try {{
+                const response = await fetch(`/api/files/${{encodeURIComponent(filename)}}`);
+                const data = await response.json();
+                
+                // Create a modal or new window to display the file content
+                const newWindow = window.open('', '_blank', 'width=800,height=600');
+                newWindow.document.write(`
+                    <html>
+                        <head><title>File: ${{filename}}</title></head>
+                        <body style="font-family: monospace; background: #1a1a1a; color: #fff; padding: 20px;">
+                            <h2>File: ${{filename}}</h2>
+                            <p>Size: ${{data.size}} bytes | Created: ${{data.created_at}} | Modified: ${{data.modified_at}}</p>
+                            <hr>
+                            <pre style="white-space: pre-wrap; background: #2a2a2a; padding: 10px; border-radius: 5px;">${{escapeHtml(data.content)}}</pre>
+                        </body>
+                    </html>
+                `);
+            }} catch (error) {{
+                console.error('Failed to view file:', error);
+                alert('Failed to load file content');
+            }}
+        }}
+        
+        async function deleteFile(filename) {{
+            if (!confirm(`Are you sure you want to delete ${{filename}}?`)) {{
+                return;
+            }}
+            
+            try {{
+                const response = await fetch(`/api/files/${{encodeURIComponent(filename)}}`, {{
+                    method: 'DELETE'
+                }});
+                
+                if (response.ok) {{
+                    refreshFiles();
+                }} else {{
+                    alert('Failed to delete file');
+                }}
+            }} catch (error) {{
+                console.error('Failed to delete file:', error);
+                alert('Failed to delete file');
+            }}
+        }}
+        
+        async function clearAllFiles() {{
+            if (!confirm('Are you sure you want to delete ALL files? This action cannot be undone.')) {{
+                return;
+            }}
+            
+            try {{
+                const response = await fetch('/api/files', {{
+                    method: 'DELETE'
+                }});
+                
+                if (response.ok) {{
+                    refreshFiles();
+                }} else {{
+                    alert('Failed to clear files');
+                }}
+            }} catch (error) {{
+                console.error('Failed to clear files:', error);
+                alert('Failed to clear files');
+            }}
         }}
         
         // Service filter event listeners

@@ -157,10 +157,13 @@ flowchart TD
     B --> C{Which Service?}
     C -->|/fake-provider/*| D[Custom Client]
     C -->|/example-provider/*| D
+    C -->|/storage/*| H[File Storage API]
     C -->|Everything Else| E[Service Sink]
     D --> F[Log Aggregator]
     E --> F
+    H --> F
     D --> G[Secrets Manager]
+    D --> H
     
     classDef user fill:#e3f2fd,stroke:#1976d2,stroke-width:2px,color:#000
     classDef gateway fill:#fff3e0,stroke:#f57c00,stroke-width:2px,color:#000
@@ -169,16 +172,17 @@ flowchart TD
     
     class A user
     class B gateway
-    class D,E service
+    class D,E,H service
     class F,G support
 ```
 
 ### Component Definitions
 
 - **Kong Gateway**: API gateway that routes HTTP requests based on URL patterns
-- **Custom Client**: C application that handles requests to `/fake-provider/*` and `/example-provider/*` paths
+- **Custom Client**: C application that handles requests to `/fake-provider/*` and `/example-provider/*` paths, and automatically creates files via the File Storage API
 - **Service Sink**: C application that handles all other HTTP requests as the default route
-- **Log Aggregator**: Python service that collects and displays logs from all applications
+- **File Storage API**: Python FastAPI service that provides CRUD operations for file system storage with automatic file rotation
+- **Log Aggregator**: Python service that collects and displays logs from all applications, including a web UI for viewing stored files
 - **Secrets Manager**: HashiCorp Vault that securely stores and provides application secrets
 
 ### Why This Architecture?
@@ -234,22 +238,116 @@ Docker is a containerization platform that packages applications and their depen
 
 ### Understanding Docker Compose
 
-The `configs/docker/docker-compose.yml` file is like a recipe that tells Docker:
+The Docker Compose configuration uses a hierarchical structure to organize services by their dependencies and startup order:
+
+#### Hierarchical Compose File Structure
+
+The main `configs/docker/docker-compose.yml` file includes multiple compose files in the correct startup order:
 
 ```yaml
-services:
-  custom-client:
-    build: ../../custom-client    # Build from this directory
-    ports:
-      - "1337:1337"               # Map host port 1337 to container port 1337
-    environment:
-      - LOGTHON_URL=http://logthon:5000  # How to reach the log service
+# Main docker-compose.yml
+include:
+  - docker-compose.base.yml      # Base services: vault, vault-init
+  - docker-compose.core.yml      # Core services: logthon, file-storage
+  - docker-compose.apps.yml      # Application services: custom-client, service-sink
+  - docker-compose.gateway.yml   # Gateway services: kong-gateway
 ```
 
-**Key Points**:
-- Each service runs in its own container
-- Services communicate using service names (e.g., `logthon:5000`)
-- Port mapping allows external access (e.g., `localhost:1337`)
+#### Service Startup Order
+
+The services start in this specific sequence to ensure dependencies are available:
+
+```
+vault → vault-init → logthon → file-storage → (custom-client, service-sink) → kong-gateway
+```
+
+**Why This Order Matters**:
+- **Vault & vault-init**: Must be ready before any service can access secrets
+- **logthon**: All other services send logs to logthon, so it must be ready first
+- **file-storage**: Custom client immediately calls file-storage API after startup
+- **custom-client & service-sink**: Can start in parallel once their dependencies are ready
+- **kong-gateway**: Routes external traffic, so it starts last after all services are healthy
+
+#### Compose File Breakdown
+
+**Base Services** (`docker-compose.base.yml`):
+```yaml
+services:
+  vault:                    # Secrets management
+    image: hashicorp/vault:latest
+    healthcheck: ...        # Ensures Vault is ready
+    
+  vault-init:              # One-time initialization
+    depends_on:
+      vault:
+        condition: service_healthy  # Waits for Vault to be healthy
+```
+
+**Core Services** (`docker-compose.core.yml`):
+```yaml
+services:
+  logthon:                 # Log aggregation service
+    depends_on:
+      vault-init:
+        condition: service_completed_successfully
+        
+  file-storage:            # File management service
+    depends_on:
+      logthon:
+        condition: service_healthy
+```
+
+**Application Services** (`docker-compose.apps.yml`):
+```yaml
+services:
+  custom-client:           # Main application
+    depends_on:
+      vault-init:
+        condition: service_completed_successfully
+      logthon:
+        condition: service_healthy
+      file-storage:
+        condition: service_healthy
+        
+  service-sink:            # Default request handler
+    depends_on:
+      vault-init:
+        condition: service_completed_successfully
+      logthon:
+        condition: service_healthy
+```
+
+**Gateway Services** (`docker-compose.gateway.yml`):
+```yaml
+services:
+  kong-gateway:            # API gateway and reverse proxy
+    depends_on:
+      custom-client:
+        condition: service_healthy
+      service-sink:
+        condition: service_healthy
+      logthon:
+        condition: service_healthy
+      file-storage:
+        condition: service_healthy
+```
+
+#### Key Benefits
+
+**Reliability**:
+- Proper startup order prevents connection errors
+- Health checks ensure services are truly ready
+- Dependencies are explicitly declared and enforced
+
+**Maintainability**:
+- Each compose file focuses on a specific layer
+- Easier to understand dependencies and relationships
+- Simpler to modify individual service groups
+
+**Scalability**:
+- Easy to add new services to appropriate layers
+- Clear separation of concerns
+- Modular structure supports future growth
 
 ### Docker Networking
 
@@ -531,7 +629,7 @@ flowchart TD
 |-----------|---------|---------------|
 | **k3d-edge-terrarium-server-0** | K3s control plane node | - Runs K3s server (API server, etcd, scheduler, controller-manager)<br/>- Manages cluster state and configuration<br/>- Handles API requests and resource management<br/>- Runs system pods (CoreDNS, Traefik, etc.) |
 | **k3d-edge-terrarium-agent-0/1** | K3s worker nodes | - Run application pods and workloads<br/>- Execute container runtime (containerd)<br/>- Report node status to server<br/>- Handle pod networking and storage |
-| **k3d-edge-terrarium-serverlb** | HAProxy load balancer | - Distributes traffic across server nodes<br/>- Provides external access to cluster services<br/>- Maps host ports to cluster services<br/>- Handles TLS termination for ingress |
+| **k3d-edge-terrarium-serverlb** | Load balancer | - Distributes traffic across server nodes<br/>- Provides external access to cluster services<br/>- Maps host ports to cluster services<br/>- Handles TLS termination for ingress |
 
 #### Container Management Commands
 
@@ -1165,6 +1263,7 @@ curl -X DELETE \
 |-------------|-------------------|------|--------|---------|
 | `/fake-provider/*` | Custom Client | 1337 | GET/POST | Special handling for fake provider requests |
 | `/example-provider/*` | Custom Client | 1337 | GET/POST | Special handling for example provider requests |
+| `/storage/*` | File Storage API | 9000 | GET/PUT/DELETE | File storage CRUD operations |
 | `/health` | Custom Client | 1337 | GET | Health check endpoint |
 | `/api/*` | Service Sink | 8080 | GET/POST | API endpoint requests |
 | `/admin/*` | Service Sink | 8080 | GET/POST | Admin interface requests |
@@ -1270,6 +1369,40 @@ livenessProbe:
     value: liveness
 ```
 
+### File Storage API
+
+**Problem**: Applications need to store and manage files with automatic rotation and cleanup.
+
+**Solution**: File Storage API provides CRUD operations for file system storage with automatic file rotation and a web interface for management.
+
+#### How File Storage Works
+1. Custom Client automatically creates files every 15 seconds via PUT `/storage/files/auto`
+2. Files are stored in `/app/storage` with timestamped names
+3. Maximum of 15 files are maintained - oldest files are automatically deleted
+4. Each file contains unique placeholder content (lorem ipsum variations)
+5. Logthon UI provides a "File Storage" tab to view, manage, and delete files
+
+#### File Storage API Endpoints
+
+| Endpoint | Method | Purpose | Description |
+|----------|--------|---------|-------------|
+| `/storage/health` | GET | Health check | Service health status |
+| `/storage/info` | GET | Service info | Storage configuration and statistics |
+| `/storage/files` | GET | List files | Get all stored files with metadata |
+| `/storage/files/{filename}` | GET | Get file | Retrieve specific file content |
+| `/storage/files` | PUT | Create file | Create new file with provided content |
+| `/storage/files/auto` | PUT | Auto-create | Create file with generated content (used by Custom Client) |
+| `/storage/files/{filename}` | DELETE | Delete file | Remove specific file |
+| `/storage/files` | DELETE | Clear all | Remove all stored files |
+
+#### File Storage Features
+- **Automatic Rotation**: Maintains maximum of 15 files
+- **Timestamped Naming**: Files named with creation timestamp
+- **Unique Content**: Each file contains different placeholder content
+- **Web Management**: Logthon UI provides file management interface
+- **Logging Integration**: All file operations are logged to Logthon
+- **Persistent Storage**: Files persist across container restarts
+
 ### Log Aggregation
 
 **Problem**: Multiple services generate logs, making debugging difficult.
@@ -1279,8 +1412,9 @@ livenessProbe:
 #### How Logs Flow
 1. Custom Client logs: "Received request to /fake-provider/test"
 2. Service Sink logs: "Received request to /api/users"
-3. Logthon collects all logs
-4. Web UI displays logs in real-time with container IDs
+3. File Storage logs: "Created file: 2025-01-08_15-30-45.txt"
+4. Logthon collects all logs
+5. Web UI displays logs in real-time with container IDs and file storage management
 
 ---
 
@@ -1357,6 +1491,20 @@ c-edge-terrarium/
 ├── service-sink/           # C application for default requests
 │   ├── main.c              # Source code
 │   └── Dockerfile          # Container build instructions
+├── file-storage/           # Python file storage API service
+│   ├── main.py             # FastAPI application entry point
+│   ├── file_storage/       # Python package
+│   │   ├── __init__.py
+│   │   ├── api.py          # API endpoints
+│   │   ├── app.py          # FastAPI app
+│   │   ├── config.py       # Configuration
+│   │   ├── models.py       # Data models
+│   │   ├── storage.py      # File storage operations
+│   │   ├── logging.py      # Logging utilities
+│   │   └── content_generator.py # Content generation
+│   ├── pyproject.toml      # Python dependencies
+│   ├── README.md           # Service documentation
+│   └── Dockerfile          # Container build instructions
 ├── logthon/                # Python log aggregation service
 │   ├── main.py             # FastAPI application
 │   ├── logthon/            # Python package
@@ -1412,9 +1560,10 @@ c-edge-terrarium/
 
 | Directory | Purpose | Key Files |
 |-----------|---------|-----------|
-| `custom-client/` | C application handling `/fake-provider/*` and `/example-provider/*` routes | `main.c`, `Dockerfile` |
+| `custom-client/` | C application handling `/fake-provider/*` and `/example-provider/*` routes, with automatic file creation | `main.c`, `Dockerfile` |
 | `service-sink/` | C application handling all other HTTP requests | `main.c`, `Dockerfile` |
-| `logthon/` | Python FastAPI service for log aggregation and web UI | `main.py`, `logthon/`, `pyproject.toml` |
+| `file-storage/` | Python FastAPI service for file system CRUD operations with automatic rotation | `main.py`, `file_storage/`, `pyproject.toml` |
+| `logthon/` | Python FastAPI service for log aggregation and web UI with file storage viewer | `main.py`, `logthon/`, `pyproject.toml` |
 | `configs/docker/` | Docker Compose orchestration and Kong configuration | `docker-compose.yml`, `kong/kong.yml` |
 | `configs/k3s/` | Kubernetes manifests for declarative deployment | `*-deployment.yaml`, `services.yaml`, `ingress.yaml` |
 | `scripts/` | Automation scripts for building, deploying, and testing | `deploy.sh`, `build-images.sh`, `test-*.sh` |
@@ -1486,6 +1635,9 @@ spec:
 - HTTP request routing
 - Log aggregation
 - Vault connectivity
+- File storage CRUD operations
+- File storage auto-creation
+- Logthon file storage integration
 
 #### Kubernetes Testing
 ```bash
@@ -1497,6 +1649,9 @@ spec:
 - Service discovery
 - Secrets retrieval
 - Log aggregation
+- File storage service accessibility
+- File storage API endpoints
+- Logthon file storage integration
 
 ### K3s Testing Methods
 
@@ -1739,6 +1894,27 @@ curl -H "Host: localhost" https://localhost:8443/api/test
 curl -k -H "Host: localhost" https://localhost:443/api/test
 ```
 
+#### Test File Storage API
+```bash
+# Docker - Health check
+curl -H "Host: localhost" https://localhost:8443/storage/health
+
+# Docker - List files
+curl -H "Host: localhost" https://localhost:8443/storage/files
+
+# Docker - Auto-create file
+curl -X PUT -H "Host: localhost" https://localhost:8443/storage/files/auto
+
+# Kubernetes - Health check
+curl -k -H "Host: localhost" https://localhost:443/storage/health
+
+# Kubernetes - List files
+curl -k -H "Host: localhost" https://localhost:443/storage/files
+
+# Kubernetes - Auto-create file
+curl -k -X PUT -H "Host: localhost" https://localhost:443/storage/files/auto
+```
+
 #### View Logs
 ```bash
 # Docker
@@ -1765,6 +1941,82 @@ kubectl logs -n edge-terrarium deployment/logthon
 #### "No targets could be found" (Kong)
 **Cause**: Backend services not ready
 **Solution**: Wait for services to be ready, check health probes
+
+### Kong Logs and Monitoring
+
+Kong provides detailed logs for monitoring request flow and troubleshooting routing issues.
+
+#### Viewing Kong Logs
+
+**Method 1: Kong Ingress Controller Logs (Configuration & Routing)**
+```bash
+# View recent logs
+kubectl logs -n default deployment/kong-kong --tail 20
+
+# Follow logs in real-time
+kubectl logs -n default deployment/kong-kong -f
+
+# View logs from specific time
+kubectl logs -n default deployment/kong-kong --since=10m
+```
+
+**Method 2: Kong Proxy Logs (Access Logs)**
+```bash
+# View access logs
+kubectl logs -n default deployment/kong-kong -c proxy --tail 20
+
+# Follow access logs in real-time
+kubectl logs -n default deployment/kong-kong -c proxy -f
+
+# View logs with timestamps
+kubectl logs -n default deployment/kong-kong -c proxy --timestamps
+```
+
+**Method 3: All Kong Container Logs**
+```bash
+# View logs from all containers in the pod
+kubectl logs -n default deployment/kong-kong --all-containers=true
+
+# View logs from specific container
+kubectl logs -n default deployment/kong-kong -c ingress-controller
+kubectl logs -n default deployment/kong-kong -c proxy
+```
+
+#### Understanding Kong Log Types
+
+**Ingress Controller Logs:**
+- Service discovery messages
+- Configuration sync status
+- Routing rule updates
+- "No targets could be found" messages (normal during startup)
+
+**Proxy Access Logs:**
+- HTTP request logs in Apache Common Log Format
+- Client IP addresses
+- Request paths and methods
+- Response codes and sizes
+- Kong request IDs
+
+**Log Format Example:**
+```
+10.42.0.1 - - [07/Sep/2025:23:32:53 +0000] "GET /fake-provider/test HTTP/2.0" 200 94 "-" "curl/8.7.1" kong_request_id: "a645b12c2d4dee7e1e3176543a63f42f"
+```
+
+#### Quick Commands for Common Tasks
+
+```bash
+# Monitor Kong in real-time
+kubectl logs -n default deployment/kong-kong -f
+
+# Check for errors
+kubectl logs -n default deployment/kong-kong | grep -i error
+
+# View recent access logs
+kubectl logs -n default deployment/kong-kong -c proxy --tail 50
+
+# Check Kong health
+kubectl logs -n default deployment/kong-kong | grep "Successfully synced"
+```
 
 ### Docker Issues
 
@@ -1807,6 +2059,67 @@ kubectl describe ingress -n edge-terrarium
 ```
 
 ---
+
+## Service Startup Order and Dependencies
+
+### K3s Deployment Startup Sequence
+
+The K3s deployment uses init containers to ensure services start in the correct order, preventing connection errors and ensuring all dependencies are available before services begin operation.
+
+#### Startup Order
+
+1. **Vault** → **vault-init job** (creates secrets)
+2. **logthon** (waits for vault-init completion)
+3. **file-storage** (waits for logthon to be ready)
+4. **custom-client** (waits for vault-init + logthon + file-storage)
+5. **service-sink** (waits for logthon to be ready)
+
+#### Why This Order Matters
+
+**Vault and vault-init job:**
+- Vault must be running before any service can access secrets
+- vault-init job populates Vault with required secrets (TLS certificates, API tokens, etc.)
+- Custom client needs these secrets to function properly
+
+**logthon (log aggregation service):**
+- All other services send logs to logthon
+- logthon must be ready before other services start to prevent "Connection refused" errors
+- Ensures all startup logs are captured and visible
+
+**file-storage:**
+- Custom client immediately calls file-storage API after startup
+- File-storage must be ready before custom-client starts
+- Prevents API call failures during custom-client initialization
+
+**custom-client:**
+- Depends on Vault secrets, logthon for logging, and file-storage for API calls
+- Waits for all three dependencies before starting
+- Ensures reliable operation from the moment it starts
+
+**service-sink:**
+- Only depends on logthon for logging
+- Can start in parallel with custom-client once logthon is ready
+
+#### Implementation Details
+
+Each service uses init containers to wait for its dependencies:
+
+```yaml
+initContainers:
+- name: wait-for-vault-init
+  # Waits for vault-init job to complete
+- name: wait-for-logthon  
+  # Waits for logthon service to be ready
+- name: wait-for-file-storage
+  # Waits for file-storage service to be ready
+```
+
+The init containers use health check endpoints to verify services are ready:
+- Vault: `/v1/sys/health`
+- logthon: `/health`
+- file-storage: `/health`
+
+This ensures services start in the correct order and eliminates connection errors during startup.
 
 ## Service Communication
 

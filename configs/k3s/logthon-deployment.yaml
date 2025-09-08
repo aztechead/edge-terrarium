@@ -56,6 +56,39 @@ spec:                              # Specification of the deployment
         component: logging         # Identifies this as a logging component
 
     spec:                          # Specification for Pods created from this template
+      # Init container to wait for vault-init job to complete
+      # This ensures logthon starts after Vault secrets are available
+      initContainers:
+      - name: wait-for-vault-init      # Name of the init container
+        image: curlimages/curl:latest  # Lightweight curl image for health checks
+        command: ['sh', '-c']          # Command to run
+        args:                          # Arguments for the command
+        - |                            # Multi-line script
+          echo "Waiting for vault-init job to complete..."
+          
+          # Wait for vault-init job to complete by checking if secrets are available
+          # This ensures logthon can start and be ready for other services
+          RETRY_COUNT=0
+          MAX_RETRIES=60  # 2 minutes max wait time
+          until curl -s -H "X-Vault-Token: root" http://vault.edge-terrarium.svc.cluster.local:8200/v1/secret/data/custom-client/config > /dev/null; do
+            RETRY_COUNT=$((RETRY_COUNT + 1))
+            if [ $RETRY_COUNT -gt $MAX_RETRIES ]; then
+              echo "ERROR: Timeout waiting for vault-init job to complete after $MAX_RETRIES attempts"
+              echo "This indicates the vault-init job failed or is taking too long"
+              exit 1
+            fi
+            echo "Vault-init job not complete yet (attempt $RETRY_COUNT/$MAX_RETRIES). Waiting..."
+            sleep 2
+          done
+          echo "Vault initialization complete! Logthon can start."
+        resources:                     # Resource requirements for init container
+          requests:                    # Minimum resources required
+            memory: "32Mi"             # 32 MB of memory
+            cpu: "50m"                 # 50 millicores of CPU
+          limits:                      # Maximum resources allowed
+            memory: "64Mi"             # 64 MB of memory
+            cpu: "100m"                # 100 millicores of CPU
+      
       containers:                  # List of containers in each Pod
       - name: logthon              # Name of the container
         image: edge-terrarium-logthon:latest  # Docker image to use
@@ -77,6 +110,16 @@ spec:                              # Specification of the deployment
           value: "5000"
         - name: LOGTHON_LOG_LEVEL  # Logging level
           value: "INFO"
+        - name: FILE_STORAGE_URL   # File storage service URL for K3s
+          value: "http://file-storage-service.edge-terrarium.svc.cluster.local:9000"
+        - name: CONTAINER_NAME     # Container name for logging
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name  # Use pod name as container name
+        - name: POD_NAME           # Pod name for logging
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name  # Use pod name
 
         # Resource requirements and limits
         resources:

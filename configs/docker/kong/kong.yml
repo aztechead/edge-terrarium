@@ -94,6 +94,20 @@ services:                         # List of backend services
           - http                  # HTTP protocol
           - https                 # HTTPS protocol
 
+  # File Storage Service
+  # Routes traffic to the file storage service
+  - name: file-storage-service    # Name of the service
+    url: http://file-storage:9000 # Backend URL (Docker Compose service name)
+    routes:                       # List of routes for this service
+      - name: file-storage-route  # Route name
+        paths:                    # URL paths that match this route
+          - /storage              # Path pattern to match
+        strip_path: true          # Remove the /storage path when forwarding
+        preserve_host: true       # Keep the original host header
+        protocols:                # Supported protocols
+          - http                  # HTTP protocol
+          - https                 # HTTPS protocol
+
   # Vault Service
   # Routes traffic to the Vault secret management service
   - name: vault-service           # Name of the service

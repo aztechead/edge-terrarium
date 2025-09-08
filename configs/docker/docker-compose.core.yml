@@ -1,0 +1,128 @@
+# =============================================================================
+# CORE SERVICES - Docker Compose Configuration
+# =============================================================================
+# This file defines the core services that provide essential functionality:
+# - logthon (log aggregation)
+# - file-storage (file management)
+#
+# These services depend on base services and are required by application services.
+# =============================================================================
+
+services:
+  # ==========================================================================
+  # LOGTHON LOG AGGREGATION SERVICE
+  # ==========================================================================
+  # This service collects logs from Custom client and service-sink containers
+  # and provides a web UI for real-time log viewing with color-coded output
+  logthon:
+    # Build from local Dockerfile
+    build:
+      context: ../../logthon
+      dockerfile: Dockerfile
+    
+    # Container name
+    container_name: edge-terrarium-logthon
+    
+    # Port mapping
+    ports:
+      - "5001:5000"                 # Logthon web UI port
+    
+    # Environment variables
+    environment:
+      - SERVICE_NAME=logthon         # Identifies this service in logs
+      - LOGTHON_HOST=0.0.0.0        # Host to bind to
+      - LOGTHON_PORT=5000           # Port to listen on
+      - LOGTHON_LOG_LEVEL=INFO      # Logging level
+      - FILE_STORAGE_URL=http://file-storage:9000  # File storage API address for Docker Compose
+    
+    # Network configuration
+    networks:
+      - edge-terrarium-network      # Custom network for service communication
+    
+    # Dependencies - wait for vault-init to complete
+    depends_on:
+      vault-init:                   # Wait for Vault initialization to complete
+        condition: service_completed_successfully
+    
+    # Restart policy
+    restart: unless-stopped         # Restart unless manually stopped
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s                 # Check every 30 seconds
+      timeout: 10s                  # Wait 10 seconds for response
+      retries: 3                    # Try 3 times before marking unhealthy
+      start_period: 40s             # Wait 40 seconds before first check
+
+  # ==========================================================================
+  # FILE STORAGE SERVICE
+  # ==========================================================================
+  # This service provides file storage with CRUD operations
+  # It stores files with automatic rotation (max 15 files)
+  file-storage:
+    # Use the fixed image
+    image: edge-terrarium-file-storage:latest
+    
+    # Container name
+    container_name: edge-terrarium-file-storage
+    
+    # Port mapping
+    ports:
+      - "9000:9000"                 # File storage API port
+    
+    # Environment variables
+    environment:
+      - SERVICE_NAME=file-storage    # Identifies this service in logs
+      - CONTAINER_NAME=edge-terrarium-file-storage  # Container name for logging
+      - FILE_STORAGE_HOST=0.0.0.0   # Host to bind to
+      - FILE_STORAGE_PORT=9000      # Port to listen on
+      - FILE_STORAGE_PATH=/app/storage  # Storage directory path
+      - FILE_STORAGE_MAX_FILES=15   # Maximum number of files
+      - LOGTHON_HOST=logthon        # Logthon service hostname for Docker Compose
+      - LOGTHON_PORT=5000           # Logthon service port
+    
+    # Volume mounts for persistent storage
+    volumes:
+      - file-storage-data:/app/storage  # Persistent storage for files
+    
+    # Network configuration
+    networks:
+      - edge-terrarium-network      # Custom network for service communication
+    
+    # Dependencies - wait for logthon to be ready
+    depends_on:
+      logthon:                      # Wait for logthon to be ready
+        condition: service_healthy  # Only start when logthon is healthy
+    
+    # Restart policy
+    restart: unless-stopped         # Restart unless manually stopped
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/health"]
+      interval: 30s                 # Check every 30 seconds
+      timeout: 10s                  # Wait 10 seconds for response
+      retries: 3                    # Try 3 times before marking unhealthy
+      start_period: 40s             # Wait 40 seconds before first check
+
+# =============================================================================
+# VOLUMES
+# =============================================================================
+# Volumes provide persistent storage for containers
+# Data in volumes survives container restarts and removals
+volumes:
+  file-storage-data:                # Named volume for file storage data
+    driver: local                   # Store on local filesystem
+
+# =============================================================================
+# NETWORKS
+# =============================================================================
+# Networks define how containers communicate with each other
+# Custom networks provide better isolation and control
+networks:
+  edge-terrarium-network:           # Custom network name
+    driver: bridge                  # Bridge driver for container communication
+    ipam:                          # IP Address Management
+      config:
+        - subnet: 172.25.0.0/16    # Custom subnet for container IPs

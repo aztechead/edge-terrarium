@@ -1,17 +1,16 @@
 # =============================================================================
 # TERRARIUM DOCKER COMPOSE CONFIGURATION
 # =============================================================================
-# This file defines how to run the Terrarium application using Docker Compose.
-# Docker Compose allows you to define and run multi-container Docker applications
-# using a simple YAML file format.
+# This is the main Docker Compose file that orchestrates all services.
+# It includes multiple compose files in the correct startup order:
 #
-# Key Concepts:
-# - services: Define the containers that make up your application
-# - networks: Define how containers communicate with each other
-# - volumes: Define persistent storage for containers
-# - ports: Map container ports to host ports
-# - environment: Set environment variables for containers
-# - healthcheck: Define how to check if a container is healthy
+# 1. Base services (vault, vault-init)
+# 2. Core services (logthon, file-storage) 
+# 3. Application services (custom-client, service-sink)
+# 4. Gateway services (kong-gateway)
+#
+# Startup Order:
+# vault → vault-init → logthon → file-storage → (custom-client, service-sink) → kong-gateway
 #
 # Documentation: https://docs.docker.com/compose/
 # =============================================================================
@@ -19,290 +18,17 @@
 # Project name - this will be used as the prefix for container names and networks
 name: c-edge-terrarium
 
-services:
-  # ==========================================================================
-  # Custom CLIENT SERVICE
-  # ==========================================================================
-  # This service handles requests to /fake-provider/* and /example-provider/* paths
-  # It's written in C and parses HTTP requests, writing them to files
-  custom-client:
-    # Use pre-built image from build script
-    image: edge-terrarium-custom-client:latest
-    
-    # Container name - makes it easier to reference in logs and commands
-    container_name: edge-terrarium-custom-client
-    
-    # Port mapping - maps host port to container port
-    # Format: "HOST_PORT:CONTAINER_PORT"
-    # Note: Custom client is accessed through Kong gateway, so no direct port mapping needed
-    # ports:
-    #   - "9001:1337"  # HTTP port - Custom client listens on port 1337 inside container
-    
-    # Volume mounts - persistent storage for the container
-    volumes:
-      - custom-requests:/tmp/requests   # Named volume for storing request logs
-    
-    # Environment variables - passed to the container at runtime
-    environment:
-      - SERVICE_NAME=custom-client      # Identifies this service in logs
-      - VAULT_ADDR=http://vault:8200 # Vault API address for Docker Compose
-      - VAULT_TOKEN=root             # Vault authentication token
-    
-    # Network configuration - connects container to custom network
-    networks:
-      - edge-terrarium-network      # Custom network for service communication
-    
-    # Dependencies - start these services first
-    depends_on:
-      vault-init:                    # Wait for Vault initialization to complete
-        condition: service_completed_successfully
-    
-    # Init container to wait for Vault to be ready
-    init: true                      # Enable init container support
-    
-    # Restart policy - what to do if container stops
-    restart: "no"                  # Don't automatically restart the container
-    
-    # Health check - how to determine if container is healthy
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:1337/health"]  # Test if HTTP endpoint responds
-      interval: 30s                 # Check every 30 seconds
-      timeout: 10s                  # Wait 10 seconds for response
-      retries: 3                    # Try 3 times before marking unhealthy
-      start_period: 40s             # Wait 40 seconds before first check
-
-  # ==========================================================================
-  # SERVICE SINK
-  # ==========================================================================
-  # This service handles all other HTTP requests (default route)
-  # It's also written in C and provides basic request processing
-  # this is meant to simulate all other services in the system
-  service-sink:
-    # Use pre-built image from build script
-    image: edge-terrarium-service-sink:latest
-    
-    # Container name
-    container_name: edge-terrarium-service-sink
-    
-    # Port mapping
-    ports:
-      - "8080:8080"                 # HTTP port - service-sink listens on port 8080
-    
-    # Environment variables
-    environment:
-      - SERVICE_NAME=service-sink    # Identifies this service in logs
-    
-    # Network configuration
-    networks:
-      - edge-terrarium-network      # Custom network for service communication
-    
-    # Dependencies - start these services first
-    depends_on:
-      vault-init:                    # Wait for Vault initialization to complete
-        condition: service_completed_successfully
-    
-    # Restart policy
-    restart: no                  # Don't automatically restart the container
-    
-    # Health check
-    healthcheck:
-      test: ["CMD", "nc", "-z", "localhost", "8080"]  # Test if port 8080 is open
-      interval: 30s                 # Check every 30 seconds
-      timeout: 10s                  # Wait 10 seconds for response
-      retries: 3                    # Try 3 times before marking unhealthy
-      start_period: 40s             # Wait 40 seconds before first check
-
-  # ==========================================================================
-  # HASHICORP VAULT
-  # ==========================================================================
-  # This service provides secrets management for the Terrarium application.
-  # Vault securely stores and manages sensitive data like TLS certificates,
-  # API keys, and other secrets that the Custom client needs.
-  vault:
-    # Use official Vault image
-    image: hashicorp/vault:latest    # Official HashiCorp Vault image
-    container_name: edge-terrarium-vault
-    
-    # Port mapping
-    ports:
-      - "8200:8200"                 # Vault API port
-    
-    # Environment variables for Vault configuration
-    environment:
-      - VAULT_DEV_ROOT_TOKEN_ID=root # Development root token (for dev mode only)
-      - VAULT_DEV_LISTEN_ADDRESS=0.0.0.0:8200 # Address for Vault to listen on
-      - VAULT_ADDR=http://0.0.0.0:8200 # Vault API address
-      - VAULT_API_ADDR=http://localhost:8200 # Vault API address for clients
-    
-    # Volume mounts for persistent storage
-    volumes:
-      - vault-data:/vault/data       # Persistent storage for Vault data
-      - vault-logs:/vault/logs       # Log directory
-    
-    # Network configuration
-    networks:
-      - edge-terrarium-network      # Custom network for service communication
-    
-    # Restart policy
-    restart: unless-stopped         # Restart unless manually stopped
-    
-    # Health check
-    healthcheck:
-      test: ["CMD", "sh", "-c", "netstat -an | grep :8200 | grep LISTEN"]
-      interval: 30s                 # Check every 30 seconds
-      timeout: 10s                  # Wait 10 seconds for response
-      retries: 3                    # Try 3 times before marking unhealthy
-      start_period: 40s             # Wait 40 seconds before first check
-
-  # ==========================================================================
-  # VAULT INITIALIZATION
-  # ==========================================================================
-  # This service initializes Vault with secrets before other services start.
-  # It runs once, waits for Vault to be healthy, then initializes it with
-  # the required secrets and configuration.
-  vault-init:
-    # Use the same image as the main application (has curl and other tools)
-    image: alpine:3.18              # Lightweight Alpine image with curl
-    container_name: edge-terrarium-vault-init
-    
-    # Environment variables for Vault initialization
-    environment:
-      - VAULT_ADDR=http://vault:8200 # Vault API address for Docker Compose
-      - VAULT_TOKEN=root             # Vault authentication token
-    
-    # Volume mounts - access to project files and certificates
-    volumes:
-      - ../../scripts:/scripts:ro    # Read-only access to scripts
-      - ../../certs:/certs:ro        # Read-only access to certificates
-    
-    # Network configuration
-    networks:
-      - edge-terrarium-network      # Custom network for service communication
-    
-    # Dependencies - wait for Vault to be healthy
-    depends_on:
-      vault:                        # Wait for Vault to be ready
-        condition: service_healthy  # Only start when Vault is healthy
-    
-    # Command to run the initialization script
-    command: ["sh", "-c", "apk add --no-cache curl bash && echo 'Waiting for Vault to be ready...' && sleep 5 && bash /scripts/init-vault.sh http://vault:8200"]
-    
-    # Restart policy - don't restart this init container
-    restart: "no"                  # Don't automatically restart the container
-
-  # ==========================================================================
-  # LOGTHON LOG AGGREGATION SERVICE
-  # ==========================================================================
-  # This service collects logs from Custom client and service-sink containers
-  # and provides a web UI for real-time log viewing with color-coded output
-  logthon:
-    # Build from local Dockerfile
-    build:
-      context: ../../logthon
-      dockerfile: Dockerfile
-    
-    # Container name
-    container_name: edge-terrarium-logthon
-    
-    # Port mapping
-    ports:
-      - "5001:5000"                 # Logthon web UI port
-    
-    # Environment variables
-    environment:
-      - SERVICE_NAME=logthon         # Identifies this service in logs
-      - LOGTHON_HOST=0.0.0.0        # Host to bind to
-      - LOGTHON_PORT=5000           # Port to listen on
-      - LOGTHON_LOG_LEVEL=INFO      # Logging level
-    
-    # Network configuration
-    networks:
-      - edge-terrarium-network      # Custom network for service communication
-    
-    # Restart policy
-    restart: unless-stopped         # Restart unless manually stopped
-    
-    # Health check
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
-      interval: 30s                 # Check every 30 seconds
-      timeout: 10s                  # Wait 10 seconds for response
-      retries: 3                    # Try 3 times before marking unhealthy
-      start_period: 40s             # Wait 40 seconds before first check
-
-  # ==========================================================================
-  # KONG GATEWAY
-  # ==========================================================================
-  # This service acts as an API gateway and reverse proxy
-  # It routes requests to the appropriate backend service based on URL patterns
-  # and handles TLS/SSL termination using Kong Gateway
-  kong-gateway:
-    # Use official Kong Gateway image
-    image: kong:latest              # Official Kong Gateway image with Alpine Linux
-    container_name: edge-terrarium-kong-gateway
-    
-    # Port mapping
-    ports:
-      - "8000:8000"                 # Kong Admin API port
-      - "8001:8001"                 # Kong Gateway port (HTTP)
-      - "8443:8443"                 # Kong Gateway port (HTTPS)
-    
-    # Environment variables for Kong configuration
-    environment:
-      - KONG_DATABASE=off           # Use DB-less mode (declarative configuration)
-      - KONG_DECLARATIVE_CONFIG=/kong/kong.yml
-      - KONG_PROXY_ACCESS_LOG=/dev/stdout
-      - KONG_ADMIN_ACCESS_LOG=/dev/stdout
-      - KONG_PROXY_ERROR_LOG=/dev/stderr
-      - KONG_ADMIN_ERROR_LOG=/dev/stderr
-      - KONG_ADMIN_LISTEN=0.0.0.0:8001
-      - KONG_PROXY_LISTEN=0.0.0.0:8000, 0.0.0.0:8443 ssl
-      - KONG_SSL_CERT=/kong/ssl/edge-terrarium.crt
-      - KONG_SSL_CERT_KEY=/kong/ssl/edge-terrarium.key
-    
-    # Volume mounts - configuration and certificates
-    volumes:
-      # Mount Kong declarative configuration
-      - ./kong/kong.yml:/kong/kong.yml:ro
-      # Mount SSL certificate (read-only) - use absolute path from project root
-      - ../../certs/edge-terrarium.crt:/kong/ssl/edge-terrarium.crt:ro
-      # Mount SSL private key (read-only) - use absolute path from project root
-      - ../../certs/edge-terrarium.key:/kong/ssl/edge-terrarium.key:ro
-    
-    # Dependencies - start these services first
-    depends_on:
-      - custom-client                  # Wait for custom client to be ready
-      - service-sink                # Wait for service sink to be ready
-      - logthon                     # Wait for logthon to be ready
-    
-    # Network configuration
-    # Networks in Docker Compose allow containers to communicate securely with each other
-    # while maintaining isolation from other containers and the host system.
-    # Key points about container networking:
-    # - Containers on the same network can reach each other by service name
-    # - Each container gets its own IP address on the network
-    # - Networks provide DNS resolution between containers
-    # - Traffic between containers is private and isolated
-    # - Multiple networks can be used to segment container communication
-    networks:
-      - edge-terrarium-network      # Custom bridge network enabling container-to-container communication
-    
-    # Restart policy
-    restart: unless-stopped         # Restart unless manually stopped
-    
-    # Health check
-    healthcheck:
-      test: ["CMD", "kong", "health"]
-      interval: 30s                 # Check every 30 seconds
-      timeout: 10s                  # Wait 10 seconds for response
-      retries: 3                    # Try 3 times before marking unhealthy
-      start_period: 40s             # Wait 40 seconds before first check
+# Include all compose files in the correct startup order
+include:
+  - docker-compose.base.yml      # Base services: vault, vault-init
+  - docker-compose.core.yml      # Core services: logthon, file-storage
+  - docker-compose.apps.yml      # Application services: custom-client, service-sink
+  - docker-compose.gateway.yml   # Gateway services: kong-gateway
 
 # =============================================================================
-# VOLUMES
+# SHARED VOLUMES
 # =============================================================================
-# Volumes provide persistent storage for containers
-# Data in volumes survives container restarts and removals
+# These volumes are shared across all compose files
 volumes:
   custom-requests:                     # Named volume for Custom client request logs
     driver: local                   # Store on local filesystem
@@ -310,12 +36,13 @@ volumes:
     driver: local                   # Store on local filesystem
   vault-logs:                       # Named volume for Vault logs
     driver: local                   # Store on local filesystem
+  file-storage-data:                # Named volume for file storage data
+    driver: local                   # Store on local filesystem
 
 # =============================================================================
-# NETWORKS
+# SHARED NETWORKS
 # =============================================================================
-# Networks define how containers communicate with each other
-# Custom networks provide better isolation and control
+# This network is shared across all compose files
 networks:
   edge-terrarium-network:           # Custom network name
     driver: bridge                  # Bridge driver for container communication
