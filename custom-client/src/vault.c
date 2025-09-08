@@ -21,7 +21,8 @@ size_t write_callback(void* contents, size_t size, size_t nmemb, void* userp) {
         response[current_len + realsize] = '\0'; // Ensure null termination
     }
     
-    return realsize;
+    // Always return the total bytes curl provided, not the truncated amount
+    return size * nmemb;
 }
 
 // Function to retrieve a secret from Vault using enhanced authentication
