@@ -1264,41 +1264,99 @@ curl -X DELETE \
 | `/fake-provider/*` | Custom Client | 1337 | GET/POST | Special handling for fake provider requests |
 | `/example-provider/*` | Custom Client | 1337 | GET/POST | Special handling for example provider requests |
 | `/storage/*` | File Storage API | 9000 | GET/PUT/DELETE | File storage CRUD operations |
-| `/health` | Custom Client | 1337 | GET | Health check endpoint |
-| `/api/*` | Service Sink | 8080 | GET/POST | API endpoint requests |
-| `/admin/*` | Service Sink | 8080 | GET/POST | Admin interface requests |
-| `/` (root) | Service Sink | 8080 | GET | Default handler for all other requests |
-| `/*` (catch-all) | Service Sink | 8080 | GET/POST | Fallback for unmatched routes |
+| `/logs/*` | Logthon | 5000 | GET/POST | Log aggregation and web UI |
+| `/vault/v1/sys/health` | Vault | 8200 | GET | Vault health check endpoint |
+| `/health` | Service Sink | 8080 | GET | Health check endpoint |
+| `/` (root) | Service Sink | 8080 | GET/POST | Default handler for all other requests |
 
 #### Kong Configuration Details
 
 **Docker Compose Configuration** (`configs/docker/kong/kong.yml`):
 ```yaml
 services:
-  - name: custom-client
+  - name: custom-client-service
     url: http://custom-client:1337
     routes:
-      - name: custom-client-route
+      - name: custom-client-fake-provider
         paths:
           - /fake-provider
-          - /example-provider
-        methods:
-          - GET
-          - POST
-        strip_path: true
-        preserve_host: true
-
-  - name: service-sink
-    url: http://service-sink:8080
-    routes:
-      - name: service-sink-route
-        paths:
-          - /
-        methods:
-          - GET
-          - POST
         strip_path: false
         preserve_host: true
+        protocols:
+          - http
+          - https
+      - name: custom-client-example-provider
+        paths:
+          - /example-provider
+        strip_path: false
+        preserve_host: true
+        protocols:
+          - http
+          - https
+
+  - name: service-sink-service
+    url: http://service-sink:8080
+    routes:
+      - name: service-sink-health
+        paths:
+          - /health
+        strip_path: false
+        preserve_host: true
+        protocols:
+          - http
+          - https
+      - name: service-sink-default
+        paths:
+          - /
+        strip_path: false
+        preserve_host: true
+        protocols:
+          - http
+          - https
+
+  - name: logthon-service
+    url: http://logthon:5000/
+    routes:
+      - name: logthon-health
+        paths:
+          - /logs/health
+        strip_path: true
+        preserve_host: true
+        protocols:
+          - http
+          - https
+      - name: logthon-logs
+        paths:
+          - /logs
+        strip_path: true
+        preserve_host: true
+        protocols:
+          - http
+          - https
+
+  - name: file-storage-service
+    url: http://file-storage:9000
+    routes:
+      - name: file-storage-route
+        paths:
+          - /storage
+        strip_path: true
+        preserve_host: true
+        protocols:
+          - http
+          - https
+
+  - name: vault-service
+    url: http://vault:8200
+    routes:
+      - name: vault-health
+        paths:
+          - /vault/v1/sys/health
+        strip_path: false
+        preserve_host: true
+        protocols:
+          - http
+          - https
 ```
 
 **K3s Ingress Configuration** (`configs/k3s/ingress.yaml`):
@@ -1307,11 +1365,50 @@ apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: edge-terrarium-ingress
+  namespace: edge-terrarium
   annotations:
-    konghq.com/strip-path: "true"
+    konghq.com/strip-path: "false"
+    konghq.com/preserve-host: "true"
+    konghq.com/protocols: "http,https"
 spec:
   ingressClassName: kong
+  tls:
+  - hosts:
+    - edge-terrarium.local
+    - localhost
+    secretName: edge-terrarium-tls
   rules:
+  - host: edge-terrarium.local
+    http:
+      paths:
+      - path: /fake-provider
+        pathType: Prefix
+        backend:
+          service:
+            name: custom-client-service
+            port:
+              number: 1337
+      - path: /example-provider
+        pathType: Prefix
+        backend:
+          service:
+            name: custom-client-service
+            port:
+              number: 1337
+      - path: /storage
+        pathType: Prefix
+        backend:
+          service:
+            name: file-storage-service
+            port:
+              number: 9000
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: service-sink-service
+            port:
+              number: 8080
   - host: localhost
     http:
       paths:
@@ -1329,6 +1426,13 @@ spec:
             name: custom-client-service
             port:
               number: 1337
+      - path: /storage
+        pathType: Prefix
+        backend:
+          service:
+            name: file-storage-service
+            port:
+              number: 9000
       - path: /
         pathType: Prefix
         backend:
@@ -1402,6 +1506,15 @@ livenessProbe:
 - **Web Management**: Logthon UI provides file management interface
 - **Logging Integration**: All file operations are logged to Logthon
 - **Persistent Storage**: Files persist across container restarts
+
+#### File Storage Service Architecture
+
+The File Storage service is a Python FastAPI application that provides:
+- **RESTful API**: Standard HTTP methods for file operations
+- **Automatic Cleanup**: Maintains file count limits with FIFO deletion
+- **Content Generation**: Creates unique placeholder content for each file
+- **Health Monitoring**: Provides health check endpoints for Kubernetes probes
+- **Logging Integration**: Sends all operations to Logthon for centralized logging
 
 ### Log Aggregation
 
@@ -1486,10 +1599,32 @@ flowchart TD
 ```
 c-edge-terrarium/
 ├── custom-client/           # C application for special requests
-│   ├── main.c              # Source code
+│   ├── src/                # Source code directory
+│   │   ├── main.c          # Main application entry point
+│   │   ├── common.h        # Common definitions
+│   │   ├── http_server.c   # HTTP server implementation
+│   │   ├── http_server.h   # HTTP server headers
+│   │   ├── log_capture.c   # Log capture functionality
+│   │   ├── log_capture.h   # Log capture headers
+│   │   ├── logging.c       # Logging utilities
+│   │   ├── logging.h       # Logging headers
+│   │   ├── vault.c         # Vault integration
+│   │   ├── vault.h         # Vault headers
+│   │   ├── file_storage.c  # File storage integration
+│   │   └── file_storage.h  # File storage headers
+│   ├── main.c.backup       # Backup of original main.c
 │   └── Dockerfile          # Container build instructions
 ├── service-sink/           # C application for default requests
-│   ├── main.c              # Source code
+│   ├── src/                # Source code directory
+│   │   ├── main.c          # Main application entry point
+│   │   ├── common.h        # Common definitions
+│   │   ├── http_server.c   # HTTP server implementation
+│   │   ├── http_server.h   # HTTP server headers
+│   │   ├── log_capture.c   # Log capture functionality
+│   │   ├── log_capture.h   # Log capture headers
+│   │   ├── logging.c       # Logging utilities
+│   │   └── logging.h       # Logging headers
+│   ├── main.c.backup       # Backup of original main.c
 │   └── Dockerfile          # Container build instructions
 ├── file-storage/           # Python file storage API service
 │   ├── main.py             # FastAPI application entry point
@@ -1500,8 +1635,7 @@ c-edge-terrarium/
 │   │   ├── config.py       # Configuration
 │   │   ├── models.py       # Data models
 │   │   ├── storage.py      # File storage operations
-│   │   ├── logging.py      # Logging utilities
-│   │   └── content_generator.py # Content generation
+│   │   └── logging.py      # Logging utilities
 │   ├── pyproject.toml      # Python dependencies
 │   ├── README.md           # Service documentation
 │   └── Dockerfile          # Container build instructions
@@ -1522,6 +1656,10 @@ c-edge-terrarium/
 ├── configs/
 │   ├── docker/             # Docker Compose configuration
 │   │   ├── docker-compose.yml
+│   │   ├── docker-compose.base.yml
+│   │   ├── docker-compose.core.yml
+│   │   ├── docker-compose.apps.yml
+│   │   ├── docker-compose.gateway.yml
 │   │   ├── certs/          # TLS certificates for Docker
 │   │   └── kong/           # Kong Gateway configuration
 │   │       └── kong.yml
@@ -1530,6 +1668,7 @@ c-edge-terrarium/
 │       ├── custom-client-deployment.yaml
 │       ├── service-sink-deployment.yaml
 │       ├── logthon-deployment.yaml
+│       ├── file-storage-deployment.yaml
 │       ├── vault-deployment.yaml
 │       ├── vault-service.yaml
 │       ├── vault-pvc.yaml
@@ -1560,11 +1699,11 @@ c-edge-terrarium/
 
 | Directory | Purpose | Key Files |
 |-----------|---------|-----------|
-| `custom-client/` | C application handling `/fake-provider/*` and `/example-provider/*` routes, with automatic file creation | `main.c`, `Dockerfile` |
-| `service-sink/` | C application handling all other HTTP requests | `main.c`, `Dockerfile` |
+| `custom-client/` | C application handling `/fake-provider/*` and `/example-provider/*` routes, with automatic file creation | `src/main.c`, `src/`, `Dockerfile` |
+| `service-sink/` | C application handling all other HTTP requests | `src/main.c`, `src/`, `Dockerfile` |
 | `file-storage/` | Python FastAPI service for file system CRUD operations with automatic rotation | `main.py`, `file_storage/`, `pyproject.toml` |
 | `logthon/` | Python FastAPI service for log aggregation and web UI with file storage viewer | `main.py`, `logthon/`, `pyproject.toml` |
-| `configs/docker/` | Docker Compose orchestration and Kong configuration | `docker-compose.yml`, `kong/kong.yml` |
+| `configs/docker/` | Docker Compose orchestration and Kong configuration | `docker-compose*.yml`, `kong/kong.yml` |
 | `configs/k3s/` | Kubernetes manifests for declarative deployment | `*-deployment.yaml`, `services.yaml`, `ingress.yaml` |
 | `scripts/` | Automation scripts for building, deploying, and testing | `deploy.sh`, `build-images.sh`, `test-*.sh` |
 | `certs/` | TLS certificates for secure communication | Certificate files |
@@ -1579,7 +1718,7 @@ c-edge-terrarium/
 |----------|---------|---------------|
 | `LOGTHON_HOST` | Log service hostname | `logthon-ingress-service.edge-terrarium.svc.cluster.local` |
 | `LOGTHON_PORT` | Log service port | `5000` |
-| `VAULT_ADDR` | Vault server address | `http://vault.edge-terrarium.svc.cluster.local:8200` |
+| `VAULT_ADDR` | Vault server address | `http://vault-service.edge-terrarium.svc.cluster.local:8200` |
 | `VAULT_TOKEN` | Vault authentication token | `root` |
 | `HOSTNAME` | Container ID (pod name) | `custom-client-844879c699-qs76w` |
 
@@ -1589,13 +1728,25 @@ c-edge-terrarium/
 ```yaml
 # configs/docker/kong/kong.yml
 services:
-  - name: custom-client
+  - name: custom-client-service
     url: http://custom-client:1337
     routes:
-      - name: custom-client-route
+      - name: custom-client-fake-provider
         paths:
           - /fake-provider
+        strip_path: false
+        preserve_host: true
+        protocols:
+          - http
+          - https
+      - name: custom-client-example-provider
+        paths:
           - /example-provider
+        strip_path: false
+        preserve_host: true
+        protocols:
+          - http
+          - https
 ```
 
 #### Kubernetes (Kong Ingress)
@@ -1605,6 +1756,7 @@ apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: edge-terrarium-ingress
+  namespace: edge-terrarium
 spec:
   ingressClassName: kong
   rules:
@@ -1618,6 +1770,27 @@ spec:
             name: custom-client-service
             port:
               number: 1337
+      - path: /example-provider
+        pathType: Prefix
+        backend:
+          service:
+            name: custom-client-service
+            port:
+              number: 1337
+      - path: /storage
+        pathType: Prefix
+        backend:
+          service:
+            name: file-storage-service
+            port:
+              number: 9000
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: service-sink-service
+            port:
+              number: 8080
 ```
 
 ---
@@ -1888,10 +2061,10 @@ curl -k -H "Host: localhost" https://localhost:443/fake-provider/test
 #### Test Service Sink
 ```bash
 # Docker
-curl -H "Host: localhost" https://localhost:8443/api/test
+curl -H "Host: localhost" https://localhost:8443/health
 
 # Kubernetes
-curl -k -H "Host: localhost" https://localhost:443/api/test
+curl -k -H "Host: localhost" https://localhost:443/health
 ```
 
 #### Test File Storage API
@@ -1951,35 +2124,35 @@ Kong provides detailed logs for monitoring request flow and troubleshooting rout
 **Method 1: Kong Ingress Controller Logs (Configuration & Routing)**
 ```bash
 # View recent logs
-kubectl logs -n default deployment/kong-kong --tail 20
+kubectl logs -n kong deployment/ingress-kong --tail 20
 
 # Follow logs in real-time
-kubectl logs -n default deployment/kong-kong -f
+kubectl logs -n kong deployment/ingress-kong -f
 
 # View logs from specific time
-kubectl logs -n default deployment/kong-kong --since=10m
+kubectl logs -n kong deployment/ingress-kong --since=10m
 ```
 
 **Method 2: Kong Proxy Logs (Access Logs)**
 ```bash
 # View access logs
-kubectl logs -n default deployment/kong-kong -c proxy --tail 20
+kubectl logs -n kong deployment/ingress-kong -c proxy --tail 20
 
 # Follow access logs in real-time
-kubectl logs -n default deployment/kong-kong -c proxy -f
+kubectl logs -n kong deployment/ingress-kong -c proxy -f
 
 # View logs with timestamps
-kubectl logs -n default deployment/kong-kong -c proxy --timestamps
+kubectl logs -n kong deployment/ingress-kong -c proxy --timestamps
 ```
 
 **Method 3: All Kong Container Logs**
 ```bash
 # View logs from all containers in the pod
-kubectl logs -n default deployment/kong-kong --all-containers=true
+kubectl logs -n kong deployment/ingress-kong --all-containers=true
 
 # View logs from specific container
-kubectl logs -n default deployment/kong-kong -c ingress-controller
-kubectl logs -n default deployment/kong-kong -c proxy
+kubectl logs -n kong deployment/ingress-kong -c ingress-controller
+kubectl logs -n kong deployment/ingress-kong -c proxy
 ```
 
 #### Understanding Kong Log Types
@@ -2006,16 +2179,16 @@ kubectl logs -n default deployment/kong-kong -c proxy
 
 ```bash
 # Monitor Kong in real-time
-kubectl logs -n default deployment/kong-kong -f
+kubectl logs -n kong deployment/ingress-kong -f
 
 # Check for errors
-kubectl logs -n default deployment/kong-kong | grep -i error
+kubectl logs -n kong deployment/ingress-kong | grep -i error
 
 # View recent access logs
-kubectl logs -n default deployment/kong-kong -c proxy --tail 50
+kubectl logs -n kong deployment/ingress-kong -c proxy --tail 50
 
 # Check Kong health
-kubectl logs -n default deployment/kong-kong | grep "Successfully synced"
+kubectl logs -n kong deployment/ingress-kong | grep "Successfully synced"
 ```
 
 ### Docker Issues
