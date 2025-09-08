@@ -69,6 +69,12 @@ spec:                              # Specification of the deployment
         env:
         - name: SERVICE_NAME       # Environment variable name
           value: "service-sink"    # Environment variable value
+        - name: CONTAINER_NAME     # Container name for logging
+          value: "service-sink-pod"  # Meaningful container name
+        - name: POD_NAME           # Pod name for logging
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
         - name: LOG_LEVEL          # Logging level
           value: "info"            # Set to info level
         - name: LOGTHON_HOST       # Logthon service hostname for log aggregation

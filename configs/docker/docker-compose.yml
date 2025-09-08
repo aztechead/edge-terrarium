@@ -45,8 +45,10 @@ services:
     # Environment variables - passed to the container at runtime
     environment:
       - SERVICE_NAME=custom-client      # Identifies this service in logs
+      - CONTAINER_NAME=edge-terrarium-custom-client  # Container name for logging
       - VAULT_ADDR=http://vault:8200 # Vault API address for Docker Compose
       - VAULT_TOKEN=root             # Vault authentication token
+      - FILE_STORAGE_URL=http://file-storage:9000  # File storage API address for Docker Compose
     
     # Network configuration - connects container to custom network
     networks:
@@ -91,6 +93,7 @@ services:
     # Environment variables
     environment:
       - SERVICE_NAME=service-sink    # Identifies this service in logs
+      - CONTAINER_NAME=edge-terrarium-service-sink  # Container name for logging
     
     # Network configuration
     networks:
@@ -214,6 +217,7 @@ services:
       - LOGTHON_HOST=0.0.0.0        # Host to bind to
       - LOGTHON_PORT=5000           # Port to listen on
       - LOGTHON_LOG_LEVEL=INFO      # Logging level
+      - FILE_STORAGE_URL=http://file-storage:9000  # File storage API address for Docker Compose
     
     # Network configuration
     networks:
@@ -225,6 +229,56 @@ services:
     # Health check
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s                 # Check every 30 seconds
+      timeout: 10s                  # Wait 10 seconds for response
+      retries: 3                    # Try 3 times before marking unhealthy
+      start_period: 40s             # Wait 40 seconds before first check
+
+  # ==========================================================================
+  # FILE STORAGE SERVICE
+  # ==========================================================================
+  # This service provides file storage with CRUD operations
+  # It stores files with automatic rotation (max 15 files)
+  file-storage:
+    # Use the fixed image
+    image: edge-terrarium-file-storage:latest
+    
+    # Container name
+    container_name: edge-terrarium-file-storage
+    
+    # Port mapping
+    ports:
+      - "9000:9000"                 # File storage API port
+    
+    # Environment variables
+    environment:
+      - SERVICE_NAME=file-storage    # Identifies this service in logs
+      - CONTAINER_NAME=edge-terrarium-file-storage  # Container name for logging
+      - FILE_STORAGE_HOST=0.0.0.0   # Host to bind to
+      - FILE_STORAGE_PORT=9000      # Port to listen on
+      - FILE_STORAGE_PATH=/app/storage  # Storage directory path
+      - FILE_STORAGE_MAX_FILES=15   # Maximum number of files
+      - LOGTHON_HOST=logthon        # Logthon service hostname for Docker Compose
+      - LOGTHON_PORT=5000           # Logthon service port
+    
+    # Volume mounts for persistent storage
+    volumes:
+      - file-storage-data:/app/storage  # Persistent storage for files
+    
+    # Network configuration
+    networks:
+      - edge-terrarium-network      # Custom network for service communication
+    
+    # Dependencies - start these services first
+    depends_on:
+      - logthon                     # Wait for logthon to be ready
+    
+    # Restart policy
+    restart: unless-stopped         # Restart unless manually stopped
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/health"]
       interval: 30s                 # Check every 30 seconds
       timeout: 10s                  # Wait 10 seconds for response
       retries: 3                    # Try 3 times before marking unhealthy
@@ -309,6 +363,8 @@ volumes:
   vault-data:                       # Named volume for Vault data storage
     driver: local                   # Store on local filesystem
   vault-logs:                       # Named volume for Vault logs
+    driver: local                   # Store on local filesystem
+  file-storage-data:                # Named volume for file storage data
     driver: local                   # Store on local filesystem
 
 # =============================================================================

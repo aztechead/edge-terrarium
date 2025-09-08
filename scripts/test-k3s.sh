@@ -476,6 +476,57 @@ else
 fi
 echo ""
 
+# Test file storage functionality
+echo "Testing file storage functionality:"
+echo "=================================="
+
+# Test file storage health endpoint
+echo "Testing file storage health endpoint:"
+echo "------------------------------------"
+if curl -s --connect-timeout 5 --max-time 5 -k https://edge-terrarium.local/storage/health >/dev/null 2>&1; then
+    echo "✓ File storage health endpoint is accessible"
+else
+    echo "✗ File storage health endpoint is not accessible"
+fi
+
+# Test file storage info endpoint
+echo "Testing file storage info endpoint:"
+echo "----------------------------------"
+if curl -s --connect-timeout 5 --max-time 5 -k https://edge-terrarium.local/storage/info >/dev/null 2>&1; then
+    echo "✓ File storage info endpoint is accessible"
+else
+    echo "✗ File storage info endpoint is not accessible"
+fi
+
+# Test file storage list endpoint
+echo "Testing file storage list endpoint:"
+echo "----------------------------------"
+if curl -s --connect-timeout 5 --max-time 5 -k https://edge-terrarium.local/storage/files >/dev/null 2>&1; then
+    echo "✓ File storage list endpoint is accessible"
+else
+    echo "✗ File storage list endpoint is not accessible"
+fi
+
+# Test file storage auto-create endpoint
+echo "Testing file storage auto-create endpoint:"
+echo "-----------------------------------------"
+if curl -s --connect-timeout 5 --max-time 5 -k -X PUT https://edge-terrarium.local/storage/files/auto >/dev/null 2>&1; then
+    echo "✓ File storage auto-create endpoint is accessible"
+else
+    echo "✗ File storage auto-create endpoint is not accessible"
+fi
+
+# Test Logthon file storage integration
+echo "Testing Logthon file storage integration:"
+echo "----------------------------------------"
+if curl -s --connect-timeout 5 --max-time 5 -k https://edge-terrarium.local/logthon/api/files >/dev/null 2>&1; then
+    echo "✓ Logthon file storage integration is working"
+else
+    echo "✗ Logthon file storage integration is not working"
+fi
+
+echo ""
+
 # Clean up port forwarding
 echo "Cleaning up..."
 kill $VAULT_PORT_FORWARD_PID 2>/dev/null || true
@@ -494,5 +545,7 @@ echo "- Custom client endpoints are working"
 echo "- Service sink endpoints are working"
 echo "- Vault is healthy and accessible"
 echo "- Custom client successfully retrieves secrets from Vault"
+echo "- File storage service is accessible and functional"
+echo "- Logthon file storage integration is working"
 echo ""
 echo "The application is fully functional in K3s!"

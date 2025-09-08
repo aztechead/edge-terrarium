@@ -77,6 +77,8 @@ spec:                              # Specification of the deployment
           value: "5000"
         - name: LOGTHON_LOG_LEVEL  # Logging level
           value: "INFO"
+        - name: FILE_STORAGE_URL   # File storage service URL for K3s
+          value: "http://file-storage-service.edge-terrarium.svc.cluster.local:9000"
 
         # Resource requirements and limits
         resources:

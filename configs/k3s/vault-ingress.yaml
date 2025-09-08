@@ -31,6 +31,10 @@ metadata:                           # Metadata about this ingress
   annotations:
     konghq.com/preserve-host: "true"  # Preserve the original host header
     konghq.com/protocols: "http,https" # Allow both HTTP and HTTPS protocols
+    konghq.com/connect-timeout: "60000"  # 60 second connect timeout
+    konghq.com/read-timeout: "60000"     # 60 second read timeout
+    konghq.com/write-timeout: "60000"    # 60 second write timeout
+    konghq.com/retries: "5"              # Retry failed requests 5 times
 
 spec:                               # Specification for the ingress
   ingressClassName: kong            # Use Kong as the ingress controller

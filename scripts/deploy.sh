@@ -177,11 +177,24 @@ deploy_docker() {
         docker logs edge-terrarium-logthon --tail 10
     fi
     
+    # Verify file storage service is working
+    print_status "Verifying file storage service is working..."
+    sleep 5  # Give file storage time to start
+    
+    if curl -s http://localhost:9000/health >/dev/null 2>&1; then
+        print_success "File storage service is healthy"
+    else
+        print_warning "File storage service may not be fully ready yet"
+        print_status "Checking file storage container logs..."
+        docker logs edge-terrarium-file-storage --tail 10
+    fi
+    
     print_success "Docker Compose deployment completed!"
     echo ""
     echo "Services are running:"
     echo "  - Custom Client: https://localhost:443/fake-provider/* and /example-provider/*"
     echo "  - Service Sink: https://localhost:443/ (default route)"
+    echo "  - File Storage: https://localhost:443/storage/* and http://localhost:9000"
     echo "  - Logthon: http://localhost:5001"
     echo "  - Vault: http://localhost:8200"
     echo ""
@@ -398,6 +411,12 @@ deploy_k3s() {
         exit 1
     fi
     
+    print_status "Importing File Storage image..."
+    if ! k3d image import edge-terrarium-file-storage:latest -c edge-terrarium; then
+        print_error "Failed to import File Storage image into k3d cluster"
+        exit 1
+    fi
+    
     print_success "All images imported successfully into k3d cluster"
     
     # Check if helm is installed
@@ -591,6 +610,7 @@ deploy_k3s() {
     kubectl wait --for=condition=available --timeout=300s deployment/custom-client -n edge-terrarium
     kubectl wait --for=condition=available --timeout=300s deployment/service-sink -n edge-terrarium
     kubectl wait --for=condition=available --timeout=300s deployment/logthon -n edge-terrarium
+    kubectl wait --for=condition=available --timeout=300s deployment/file-storage -n edge-terrarium
     kubectl wait --for=condition=available --timeout=300s deployment/vault -n edge-terrarium
     
     # Wait for Vault init job to complete
@@ -644,6 +664,46 @@ deploy_k3s() {
     
     # Clean up temporary port forward
     kill $VAULT_VERIFY_PID 2>/dev/null || true
+    
+    # Verify file storage service is working
+    print_status "Verifying file storage service is working..."
+    
+    # Set up temporary port forwarding for file storage verification
+    kubectl port-forward -n edge-terrarium service/file-storage-service 9001:9000 >/dev/null 2>&1 &
+    FILE_STORAGE_VERIFY_PID=$!
+    sleep 3
+    
+    # Check if file storage service is accessible
+    if curl -s http://localhost:9001/health >/dev/null 2>&1; then
+        print_success "File storage service is accessible and healthy"
+    else
+        print_error "File storage service is not accessible"
+        kill $FILE_STORAGE_VERIFY_PID 2>/dev/null || true
+        exit 1
+    fi
+    
+    # Clean up temporary port forward
+    kill $FILE_STORAGE_VERIFY_PID 2>/dev/null || true
+    
+    # Verify logthon service is working
+    print_status "Verifying logthon service is working..."
+    
+    # Set up temporary port forwarding for logthon verification
+    kubectl port-forward -n edge-terrarium service/logthon-service 5001:5000 >/dev/null 2>&1 &
+    LOGTHON_VERIFY_PID=$!
+    sleep 3
+    
+    # Check if logthon service is accessible
+    if curl -s http://localhost:5001/health >/dev/null 2>&1; then
+        print_success "Logthon service is accessible and healthy"
+    else
+        print_error "Logthon service is not accessible"
+        kill $LOGTHON_VERIFY_PID 2>/dev/null || true
+        exit 1
+    fi
+    
+    # Clean up temporary port forward
+    kill $LOGTHON_VERIFY_PID 2>/dev/null || true
     
     # Set up automatic port forwarding for Vault (if port 8200 is not already in use)
     print_status "Setting up Vault port forwarding..."
@@ -702,6 +762,7 @@ deploy_k3s() {
     echo "Services are running in K3s:"
     echo "  - Custom Client: Available via Kong ingress"
     echo "  - Service Sink: Available via Kong ingress"
+    echo "  - File Storage: Available via Kong ingress at /storage/*"
     echo "  - Logthon: Available via Kong ingress at /logs/*"
     echo "  - Vault: Available at http://localhost:8200 (port forwarded)"
     echo "  - Kubernetes Dashboard: Available via port forwarding"

@@ -8,10 +8,10 @@ RUN apk add --no-cache gcc musl-dev curl-dev json-c-dev
 WORKDIR /app
 
 # Copy source code
-COPY main.c .
+COPY src/ ./src/
 
-# Compile the application with curl and json-c libraries
-RUN gcc -o custom-client main.c -lcurl -ljson-c
+# Compile the application with curl, json-c, and pthread libraries
+RUN gcc -o custom-client src/*.c -lcurl -ljson-c -lpthread
 
 # Final stage
 FROM alpine:3.18

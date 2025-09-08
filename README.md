@@ -157,10 +157,13 @@ flowchart TD
     B --> C{Which Service?}
     C -->|/fake-provider/*| D[Custom Client]
     C -->|/example-provider/*| D
+    C -->|/storage/*| H[File Storage API]
     C -->|Everything Else| E[Service Sink]
     D --> F[Log Aggregator]
     E --> F
+    H --> F
     D --> G[Secrets Manager]
+    D --> H
     
     classDef user fill:#e3f2fd,stroke:#1976d2,stroke-width:2px,color:#000
     classDef gateway fill:#fff3e0,stroke:#f57c00,stroke-width:2px,color:#000
@@ -169,16 +172,17 @@ flowchart TD
     
     class A user
     class B gateway
-    class D,E service
+    class D,E,H service
     class F,G support
 ```
 
 ### Component Definitions
 
 - **Kong Gateway**: API gateway that routes HTTP requests based on URL patterns
-- **Custom Client**: C application that handles requests to `/fake-provider/*` and `/example-provider/*` paths
+- **Custom Client**: C application that handles requests to `/fake-provider/*` and `/example-provider/*` paths, and automatically creates files via the File Storage API
 - **Service Sink**: C application that handles all other HTTP requests as the default route
-- **Log Aggregator**: Python service that collects and displays logs from all applications
+- **File Storage API**: Python FastAPI service that provides CRUD operations for file system storage with automatic file rotation
+- **Log Aggregator**: Python service that collects and displays logs from all applications, including a web UI for viewing stored files
 - **Secrets Manager**: HashiCorp Vault that securely stores and provides application secrets
 
 ### Why This Architecture?
@@ -1165,6 +1169,7 @@ curl -X DELETE \
 |-------------|-------------------|------|--------|---------|
 | `/fake-provider/*` | Custom Client | 1337 | GET/POST | Special handling for fake provider requests |
 | `/example-provider/*` | Custom Client | 1337 | GET/POST | Special handling for example provider requests |
+| `/storage/*` | File Storage API | 9000 | GET/PUT/DELETE | File storage CRUD operations |
 | `/health` | Custom Client | 1337 | GET | Health check endpoint |
 | `/api/*` | Service Sink | 8080 | GET/POST | API endpoint requests |
 | `/admin/*` | Service Sink | 8080 | GET/POST | Admin interface requests |
@@ -1270,6 +1275,40 @@ livenessProbe:
     value: liveness
 ```
 
+### File Storage API
+
+**Problem**: Applications need to store and manage files with automatic rotation and cleanup.
+
+**Solution**: File Storage API provides CRUD operations for file system storage with automatic file rotation and a web interface for management.
+
+#### How File Storage Works
+1. Custom Client automatically creates files every 15 seconds via PUT `/storage/files/auto`
+2. Files are stored in `/app/storage` with timestamped names
+3. Maximum of 15 files are maintained - oldest files are automatically deleted
+4. Each file contains unique placeholder content (lorem ipsum variations)
+5. Logthon UI provides a "File Storage" tab to view, manage, and delete files
+
+#### File Storage API Endpoints
+
+| Endpoint | Method | Purpose | Description |
+|----------|--------|---------|-------------|
+| `/storage/health` | GET | Health check | Service health status |
+| `/storage/info` | GET | Service info | Storage configuration and statistics |
+| `/storage/files` | GET | List files | Get all stored files with metadata |
+| `/storage/files/{filename}` | GET | Get file | Retrieve specific file content |
+| `/storage/files` | PUT | Create file | Create new file with provided content |
+| `/storage/files/auto` | PUT | Auto-create | Create file with generated content (used by Custom Client) |
+| `/storage/files/{filename}` | DELETE | Delete file | Remove specific file |
+| `/storage/files` | DELETE | Clear all | Remove all stored files |
+
+#### File Storage Features
+- **Automatic Rotation**: Maintains maximum of 15 files
+- **Timestamped Naming**: Files named with creation timestamp
+- **Unique Content**: Each file contains different placeholder content
+- **Web Management**: Logthon UI provides file management interface
+- **Logging Integration**: All file operations are logged to Logthon
+- **Persistent Storage**: Files persist across container restarts
+
 ### Log Aggregation
 
 **Problem**: Multiple services generate logs, making debugging difficult.
@@ -1279,8 +1318,9 @@ livenessProbe:
 #### How Logs Flow
 1. Custom Client logs: "Received request to /fake-provider/test"
 2. Service Sink logs: "Received request to /api/users"
-3. Logthon collects all logs
-4. Web UI displays logs in real-time with container IDs
+3. File Storage logs: "Created file: 2025-01-08_15-30-45.txt"
+4. Logthon collects all logs
+5. Web UI displays logs in real-time with container IDs and file storage management
 
 ---
 
@@ -1357,6 +1397,20 @@ c-edge-terrarium/
 ├── service-sink/           # C application for default requests
 │   ├── main.c              # Source code
 │   └── Dockerfile          # Container build instructions
+├── file-storage/           # Python file storage API service
+│   ├── main.py             # FastAPI application entry point
+│   ├── file_storage/       # Python package
+│   │   ├── __init__.py
+│   │   ├── api.py          # API endpoints
+│   │   ├── app.py          # FastAPI app
+│   │   ├── config.py       # Configuration
+│   │   ├── models.py       # Data models
+│   │   ├── storage.py      # File storage operations
+│   │   ├── logging.py      # Logging utilities
+│   │   └── content_generator.py # Content generation
+│   ├── pyproject.toml      # Python dependencies
+│   ├── README.md           # Service documentation
+│   └── Dockerfile          # Container build instructions
 ├── logthon/                # Python log aggregation service
 │   ├── main.py             # FastAPI application
 │   ├── logthon/            # Python package
@@ -1412,9 +1466,10 @@ c-edge-terrarium/
 
 | Directory | Purpose | Key Files |
 |-----------|---------|-----------|
-| `custom-client/` | C application handling `/fake-provider/*` and `/example-provider/*` routes | `main.c`, `Dockerfile` |
+| `custom-client/` | C application handling `/fake-provider/*` and `/example-provider/*` routes, with automatic file creation | `main.c`, `Dockerfile` |
 | `service-sink/` | C application handling all other HTTP requests | `main.c`, `Dockerfile` |
-| `logthon/` | Python FastAPI service for log aggregation and web UI | `main.py`, `logthon/`, `pyproject.toml` |
+| `file-storage/` | Python FastAPI service for file system CRUD operations with automatic rotation | `main.py`, `file_storage/`, `pyproject.toml` |
+| `logthon/` | Python FastAPI service for log aggregation and web UI with file storage viewer | `main.py`, `logthon/`, `pyproject.toml` |
 | `configs/docker/` | Docker Compose orchestration and Kong configuration | `docker-compose.yml`, `kong/kong.yml` |
 | `configs/k3s/` | Kubernetes manifests for declarative deployment | `*-deployment.yaml`, `services.yaml`, `ingress.yaml` |
 | `scripts/` | Automation scripts for building, deploying, and testing | `deploy.sh`, `build-images.sh`, `test-*.sh` |
@@ -1486,6 +1541,9 @@ spec:
 - HTTP request routing
 - Log aggregation
 - Vault connectivity
+- File storage CRUD operations
+- File storage auto-creation
+- Logthon file storage integration
 
 #### Kubernetes Testing
 ```bash
@@ -1497,6 +1555,9 @@ spec:
 - Service discovery
 - Secrets retrieval
 - Log aggregation
+- File storage service accessibility
+- File storage API endpoints
+- Logthon file storage integration
 
 ### K3s Testing Methods
 
@@ -1739,6 +1800,27 @@ curl -H "Host: localhost" https://localhost:8443/api/test
 curl -k -H "Host: localhost" https://localhost:443/api/test
 ```
 
+#### Test File Storage API
+```bash
+# Docker - Health check
+curl -H "Host: localhost" https://localhost:8443/storage/health
+
+# Docker - List files
+curl -H "Host: localhost" https://localhost:8443/storage/files
+
+# Docker - Auto-create file
+curl -X PUT -H "Host: localhost" https://localhost:8443/storage/files/auto
+
+# Kubernetes - Health check
+curl -k -H "Host: localhost" https://localhost:443/storage/health
+
+# Kubernetes - List files
+curl -k -H "Host: localhost" https://localhost:443/storage/files
+
+# Kubernetes - Auto-create file
+curl -k -X PUT -H "Host: localhost" https://localhost:443/storage/files/auto
+```
+
 #### View Logs
 ```bash
 # Docker
@@ -1765,6 +1847,82 @@ kubectl logs -n edge-terrarium deployment/logthon
 #### "No targets could be found" (Kong)
 **Cause**: Backend services not ready
 **Solution**: Wait for services to be ready, check health probes
+
+### Kong Logs and Monitoring
+
+Kong provides detailed logs for monitoring request flow and troubleshooting routing issues.
+
+#### Viewing Kong Logs
+
+**Method 1: Kong Ingress Controller Logs (Configuration & Routing)**
+```bash
+# View recent logs
+kubectl logs -n default deployment/kong-kong --tail 20
+
+# Follow logs in real-time
+kubectl logs -n default deployment/kong-kong -f
+
+# View logs from specific time
+kubectl logs -n default deployment/kong-kong --since=10m
+```
+
+**Method 2: Kong Proxy Logs (Access Logs)**
+```bash
+# View access logs
+kubectl logs -n default deployment/kong-kong -c proxy --tail 20
+
+# Follow access logs in real-time
+kubectl logs -n default deployment/kong-kong -c proxy -f
+
+# View logs with timestamps
+kubectl logs -n default deployment/kong-kong -c proxy --timestamps
+```
+
+**Method 3: All Kong Container Logs**
+```bash
+# View logs from all containers in the pod
+kubectl logs -n default deployment/kong-kong --all-containers=true
+
+# View logs from specific container
+kubectl logs -n default deployment/kong-kong -c ingress-controller
+kubectl logs -n default deployment/kong-kong -c proxy
+```
+
+#### Understanding Kong Log Types
+
+**Ingress Controller Logs:**
+- Service discovery messages
+- Configuration sync status
+- Routing rule updates
+- "No targets could be found" messages (normal during startup)
+
+**Proxy Access Logs:**
+- HTTP request logs in Apache Common Log Format
+- Client IP addresses
+- Request paths and methods
+- Response codes and sizes
+- Kong request IDs
+
+**Log Format Example:**
+```
+10.42.0.1 - - [07/Sep/2025:23:32:53 +0000] "GET /fake-provider/test HTTP/2.0" 200 94 "-" "curl/8.7.1" kong_request_id: "a645b12c2d4dee7e1e3176543a63f42f"
+```
+
+#### Quick Commands for Common Tasks
+
+```bash
+# Monitor Kong in real-time
+kubectl logs -n default deployment/kong-kong -f
+
+# Check for errors
+kubectl logs -n default deployment/kong-kong | grep -i error
+
+# View recent access logs
+kubectl logs -n default deployment/kong-kong -c proxy --tail 50
+
+# Check Kong health
+kubectl logs -n default deployment/kong-kong | grep "Successfully synced"
+```
 
 ### Docker Issues
 
