@@ -1,0 +1,111 @@
+# =============================================================================
+# BASE SERVICES - Docker Compose Configuration
+# =============================================================================
+# This file defines the foundational services that other services depend on:
+# - Vault (secrets management)
+# - Vault initialization job
+#
+# These services must start first and be healthy before other services can start.
+# =============================================================================
+
+services:
+  # ==========================================================================
+  # HASHICORP VAULT
+  # ==========================================================================
+  # This service provides secrets management for the Terrarium application.
+  # Vault securely stores and manages sensitive data like TLS certificates,
+  # API keys, and other secrets that the Custom client needs.
+  vault:
+    # Use official Vault image
+    image: hashicorp/vault:latest    # Official HashiCorp Vault image
+    container_name: edge-terrarium-vault
+    
+    # Port mapping
+    ports:
+      - "8200:8200"                 # Vault API port
+    
+    # Environment variables for Vault configuration
+    environment:
+      - VAULT_DEV_ROOT_TOKEN_ID=root # Development root token (for dev mode only)
+      - VAULT_DEV_LISTEN_ADDRESS=0.0.0.0:8200 # Address for Vault to listen on
+      - VAULT_ADDR=http://0.0.0.0:8200 # Vault API address
+      - VAULT_API_ADDR=http://localhost:8200 # Vault API address for clients
+    
+    # Volume mounts for persistent storage
+    volumes:
+      - vault-data:/vault/data       # Persistent storage for Vault data
+      - vault-logs:/vault/logs       # Log directory
+    
+    # Network configuration
+    networks:
+      - edge-terrarium-network      # Custom network for service communication
+    
+    # Restart policy
+    restart: unless-stopped         # Restart unless manually stopped
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "sh", "-c", "netstat -an | grep :8200 | grep LISTEN"]
+      interval: 30s                 # Check every 30 seconds
+      timeout: 10s                  # Wait 10 seconds for response
+      retries: 3                    # Try 3 times before marking unhealthy
+      start_period: 40s             # Wait 40 seconds before first check
+
+  # ==========================================================================
+  # VAULT INITIALIZATION
+  # ==========================================================================
+  # This service initializes Vault with secrets before other services start.
+  # It runs once, waits for Vault to be healthy, then initializes it with
+  # the required secrets and configuration.
+  vault-init:
+    # Use the same image as the main application (has curl and other tools)
+    image: alpine:3.18              # Lightweight Alpine image with curl
+    container_name: edge-terrarium-vault-init
+    
+    # Environment variables for Vault initialization
+    environment:
+      - VAULT_ADDR=http://vault:8200 # Vault API address for Docker Compose
+      - VAULT_TOKEN=root             # Vault authentication token
+    
+    # Volume mounts - access to project files and certificates
+    volumes:
+      - ../../scripts:/scripts:ro    # Read-only access to scripts
+      - ../../certs:/certs:ro        # Read-only access to certificates
+    
+    # Network configuration
+    networks:
+      - edge-terrarium-network      # Custom network for service communication
+    
+    # Dependencies - wait for Vault to be healthy
+    depends_on:
+      vault:                        # Wait for Vault to be ready
+        condition: service_healthy  # Only start when Vault is healthy
+    
+    # Command to run the initialization script
+    command: ["sh", "-c", "apk add --no-cache curl bash && echo 'Waiting for Vault to be ready...' && sleep 5 && bash /scripts/init-vault.sh http://vault:8200"]
+    
+    # Restart policy - don't restart this init container
+    restart: "no"                  # Don't automatically restart the container
+
+# =============================================================================
+# VOLUMES
+# =============================================================================
+# Volumes provide persistent storage for containers
+# Data in volumes survives container restarts and removals
+volumes:
+  vault-data:                       # Named volume for Vault data storage
+    driver: local                   # Store on local filesystem
+  vault-logs:                       # Named volume for Vault logs
+    driver: local                   # Store on local filesystem
+
+# =============================================================================
+# NETWORKS
+# =============================================================================
+# Networks define how containers communicate with each other
+# Custom networks provide better isolation and control
+networks:
+  edge-terrarium-network:           # Custom network name
+    driver: bridge                  # Bridge driver for container communication
+    ipam:                          # IP Address Management
+      config:
+        - subnet: 172.25.0.0/16    # Custom subnet for container IPs

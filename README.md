@@ -238,22 +238,116 @@ Docker is a containerization platform that packages applications and their depen
 
 ### Understanding Docker Compose
 
-The `configs/docker/docker-compose.yml` file is like a recipe that tells Docker:
+The Docker Compose configuration uses a hierarchical structure to organize services by their dependencies and startup order:
+
+#### Hierarchical Compose File Structure
+
+The main `configs/docker/docker-compose.yml` file includes multiple compose files in the correct startup order:
 
 ```yaml
-services:
-  custom-client:
-    build: ../../custom-client    # Build from this directory
-    ports:
-      - "1337:1337"               # Map host port 1337 to container port 1337
-    environment:
-      - LOGTHON_URL=http://logthon:5000  # How to reach the log service
+# Main docker-compose.yml
+include:
+  - docker-compose.base.yml      # Base services: vault, vault-init
+  - docker-compose.core.yml      # Core services: logthon, file-storage
+  - docker-compose.apps.yml      # Application services: custom-client, service-sink
+  - docker-compose.gateway.yml   # Gateway services: kong-gateway
 ```
 
-**Key Points**:
-- Each service runs in its own container
-- Services communicate using service names (e.g., `logthon:5000`)
-- Port mapping allows external access (e.g., `localhost:1337`)
+#### Service Startup Order
+
+The services start in this specific sequence to ensure dependencies are available:
+
+```
+vault → vault-init → logthon → file-storage → (custom-client, service-sink) → kong-gateway
+```
+
+**Why This Order Matters**:
+- **Vault & vault-init**: Must be ready before any service can access secrets
+- **logthon**: All other services send logs to logthon, so it must be ready first
+- **file-storage**: Custom client immediately calls file-storage API after startup
+- **custom-client & service-sink**: Can start in parallel once their dependencies are ready
+- **kong-gateway**: Routes external traffic, so it starts last after all services are healthy
+
+#### Compose File Breakdown
+
+**Base Services** (`docker-compose.base.yml`):
+```yaml
+services:
+  vault:                    # Secrets management
+    image: hashicorp/vault:latest
+    healthcheck: ...        # Ensures Vault is ready
+    
+  vault-init:              # One-time initialization
+    depends_on:
+      vault:
+        condition: service_healthy  # Waits for Vault to be healthy
+```
+
+**Core Services** (`docker-compose.core.yml`):
+```yaml
+services:
+  logthon:                 # Log aggregation service
+    depends_on:
+      vault-init:
+        condition: service_completed_successfully
+        
+  file-storage:            # File management service
+    depends_on:
+      logthon:
+        condition: service_healthy
+```
+
+**Application Services** (`docker-compose.apps.yml`):
+```yaml
+services:
+  custom-client:           # Main application
+    depends_on:
+      vault-init:
+        condition: service_completed_successfully
+      logthon:
+        condition: service_healthy
+      file-storage:
+        condition: service_healthy
+        
+  service-sink:            # Default request handler
+    depends_on:
+      vault-init:
+        condition: service_completed_successfully
+      logthon:
+        condition: service_healthy
+```
+
+**Gateway Services** (`docker-compose.gateway.yml`):
+```yaml
+services:
+  kong-gateway:            # API gateway and reverse proxy
+    depends_on:
+      custom-client:
+        condition: service_healthy
+      service-sink:
+        condition: service_healthy
+      logthon:
+        condition: service_healthy
+      file-storage:
+        condition: service_healthy
+```
+
+#### Key Benefits
+
+**Reliability**:
+- Proper startup order prevents connection errors
+- Health checks ensure services are truly ready
+- Dependencies are explicitly declared and enforced
+
+**Maintainability**:
+- Each compose file focuses on a specific layer
+- Easier to understand dependencies and relationships
+- Simpler to modify individual service groups
+
+**Scalability**:
+- Easy to add new services to appropriate layers
+- Clear separation of concerns
+- Modular structure supports future growth
 
 ### Docker Networking
 
@@ -535,7 +629,7 @@ flowchart TD
 |-----------|---------|---------------|
 | **k3d-edge-terrarium-server-0** | K3s control plane node | - Runs K3s server (API server, etcd, scheduler, controller-manager)<br/>- Manages cluster state and configuration<br/>- Handles API requests and resource management<br/>- Runs system pods (CoreDNS, Traefik, etc.) |
 | **k3d-edge-terrarium-agent-0/1** | K3s worker nodes | - Run application pods and workloads<br/>- Execute container runtime (containerd)<br/>- Report node status to server<br/>- Handle pod networking and storage |
-| **k3d-edge-terrarium-serverlb** | HAProxy load balancer | - Distributes traffic across server nodes<br/>- Provides external access to cluster services<br/>- Maps host ports to cluster services<br/>- Handles TLS termination for ingress |
+| **k3d-edge-terrarium-serverlb** | Load balancer | - Distributes traffic across server nodes<br/>- Provides external access to cluster services<br/>- Maps host ports to cluster services<br/>- Handles TLS termination for ingress |
 
 #### Container Management Commands
 
@@ -1965,6 +2059,67 @@ kubectl describe ingress -n edge-terrarium
 ```
 
 ---
+
+## Service Startup Order and Dependencies
+
+### K3s Deployment Startup Sequence
+
+The K3s deployment uses init containers to ensure services start in the correct order, preventing connection errors and ensuring all dependencies are available before services begin operation.
+
+#### Startup Order
+
+1. **Vault** → **vault-init job** (creates secrets)
+2. **logthon** (waits for vault-init completion)
+3. **file-storage** (waits for logthon to be ready)
+4. **custom-client** (waits for vault-init + logthon + file-storage)
+5. **service-sink** (waits for logthon to be ready)
+
+#### Why This Order Matters
+
+**Vault and vault-init job:**
+- Vault must be running before any service can access secrets
+- vault-init job populates Vault with required secrets (TLS certificates, API tokens, etc.)
+- Custom client needs these secrets to function properly
+
+**logthon (log aggregation service):**
+- All other services send logs to logthon
+- logthon must be ready before other services start to prevent "Connection refused" errors
+- Ensures all startup logs are captured and visible
+
+**file-storage:**
+- Custom client immediately calls file-storage API after startup
+- File-storage must be ready before custom-client starts
+- Prevents API call failures during custom-client initialization
+
+**custom-client:**
+- Depends on Vault secrets, logthon for logging, and file-storage for API calls
+- Waits for all three dependencies before starting
+- Ensures reliable operation from the moment it starts
+
+**service-sink:**
+- Only depends on logthon for logging
+- Can start in parallel with custom-client once logthon is ready
+
+#### Implementation Details
+
+Each service uses init containers to wait for its dependencies:
+
+```yaml
+initContainers:
+- name: wait-for-vault-init
+  # Waits for vault-init job to complete
+- name: wait-for-logthon  
+  # Waits for logthon service to be ready
+- name: wait-for-file-storage
+  # Waits for file-storage service to be ready
+```
+
+The init containers use health check endpoints to verify services are ready:
+- Vault: `/v1/sys/health`
+- logthon: `/health`
+- file-storage: `/health`
+
+This ensures services start in the correct order and eliminates connection errors during startup.
 
 ## Service Communication
 

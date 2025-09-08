@@ -483,7 +483,7 @@ echo "=================================="
 # Test file storage health endpoint
 echo "Testing file storage health endpoint:"
 echo "------------------------------------"
-if curl -s --connect-timeout 5 --max-time 5 -k https://edge-terrarium.local/storage/health >/dev/null 2>&1; then
+if curl -s --connect-timeout 5 --max-time 5 -k -H "Host: localhost" https://$KONG_HOST:$KONG_HTTPS_PORT/storage/health >/dev/null 2>&1; then
     echo "✓ File storage health endpoint is accessible"
 else
     echo "✗ File storage health endpoint is not accessible"
@@ -492,7 +492,7 @@ fi
 # Test file storage info endpoint
 echo "Testing file storage info endpoint:"
 echo "----------------------------------"
-if curl -s --connect-timeout 5 --max-time 5 -k https://edge-terrarium.local/storage/info >/dev/null 2>&1; then
+if curl -s --connect-timeout 5 --max-time 5 -k -H "Host: localhost" https://$KONG_HOST:$KONG_HTTPS_PORT/storage/info >/dev/null 2>&1; then
     echo "✓ File storage info endpoint is accessible"
 else
     echo "✗ File storage info endpoint is not accessible"
@@ -501,7 +501,7 @@ fi
 # Test file storage list endpoint
 echo "Testing file storage list endpoint:"
 echo "----------------------------------"
-if curl -s --connect-timeout 5 --max-time 5 -k https://edge-terrarium.local/storage/files >/dev/null 2>&1; then
+if curl -s --connect-timeout 5 --max-time 5 -k -H "Host: localhost" https://$KONG_HOST:$KONG_HTTPS_PORT/storage/files >/dev/null 2>&1; then
     echo "✓ File storage list endpoint is accessible"
 else
     echo "✗ File storage list endpoint is not accessible"
@@ -510,7 +510,7 @@ fi
 # Test file storage auto-create endpoint
 echo "Testing file storage auto-create endpoint:"
 echo "-----------------------------------------"
-if curl -s --connect-timeout 5 --max-time 5 -k -X PUT https://edge-terrarium.local/storage/files/auto >/dev/null 2>&1; then
+if curl -s --connect-timeout 5 --max-time 5 -k -H "Host: localhost" -X PUT https://$KONG_HOST:$KONG_HTTPS_PORT/storage/files/auto >/dev/null 2>&1; then
     echo "✓ File storage auto-create endpoint is accessible"
 else
     echo "✗ File storage auto-create endpoint is not accessible"
@@ -519,7 +519,7 @@ fi
 # Test Logthon file storage integration
 echo "Testing Logthon file storage integration:"
 echo "----------------------------------------"
-if curl -s --connect-timeout 5 --max-time 5 -k https://edge-terrarium.local/logthon/api/files >/dev/null 2>&1; then
+if curl -s --connect-timeout 5 --max-time 5 -k -H "Host: localhost" https://$KONG_HOST:$KONG_HTTPS_PORT/logthon/api/files >/dev/null 2>&1; then
     echo "✓ Logthon file storage integration is working"
 else
     echo "✗ Logthon file storage integration is not working"

@@ -54,6 +54,39 @@ spec:                              # Specification of the deployment
         component: backend         # Identifies this as a backend component
 
     spec:                          # Specification for Pods created from this template
+      # Init container to wait for logthon to be ready
+      # This ensures service-sink can send logs to logthon on startup
+      initContainers:
+      - name: wait-for-logthon        # Name of the init container
+        image: curlimages/curl:latest  # Lightweight curl image for health checks
+        command: ['sh', '-c']          # Command to run
+        args:                          # Arguments for the command
+        - |                            # Multi-line script
+          echo "Waiting for logthon service to be ready..."
+          
+          # Wait for logthon service to be ready
+          # This ensures service-sink can send logs to logthon on startup
+          RETRY_COUNT=0
+          MAX_RETRIES=60  # 2 minutes max wait time
+          until curl -s http://logthon-ingress-service.edge-terrarium.svc.cluster.local:5000/health > /dev/null; do
+            RETRY_COUNT=$((RETRY_COUNT + 1))
+            if [ $RETRY_COUNT -gt $MAX_RETRIES ]; then
+              echo "ERROR: Timeout waiting for logthon service after $MAX_RETRIES attempts"
+              echo "This indicates logthon failed to start or is taking too long"
+              exit 1
+            fi
+            echo "Logthon service not ready yet (attempt $RETRY_COUNT/$MAX_RETRIES). Waiting..."
+            sleep 2
+          done
+          echo "Logthon service is ready! Service-sink can start."
+        resources:                     # Resource requirements for init container
+          requests:                    # Minimum resources required
+            memory: "32Mi"             # 32 MB of memory
+            cpu: "50m"                 # 50 millicores of CPU
+          limits:                      # Maximum resources allowed
+            memory: "64Mi"             # 64 MB of memory
+            cpu: "100m"                # 100 millicores of CPU
+      
       containers:                  # List of containers in each Pod
       - name: service-sink         # Name of the container
         image: edge-terrarium-service-sink:latest  # Docker image to use
@@ -70,7 +103,9 @@ spec:                              # Specification of the deployment
         - name: SERVICE_NAME       # Environment variable name
           value: "service-sink"    # Environment variable value
         - name: CONTAINER_NAME     # Container name for logging
-          value: "service-sink-pod"  # Meaningful container name
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name  # Use pod name as container name
         - name: POD_NAME           # Pod name for logging
           valueFrom:
             fieldRef:

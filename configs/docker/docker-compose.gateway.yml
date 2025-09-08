@@ -1,0 +1,94 @@
+# =============================================================================
+# GATEWAY SERVICES - Docker Compose Configuration
+# =============================================================================
+# This file defines the gateway and routing services:
+# - kong-gateway (API gateway and reverse proxy)
+#
+# These services depend on all application services and provide external access.
+# =============================================================================
+
+services:
+  # ==========================================================================
+  # KONG GATEWAY
+  # ==========================================================================
+  # This service acts as an API gateway and reverse proxy
+  # It routes requests to the appropriate backend service based on URL patterns
+  # and handles TLS/SSL termination using Kong Gateway
+  kong-gateway:
+    # Use official Kong Gateway image
+    image: kong:latest              # Official Kong Gateway image with Alpine Linux
+    container_name: edge-terrarium-kong-gateway
+    
+    # Port mapping
+    ports:
+      - "8000:8000"                 # Kong Admin API port
+      - "8001:8001"                 # Kong Gateway port (HTTP)
+      - "8443:8443"                 # Kong Gateway port (HTTPS)
+    
+    # Environment variables for Kong configuration
+    environment:
+      - KONG_DATABASE=off           # Use DB-less mode (declarative configuration)
+      - KONG_DECLARATIVE_CONFIG=/kong/kong.yml
+      - KONG_PROXY_ACCESS_LOG=/dev/stdout
+      - KONG_ADMIN_ACCESS_LOG=/dev/stdout
+      - KONG_PROXY_ERROR_LOG=/dev/stderr
+      - KONG_ADMIN_ERROR_LOG=/dev/stderr
+      - KONG_ADMIN_LISTEN=0.0.0.0:8001
+      - KONG_PROXY_LISTEN=0.0.0.0:8000, 0.0.0.0:8443 ssl
+      - KONG_SSL_CERT=/kong/ssl/edge-terrarium.crt
+      - KONG_SSL_CERT_KEY=/kong/ssl/edge-terrarium.key
+    
+    # Volume mounts - configuration and certificates
+    volumes:
+      # Mount Kong declarative configuration
+      - ./kong/kong.yml:/kong/kong.yml:ro
+      # Mount SSL certificate (read-only) - use absolute path from project root
+      - ../../certs/edge-terrarium.crt:/kong/ssl/edge-terrarium.crt:ro
+      # Mount SSL private key (read-only) - use absolute path from project root
+      - ../../certs/edge-terrarium.key:/kong/ssl/edge-terrarium.key:ro
+    
+    # Dependencies - start these services first
+    depends_on:
+      custom-client:                # Wait for custom client to be ready
+        condition: service_healthy
+      service-sink:                 # Wait for service sink to be ready
+        condition: service_healthy
+      logthon:                      # Wait for logthon to be ready
+        condition: service_healthy
+      file-storage:                 # Wait for file-storage to be ready
+        condition: service_healthy
+    
+    # Network configuration
+    # Networks in Docker Compose allow containers to communicate securely with each other
+    # while maintaining isolation from other containers and the host system.
+    # Key points about container networking:
+    # - Containers on the same network can reach each other by service name
+    # - Each container gets its own IP address on the network
+    # - Networks provide DNS resolution between containers
+    # - Traffic between containers is private and isolated
+    # - Multiple networks can be used to segment container communication
+    networks:
+      - edge-terrarium-network      # Custom bridge network enabling container-to-container communication
+    
+    # Restart policy
+    restart: unless-stopped         # Restart unless manually stopped
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "kong", "health"]
+      interval: 30s                 # Check every 30 seconds
+      timeout: 10s                  # Wait 10 seconds for response
+      retries: 3                    # Try 3 times before marking unhealthy
+      start_period: 40s             # Wait 40 seconds before first check
+
+# =============================================================================
+# NETWORKS
+# =============================================================================
+# Networks define how containers communicate with each other
+# Custom networks provide better isolation and control
+networks:
+  edge-terrarium-network:           # Custom network name
+    driver: bridge                  # Bridge driver for container communication
+    ipam:                          # IP Address Management
+      config:
+        - subnet: 172.25.0.0/16    # Custom subnet for container IPs

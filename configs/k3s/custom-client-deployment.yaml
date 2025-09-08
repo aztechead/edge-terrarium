@@ -93,6 +93,36 @@ spec:                              # Specification of the deployment
             memory: "64Mi"          # 64 megabytes of memory
             cpu: "50m"              # 50 millicores of CPU
       
+      - name: wait-for-file-storage  # Name of the second init container
+        image: curlimages/curl:latest  # Lightweight curl image for health checks
+        command: ['sh', '-c']       # Command to run
+        args:                       # Arguments for the command
+        - |                        # Multi-line script
+          echo "Waiting for file-storage service to be ready..."
+          
+          # Wait for file-storage service to be ready
+          # This ensures custom-client can call file-storage API on startup
+          RETRY_COUNT=0
+          MAX_RETRIES=60  # 2 minutes max wait time
+          until curl -s http://file-storage-service.edge-terrarium.svc.cluster.local:9000/health > /dev/null; do
+            RETRY_COUNT=$((RETRY_COUNT + 1))
+            if [ $RETRY_COUNT -gt $MAX_RETRIES ]; then
+              echo "ERROR: Timeout waiting for file-storage service after $MAX_RETRIES attempts"
+              echo "This indicates file-storage failed to start or is taking too long"
+              exit 1
+            fi
+            echo "File-storage service not ready yet (attempt $RETRY_COUNT/$MAX_RETRIES). Waiting..."
+            sleep 2
+          done
+          echo "File-storage service is ready! Custom-client can start."
+        resources:                  # Resource requirements for init container
+          requests:                 # Minimum resources required
+            memory: "32Mi"          # 32 megabytes of memory
+            cpu: "10m"              # 10 millicores of CPU
+          limits:                   # Maximum resources allowed
+            memory: "64Mi"          # 64 megabytes of memory
+            cpu: "50m"              # 50 millicores of CPU
+      
       containers:                  # List of containers in each Pod
       - name: custom-client           # Name of the container
         image: edge-terrarium-custom-client:latest  # Docker image to use
@@ -109,7 +139,9 @@ spec:                              # Specification of the deployment
         - name: SERVICE_NAME       # Environment variable name
           value: "custom-client"      # Environment variable value
         - name: CONTAINER_NAME     # Container name for logging
-          value: "custom-client-pod"  # Meaningful container name
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name  # Use pod name as container name
         - name: POD_NAME           # Pod name for logging
           valueFrom:
             fieldRef:

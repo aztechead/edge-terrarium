@@ -31,6 +31,7 @@ namespace: edge-terrarium
 # List of Kubernetes resource files to include in the build
 # These files will be processed and customized according to the rules below
 # IMPORTANT: Order matters - resources are applied in the order listed
+# Startup order: Vault -> vault-init -> logthon -> file-storage -> (custom-client, service-sink)
 resources:
   - namespace.yaml                    # Creates the edge-terrarium namespace
   - vault-config.yaml                # Vault configuration ConfigMap
@@ -38,13 +39,13 @@ resources:
   - vault-deployment.yaml            # Vault deployment
   - vault-service.yaml               # Vault service
   - vault-init-job.yaml              # Vault initialization job (must run first)
-  - custom-client-deployment.yaml       # Custom client application deployment (waits for vault-init)
-  - service-sink-deployment.yaml     # Service sink application deployment
-  - logthon-deployment.yaml          # Logthon log aggregation service deployment
-  - file-storage-deployment.yaml     # File storage service deployment
-  - file-storage-pvc.yaml            # File storage persistent volume claim
+  - logthon-deployment.yaml          # Logthon log aggregation service (waits for vault-init)
   - logthon-service.yaml             # Logthon LoadBalancer service (direct access)
   - logthon-ingress-service.yaml     # Logthon ClusterIP service (ingress routing)
+  - file-storage-deployment.yaml     # File storage service (waits for logthon)
+  - file-storage-pvc.yaml            # File storage persistent volume claim
+  - custom-client-deployment.yaml    # Custom client application (waits for vault-init + logthon + file-storage)
+  - service-sink-deployment.yaml     # Service sink application (waits for logthon)
   - services.yaml                    # Kubernetes services for both applications
   - ingress.yaml                     # Ingress configuration for routing with Kong
   - logthon-ingress.yaml             # Logthon-specific ingress with path stripping
