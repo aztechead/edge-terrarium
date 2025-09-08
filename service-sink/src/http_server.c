@@ -22,6 +22,7 @@ int parse_http_request(const char* request, http_request_t* req) {
     
     // Parse request line and headers
     char* headers_section = request_copy;
+    char* body_start = header_end; // Save pointer to body before null-terminating
     *header_end = '\0'; // Null terminate headers section
     
     char* line_end;
@@ -53,18 +54,18 @@ int parse_http_request(const char* request, http_request_t* req) {
     
     // Get body if present (everything after the header section)
     req->body_length = 0;
-    if (*header_end != '\0') {
+    if (*body_start != '\0') {
         // Skip any leading whitespace/newlines
-        while (*header_end == '\r' || *header_end == '\n' || *header_end == ' ') {
-            header_end++;
+        while (*body_start == '\r' || *body_start == '\n' || *body_start == ' ') {
+            body_start++;
         }
         
-        if (*header_end != '\0') {
-            req->body_length = strlen(header_end);
+        if (*body_start != '\0') {
+            req->body_length = strlen(body_start);
             if (req->body_length >= MAX_REQUEST_SIZE) {
                 req->body_length = MAX_REQUEST_SIZE - 1;
             }
-            memcpy(req->body, header_end, req->body_length);
+            memcpy(req->body, body_start, req->body_length);
             req->body[req->body_length] = '\0';
         }
     }
