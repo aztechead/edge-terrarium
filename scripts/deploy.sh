@@ -398,6 +398,10 @@ deploy_k3s() {
         ./scripts/generate-tls-certs.sh
     fi
     
+    # Create namespace if it doesn't exist
+    print_status "Creating edge-terrarium namespace..."
+    kubectl create namespace edge-terrarium --dry-run=client -o yaml | kubectl apply -f -
+    
     # Create Kubernetes TLS secret
     print_status "Creating Kubernetes TLS secret..."
     kubectl create secret tls edge-terrarium-tls \
