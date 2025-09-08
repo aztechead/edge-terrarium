@@ -247,9 +247,6 @@ if docker-compose -f configs/docker/docker-compose.yml -p c-edge-terrarium ps | 
     echo "Testing Docker Compose setup..."
     echo "================================"
     
-    # Wait for services to be ready
-    echo "Waiting for services to be ready..."
-    sleep 10
     
     # Initialize Vault if it's running
     if docker-compose -f configs/docker/docker-compose.yml -p c-edge-terrarium ps | grep -q "vault.*Up"; then

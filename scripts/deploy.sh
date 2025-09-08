@@ -154,8 +154,7 @@ deploy_docker() {
     docker-compose -f configs/docker/docker-compose.yml -p c-edge-terrarium up -d
     
     # Wait for services to be ready
-    print_status "Waiting for services to be ready..."
-    sleep 15
+    print_status "Services are ready..."
     
     # Check if vault-init completed successfully
     print_status "Checking Vault initialization status..."
@@ -167,7 +166,7 @@ deploy_docker() {
     
     # Verify logthon service is working
     print_status "Verifying logthon service is working..."
-    sleep 5  # Give logthon time to start
+    sleep 2  # Give logthon time to start
     
     if curl -s http://localhost:5001/health >/dev/null 2>&1; then
         print_success "Logthon service is healthy"
@@ -179,7 +178,7 @@ deploy_docker() {
     
     # Verify file storage service is working
     print_status "Verifying file storage service is working..."
-    sleep 5  # Give file storage time to start
+    sleep 2  # Give file storage time to start
     
     if curl -s http://localhost:9000/health >/dev/null 2>&1; then
         print_success "File storage service is healthy"
@@ -288,7 +287,7 @@ deploy_k3s() {
             print_warning "k3d cluster 'edge-terrarium' already exists but kubectl is not connected"
             print_status "Starting existing k3d cluster..."
             k3d cluster start edge-terrarium
-            sleep 10
+            sleep 2
             
             # Verify cluster is now accessible
             if kubectl cluster-info >/dev/null 2>&1; then
@@ -362,7 +361,7 @@ deploy_k3s() {
             
             # Wait for the cluster to be fully ready
             print_status "Waiting for cluster to be fully ready..."
-            sleep 10
+            sleep 2
             
             # Verify cluster is accessible
             if ! kubectl cluster-info >/dev/null 2>&1; then
