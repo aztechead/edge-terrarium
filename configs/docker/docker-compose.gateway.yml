@@ -15,8 +15,11 @@ services:
   # It routes requests to the appropriate backend service based on URL patterns
   # and handles TLS/SSL termination using Kong Gateway
   kong-gateway:
-    # Use official Kong Gateway image
-    image: kong:latest              # Official Kong Gateway image with Alpine Linux
+    # Use custom Kong Gateway image with TLS certificates
+    build:
+      context: ../../
+      dockerfile: kong/Dockerfile
+    image: edge-terrarium-kong:latest
     container_name: edge-terrarium-kong-gateway
     
     # Port mapping
@@ -35,17 +38,13 @@ services:
       - KONG_ADMIN_ERROR_LOG=/dev/stderr
       - KONG_ADMIN_LISTEN=0.0.0.0:8001
       - KONG_PROXY_LISTEN=0.0.0.0:8000, 0.0.0.0:8443 ssl
-      - KONG_SSL_CERT=/kong/ssl/edge-terrarium.crt
-      - KONG_SSL_CERT_KEY=/kong/ssl/edge-terrarium.key
+      - KONG_SSL_CERT=/tmp/edge-terrarium.crt
+      - KONG_SSL_CERT_KEY=/tmp/edge-terrarium.key
     
-    # Volume mounts - configuration and certificates
+    # Volume mounts - configuration only
     volumes:
       # Mount Kong declarative configuration
       - ./kong/kong.yml:/kong/kong.yml:ro
-      # Mount SSL certificate (read-only) - use absolute path from project root
-      - ../../certs/edge-terrarium.crt:/kong/ssl/edge-terrarium.crt:ro
-      # Mount SSL private key (read-only) - use absolute path from project root
-      - ../../certs/edge-terrarium.key:/kong/ssl/edge-terrarium.key:ro
     
     # Dependencies - start these services first
     depends_on:
