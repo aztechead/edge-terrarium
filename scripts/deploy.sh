@@ -160,6 +160,20 @@ deploy_docker() {
     print_status "Checking Vault initialization status..."
     if docker logs edge-terrarium-vault-init 2>/dev/null | grep -q "Vault initialization completed successfully"; then
         print_success "Vault initialization completed automatically!"
+        
+        # Extract UI access token from logs if available
+        UI_TOKEN=$(docker logs edge-terrarium-vault-init 2>/dev/null | grep -A3 "UI Access Token:" | grep -E "^hvs\." | head -1)
+        if [ -n "$UI_TOKEN" ]; then
+            echo ""
+            echo "=========================================="
+            echo "VAULT UI ACCESS INFORMATION"
+            echo "=========================================="
+            echo "Vault UI URL: http://localhost:8200/ui"
+            echo "UI Access Token: $UI_TOKEN"
+            echo "Root Token: root"
+            echo "=========================================="
+            echo ""
+        fi
     else
         print_warning "Vault initialization may still be in progress. Check logs with: docker logs edge-terrarium-vault-init"
     fi
@@ -198,7 +212,7 @@ deploy_docker() {
     echo "  - Vault: http://localhost:8200"
     echo ""
     echo "To test the deployment:"
-    echo "  ./scripts/test-setup.sh"
+    echo "  ./scripts/test-docker.sh"
 }
 
 # Function to deploy to K3s
@@ -628,6 +642,20 @@ deploy_k3s() {
     
     print_success "Vault initialization job completed successfully"
     
+    # Extract UI access token from Vault init job logs if available
+    UI_TOKEN=$(kubectl logs job/vault-init -n edge-terrarium 2>/dev/null | grep -A3 "UI Access Token:" | grep -E "^hvs\." | head -1)
+    if [ -n "$UI_TOKEN" ]; then
+        echo ""
+        echo "=========================================="
+        echo "VAULT UI ACCESS INFORMATION"
+        echo "=========================================="
+        echo "Vault UI URL: http://localhost:8200/ui"
+        echo "UI Access Token: $UI_TOKEN"
+        echo "Root Token: root"
+        echo "=========================================="
+        echo ""
+    fi
+    
     # Verify that secrets were actually stored in Vault
     print_status "Verifying Vault secrets were stored..."
     
@@ -795,7 +823,7 @@ deploy_k3s() {
 # Function to test Docker Compose deployment
 test_docker() {
     print_status "Testing Docker Compose deployment..."
-    ./scripts/test-setup.sh
+    ./scripts/test-docker.sh
 }
 
 # Function to test K3s deployment
@@ -826,19 +854,33 @@ clean_k3s() {
         rm -f /tmp/dashboard-port-forward.pid
     fi
     
-    # Clean up Kubernetes resources
-    kubectl delete -k configs/k3s/ --ignore-not-found=true
-    kubectl delete secret edge-terrarium-tls -n edge-terrarium --ignore-not-found=true
-    
-    # Clean up Kubernetes Dashboard
-    helm uninstall kubernetes-dashboard -n kubernetes-dashboard --ignore-not-found=true
-    kubectl delete namespace kubernetes-dashboard --ignore-not-found=true
-    
-    # Optionally delete the entire k3d cluster
-    if kubectl config current-context | grep -q "k3d-edge-terrarium"; then
-        print_status "Deleting k3d cluster 'edge-terrarium'..."
-        k3d cluster delete edge-terrarium
-        print_success "k3d cluster deleted"
+    # Check if k3d cluster exists and is running
+    if k3d cluster list | grep -q "edge-terrarium"; then
+        print_status "K3s cluster found, cleaning up resources..."
+        
+        # Set kubectl context to k3d cluster
+        kubectl config use-context k3d-edge-terrarium 2>/dev/null || true
+        
+        # Check if kubectl can connect to the cluster
+        if kubectl cluster-info &>/dev/null; then
+            # Clean up Kubernetes resources
+            kubectl delete -k configs/k3s/ --ignore-not-found=true
+            kubectl delete secret edge-terrarium-tls -n edge-terrarium --ignore-not-found=true
+            
+            # Clean up Kubernetes Dashboard
+            helm uninstall kubernetes-dashboard -n kubernetes-dashboard --ignore-not-found=true
+            kubectl delete namespace kubernetes-dashboard --ignore-not-found=true
+            
+            print_status "Deleting k3d cluster 'edge-terrarium'..."
+            k3d cluster delete edge-terrarium
+            print_success "k3d cluster deleted"
+        else
+            print_warning "K3s cluster exists but is not responding, deleting cluster directly..."
+            k3d cluster delete edge-terrarium
+            print_success "k3d cluster deleted"
+        fi
+    else
+        print_status "No K3s cluster found, nothing to clean up"
     fi
     
     print_success "K3s cleanup completed!"

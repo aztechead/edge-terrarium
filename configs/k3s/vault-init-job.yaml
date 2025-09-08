@@ -40,24 +40,23 @@ spec:                                  # Specification for the job
       restartPolicy: OnFailure        # Restart pod if it fails (but not if it succeeds)
       containers:                     # List of containers in the pod
       - name: vault-init             # Name of the container
-        image: hashicorp/vault:latest # Official Vault Docker image
+        image: alpine:3.18           # Lightweight Alpine image with curl
         command: ['sh', '-c']        # Override the default entrypoint
         args:                        # Arguments for the command
           - |                        # Multi-line script
             set -e  # Exit on any error
             
-            # Set Vault environment variables
-            export VAULT_ADDR="http://vault.edge-terrarium.svc.cluster.local:8200"
-            export VAULT_TOKEN="root"
+            echo "Installing required packages..."
+            apk add --no-cache curl bash
             
             echo "Vault initialization starting..."
-            echo "VAULT_ADDR: $VAULT_ADDR"
-            echo "VAULT_TOKEN: $VAULT_TOKEN"
+            echo "VAULT_ADDR: http://vault.edge-terrarium.svc.cluster.local:8200"
+            echo "VAULT_TOKEN: root"
             
             # Wait for Vault to be ready before proceeding
             echo "Waiting for Vault to be ready..."
             for i in {1..30}; do
-              if vault status >/dev/null 2>&1; then
+              if curl -s http://vault.edge-terrarium.svc.cluster.local:8200/v1/sys/health >/dev/null 2>&1; then
                 echo "Vault is ready!"
                 break
               fi
@@ -66,86 +65,15 @@ spec:                                  # Specification for the job
             done
             
             # Check if Vault is actually ready
-            if ! vault status >/dev/null 2>&1; then
+            if ! curl -s http://vault.edge-terrarium.svc.cluster.local:8200/v1/sys/health >/dev/null 2>&1; then
               echo "ERROR: Vault is not ready after 60 seconds"
               exit 1
             fi
             
-            echo "Vault is ready. Initializing secrets..."
+            echo "Vault is ready. Running enhanced initialization script..."
             
-            # Enable KV secrets engine if not already enabled
-            echo "Checking if KV secrets engine is enabled..."
-            if ! vault secrets list | grep -q "secret/"; then
-              echo "Enabling KV secrets engine..."
-              vault secrets enable -path=secret kv-v2
-            else
-              echo "KV secrets engine is already enabled"
-            fi
-            
-            # Store TLS certificates (if available)
-            # This handles both real certificates and mock certificates
-            if [ -f /tmp/certs/edge-terrarium.crt ] && [ -f /tmp/certs/edge-terrarium.key ]; then
-              echo "Storing TLS certificates..."
-              # Store real TLS certificates in base64 format
-              vault kv put secret/terrarium/tls \
-                cert="$(cat /tmp/certs/edge-terrarium.crt | base64 -w 0)" \
-                key="$(cat /tmp/certs/edge-terrarium.key | base64 -w 0)" \
-                ca="$(cat /tmp/certs/edge-terrarium.crt | base64 -w 0)"
-              echo "TLS certificates stored successfully"
-            else
-              echo "TLS certificates not found, storing mock TLS secrets..."
-              # Store mock TLS certificates for development
-              vault kv put secret/terrarium/tls \
-                cert="mock-cert" \
-                key="mock-key" \
-                ca="mock-ca"
-              echo "Mock TLS secrets stored successfully"
-            fi
-            
-            # Store Custom client configuration (matching Docker Compose)
-            # These secrets are used by the Custom client application
-            echo "Storing Custom client configuration..."
-            vault kv put secret/custom-client/config \
-              api_key="mock-api-key-12345" \
-              database_url="postgresql://mock-user:mock-pass@mock-db:5432/mock-db" \
-              jwt_secret="mock-jwt-secret-67890" \
-              encryption_key="mock-encryption-key-abcdef" \
-              log_level="INFO" \
-              max_connections="100"
-            echo "Custom client configuration stored successfully"
-            
-            # Store Custom client external APIs configuration
-            # These secrets are used for external API integrations
-            echo "Storing Custom client external APIs configuration..."
-            vault kv put secret/custom-client/external-apis \
-              provider_auth_token="mock-provider-token-xyz" \
-              webhook_secret="mock-webhook-secret-123" \
-              rate_limit="1000" \
-              timeout_seconds="30"
-            echo "Custom client external APIs configuration stored successfully"
-            
-            # Verify secrets were stored
-            echo "Verifying secrets were stored..."
-            if vault kv get secret/custom-client/config >/dev/null 2>&1; then
-              echo "✓ Custom client config secret verified"
-            else
-              echo "✗ ERROR: Custom client config secret not found"
-              exit 1
-            fi
-            
-            if vault kv get secret/custom-client/external-apis >/dev/null 2>&1; then
-              echo "✓ Custom client external APIs secret verified"
-            else
-              echo "✗ ERROR: Custom client external APIs secret not found"
-              exit 1
-            fi
-            
-            if vault kv get secret/terrarium/tls >/dev/null 2>&1; then
-              echo "✓ TLS secrets verified"
-            else
-              echo "✗ ERROR: TLS secrets not found"
-              exit 1
-            fi
+            # Run the enhanced Vault initialization script
+            bash /scripts/init-vault-enhanced.sh http://vault.edge-terrarium.svc.cluster.local:8200 both
             
             echo "Vault initialization completed successfully!"
         
@@ -159,9 +87,16 @@ spec:                                  # Specification for the job
         - name: tls-certs             # Mount the TLS certificates secret
           mountPath: /tmp/certs       # Mount point in container
           readOnly: true              # Mount as read-only
+        - name: scripts               # Mount the scripts directory
+          mountPath: /scripts         # Mount point in container
+          readOnly: true              # Mount as read-only
       
       volumes:                        # Volumes available to the pod
       - name: tls-certs               # TLS certificates volume
         secret:                       # Volume from a Kubernetes secret
           secretName: edge-terrarium-tls # Name of the secret
           optional: true              # Don't fail if secret doesn't exist
+      - name: scripts                 # Scripts volume
+        configMap:                    # Volume from a ConfigMap
+          name: vault-init-scripts    # Name of the ConfigMap
+          defaultMode: 0755           # Make scripts executable

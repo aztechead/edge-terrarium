@@ -251,7 +251,7 @@ if docker-compose -f configs/docker/docker-compose.yml -p c-edge-terrarium ps | 
     # Initialize Vault if it's running
     if docker-compose -f configs/docker/docker-compose.yml -p c-edge-terrarium ps | grep -q "vault.*Up"; then
         echo "Initializing Vault with secrets..."
-        ./scripts/init-vault.sh http://localhost:8200
+        ./scripts/init-vault-enhanced.sh http://localhost:8200 both
         echo ""
     fi
     

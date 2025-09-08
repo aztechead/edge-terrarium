@@ -9,28 +9,17 @@ int main() {
     // Initialize log capture system first
     init_log_capture();
     
-    printf("Custom Client starting...\n");
     send_log_to_logthon("INFO", "Custom Client service starting up");
-    fflush(stdout);
     
     // Initialize curl
-    printf("Initializing curl...\n");
-    fflush(stdout);
     curl_global_init(CURL_GLOBAL_DEFAULT);
-    printf("Curl initialized successfully\n");
-    fflush(stdout);
     
     // Retrieve secrets from Vault
-    printf("Retrieving secrets from Vault...\n");
-    fflush(stdout);
     vault_secrets_t secrets;
     if (retrieve_vault_secrets(&secrets) == 0) {
-        printf("Successfully retrieved secrets from Vault\n");
-        fflush(stdout);
         log_vault_secrets(&secrets);
     } else {
-        printf("Warning: Failed to retrieve secrets from Vault, continuing with default values\n");
-        fflush(stdout);
+        LOG_WARN("Failed to retrieve secrets from Vault, continuing with default values");
         // Set default values if Vault is not available
         strcpy(secrets.api_key, "default-api-key");
         strcpy(secrets.database_url, "default-database-url");
@@ -42,32 +31,23 @@ int main() {
     }
     
     // Create request directory
-    printf("Creating request directory...\n");
-    fflush(stdout);
     mkdir("/tmp/requests", 0755);
-    
-    printf("Creating server socket...\n");
-    fflush(stdout);
     int http_socket = create_server_socket(PORT_HTTP);
     
     if (http_socket < 0) {
-        printf("Failed to create server socket\n");
-        fflush(stdout);
+        LOG_ERROR("Failed to create server socket");
         curl_global_cleanup();
         return 1;
     }
     
-    printf("Custom Client listening on port %d (HTTP)\n", PORT_HTTP);
-    fflush(stdout);
+    LOG_INFO("Custom Client listening on port %d (HTTP)", PORT_HTTP);
     
     // Start the file creation thread
     pthread_t file_thread;
     if (pthread_create(&file_thread, NULL, file_creation_thread, NULL) != 0) {
-        printf("Failed to create file creation thread\n");
-        fflush(stdout);
+        LOG_ERROR("Failed to create file creation thread");
     } else {
-        printf("File creation thread started successfully\n");
-        fflush(stdout);
+        LOG_INFO("File creation thread started successfully");
     }
     
     while (1) {
