@@ -394,7 +394,17 @@ deploy_k3s() {
     
     # Generate certificates and create K3s secret
     print_status "Generating TLS certificates and creating K3s secret..."
-    ./scripts/create-k3s-tls-secret.sh
+    if [ ! -f "certs/edge-terrarium.crt" ] || [ ! -f "certs/edge-terrarium.key" ]; then
+        ./scripts/generate-tls-certs.sh
+    fi
+    
+    # Create Kubernetes TLS secret
+    print_status "Creating Kubernetes TLS secret..."
+    kubectl create secret tls edge-terrarium-tls \
+        --cert=certs/edge-terrarium.crt \
+        --key=certs/edge-terrarium.key \
+        -n edge-terrarium \
+        --dry-run=client -o yaml | kubectl apply -f -
     
     # Build images for K3s
     print_status "Building Docker images for K3s..."
