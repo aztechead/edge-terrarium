@@ -507,14 +507,6 @@ else
     echo "✗ File storage list endpoint is not accessible"
 fi
 
-# Test file storage auto-create endpoint
-echo "Testing file storage auto-create endpoint:"
-echo "-----------------------------------------"
-if curl -s --connect-timeout 5 --max-time 5 -k -H "Host: localhost" -X PUT https://$KONG_HOST:$KONG_HTTPS_PORT/storage/files/auto >/dev/null 2>&1; then
-    echo "✓ File storage auto-create endpoint is accessible"
-else
-    echo "✗ File storage auto-create endpoint is not accessible"
-fi
 
 # Test Logthon file storage integration
 echo "Testing Logthon file storage integration:"

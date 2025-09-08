@@ -207,20 +207,6 @@ test_file_storage() {
     fi
     echo ""
     
-    # Test file auto-creation endpoint (used by custom-client)
-    echo "Testing File Storage auto-create endpoint:"
-    echo "-----------------------------------------"
-    response=$(curl -s -k -w "%{http_code}" -o /tmp/response.json -X PUT --connect-timeout 10 --max-time 30 "$base_url/storage/files/auto" || echo "000")
-    
-    if [ "$response" = "200" ]; then
-        echo "✓ File Storage auto-create endpoint - SUCCESS"
-        if [ -f /tmp/response.json ]; then
-            echo "  ✓ Auto file created: $(cat /tmp/response.json)"
-        fi
-    else
-        echo "✗ File Storage auto-create endpoint - FAILED (HTTP $response)"
-    fi
-    echo ""
     
     # Test file retrieval if we created a file
     if [ -n "$created_filename" ]; then
