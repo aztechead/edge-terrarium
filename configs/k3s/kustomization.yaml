@@ -39,6 +39,7 @@ resources:
   - vault-deployment.yaml            # Vault deployment
   - vault-service.yaml               # Vault service
   - vault-init-job.yaml              # Vault initialization job (must run first)
+  - vault-init-scripts-configmap.yaml # Vault initialization scripts ConfigMap
   - logthon-deployment.yaml          # Logthon log aggregation service (waits for vault-init)
   - logthon-service.yaml             # Logthon LoadBalancer service (direct access)
   - logthon-ingress-service.yaml     # Logthon ClusterIP service (ingress routing)

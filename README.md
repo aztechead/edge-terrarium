@@ -24,6 +24,11 @@ A hands-on project that teaches Docker containerization and K3s orchestration th
 - [Troubleshooting](#troubleshooting)
 - [Development](#development)
 
+### Configuration Documentation
+- [Configuration Overview](configs/README.md) - Overview of Docker and K3s configurations
+- [Docker Compose Configuration](configs/docker/README.md) - Docker Compose file interactions and structure
+- [Kubernetes Configuration](configs/k3s/README.md) - K3s YAML manifests and resource interactions
+
 ---
 
 ## What You'll Learn
@@ -83,7 +88,7 @@ cd c-edge-terrarium
 ./scripts/deploy.sh docker deploy
 
 # Test the application
-./scripts/test-setup.sh
+./scripts/test-docker.sh
 ```
 
 ### Option 2: K3s (Recommended if you're familiar with containers)
@@ -128,17 +133,18 @@ logs      # Show application logs
 ./scripts/build-images-k3s.sh       # Build images for K3s
 
 # Testing scripts
-./scripts/test-setup.sh             # Test Docker Compose deployment
+./scripts/test-docker.sh             # Test Docker Compose deployment
 ./scripts/test-k3s.sh               # Test K3s deployment
 
 # Utility scripts
 ./scripts/generate-tls-certs.sh     # Generate TLS certificates
-./scripts/init-vault.sh             # Initialize Vault with secrets
+./scripts/init-vault-enhanced.sh    # Initialize Vault with secrets
 ./scripts/create-k3s-tls-secret.sh  # Create K3s TLS secret
-./scripts/cleanup-old-pods.sh       # Clean up old K3s pods
 ```
 
 **Goal**: Get the application running in 5 minutes, then explore each component.
+
+> **Note**: This repository has been cleaned up to remove unused files. All functionality remains intact and working in both Docker and K3s environments. Service-specific documentation is available in individual service directories.
 
 ---
 
@@ -233,7 +239,7 @@ Docker is a containerization platform that packages applications and their depen
 #### Step 3: Test the Application
 ```bash
 # This sends test requests to verify everything works
-./scripts/test-setup.sh
+./scripts/test-docker.sh
 ```
 
 ### Understanding Docker Compose
@@ -465,7 +471,6 @@ flowchart TD
         
         subgraph "Networking Resources"
             IY[ingress.yaml]
-            IH[ingress-http.yaml]
             KY[kustomization.yaml]
         end
         
@@ -1006,6 +1011,40 @@ kubectl get nodes -o wide
 2. Applications authenticate with Vault
 3. Vault provides secrets to authenticated applications
 4. Secrets are never stored in application code
+
+#### Authentication Flow
+
+The following diagram shows the complete authentication and secret retrieval process:
+
+```mermaid
+%%{init: {'themeVariables': {'darkMode': true}}}%%
+sequenceDiagram
+    participant App as Application Pod
+    participant Vault as Vault Service
+    participant Init as Vault Init Job
+
+    Note over Init: 1. Vault Initialization
+    Init->>Vault: Enable KV secrets engine
+    Init->>Vault: Store TLS certificates
+    Init->>Vault: Store application secrets
+    Init->>Vault: Verify secrets stored
+
+    Note over App: 2. Application Startup
+    App->>App: Read VAULT_TOKEN from env
+    App->>App: Read VAULT_ADDR from env
+    
+    Note over App: 3. Secret Retrieval
+    App->>Vault: HTTP GET /v1/secret/data/custom-client/config
+    Note right of App: Header: X-Vault-Token: root
+    Vault->>App: Return JSON with secrets
+    App->>App: Parse and use secrets
+```
+
+**Key Steps:**
+1. **Vault Initialization**: The vault-init job populates Vault with required secrets
+2. **Application Startup**: Pods read authentication credentials from environment variables
+3. **Secret Retrieval**: Applications make authenticated HTTP requests to Vault API
+4. **Secret Usage**: Applications parse and use the retrieved secrets
 
 #### Example: Custom Client Retrieving Secrets
 ```c
@@ -1612,7 +1651,6 @@ c-edge-terrarium/
 │   │   ├── vault.h         # Vault headers
 │   │   ├── file_storage.c  # File storage integration
 │   │   └── file_storage.h  # File storage headers
-│   ├── main.c.backup       # Backup of original main.c
 │   └── Dockerfile          # Container build instructions
 ├── service-sink/           # C application for default requests
 │   ├── src/                # Source code directory
@@ -1624,7 +1662,6 @@ c-edge-terrarium/
 │   │   ├── log_capture.h   # Log capture headers
 │   │   ├── logging.c       # Logging utilities
 │   │   └── logging.h       # Logging headers
-│   ├── main.c.backup       # Backup of original main.c
 │   └── Dockerfile          # Container build instructions
 ├── file-storage/           # Python file storage API service
 │   ├── main.py             # FastAPI application entry point
@@ -1637,7 +1674,7 @@ c-edge-terrarium/
 │   │   ├── storage.py      # File storage operations
 │   │   └── logging.py      # Logging utilities
 │   ├── pyproject.toml      # Python dependencies
-│   ├── README.md           # Service documentation
+│   ├── README.md           # Service-specific documentation
 │   └── Dockerfile          # Container build instructions
 ├── logthon/                # Python log aggregation service
 │   ├── main.py             # FastAPI application
@@ -1651,10 +1688,12 @@ c-edge-terrarium/
 │   │   ├── ui.py           # Web UI
 │   │   └── websocket_manager.py
 │   ├── pyproject.toml      # Python dependencies
-│   ├── test_modular.py     # Tests
+│   ├── README.md           # Service-specific documentation
 │   └── Dockerfile          # Container build instructions
 ├── configs/
+│   ├── README.md           # Configuration overview and structure
 │   ├── docker/             # Docker Compose configuration
+│   │   ├── README.md       # Docker Compose configuration details
 │   │   ├── docker-compose.yml
 │   │   ├── docker-compose.base.yml
 │   │   ├── docker-compose.core.yml
@@ -1664,6 +1703,7 @@ c-edge-terrarium/
 │   │   └── kong/           # Kong Gateway configuration
 │   │       └── kong.yml
 │   └── k3s/                # Kubernetes manifests
+│       ├── README.md       # Kubernetes configuration details
 │       ├── namespace.yaml
 │       ├── custom-client-deployment.yaml
 │       ├── service-sink-deployment.yaml
@@ -1674,13 +1714,11 @@ c-edge-terrarium/
 │       ├── vault-pvc.yaml
 │       ├── vault-init-job.yaml
 │       ├── vault-config.yaml
-│       ├── vault-ingress.yaml
 │       ├── services.yaml
 │       ├── logthon-service.yaml
 │       ├── logthon-ingress-service.yaml
 │       ├── logthon-ingress.yaml
 │       ├── ingress.yaml
-│       ├── ingress-http.yaml
 │       └── kustomization.yaml
 ├── scripts/                # Automation scripts
 │   ├── deploy.sh           # Main deployment script
@@ -1689,9 +1727,8 @@ c-edge-terrarium/
 │   ├── test-setup.sh       # Docker testing
 │   ├── test-k3s.sh         # Kubernetes testing
 │   ├── generate-tls-certs.sh # Certificate generation
-│   ├── init-vault.sh       # Vault initialization
+│   ├── init-vault-enhanced.sh # Vault initialization
 │   ├── create-k3s-tls-secret.sh # K3s TLS secret creation
-│   └── cleanup-old-pods.sh # Pod cleanup
 └── certs/                  # TLS certificates
 ```
 
@@ -1701,10 +1738,11 @@ c-edge-terrarium/
 |-----------|---------|-----------|
 | `custom-client/` | C application handling `/fake-provider/*` and `/example-provider/*` routes, with automatic file creation | `src/main.c`, `src/`, `Dockerfile` |
 | `service-sink/` | C application handling all other HTTP requests | `src/main.c`, `src/`, `Dockerfile` |
-| `file-storage/` | Python FastAPI service for file system CRUD operations with automatic rotation | `main.py`, `file_storage/`, `pyproject.toml` |
-| `logthon/` | Python FastAPI service for log aggregation and web UI with file storage viewer | `main.py`, `logthon/`, `pyproject.toml` |
-| `configs/docker/` | Docker Compose orchestration and Kong configuration | `docker-compose*.yml`, `kong/kong.yml` |
-| `configs/k3s/` | Kubernetes manifests for declarative deployment | `*-deployment.yaml`, `services.yaml`, `ingress.yaml` |
+| `file-storage/` | Python FastAPI service for file system CRUD operations with automatic rotation | `main.py`, `file_storage/`, `pyproject.toml`, `README.md` |
+| `logthon/` | Python FastAPI service for log aggregation and web UI with file storage viewer | `main.py`, `logthon/`, `pyproject.toml`, `README.md` |
+| `configs/` | Configuration overview and structure documentation | `README.md` |
+| `configs/docker/` | Docker Compose orchestration and Kong configuration | `docker-compose*.yml`, `kong/kong.yml`, `README.md` |
+| `configs/k3s/` | Kubernetes manifests for declarative deployment | `*-deployment.yaml`, `services.yaml`, `ingress.yaml`, `README.md` |
 | `scripts/` | Automation scripts for building, deploying, and testing | `deploy.sh`, `build-images.sh`, `test-*.sh` |
 | `certs/` | TLS certificates for secure communication | Certificate files |
 
@@ -1801,7 +1839,7 @@ spec:
 
 #### Docker Testing
 ```bash
-./scripts/test-setup.sh
+./scripts/test-docker.sh
 ```
 **Tests**:
 - Service health checks
@@ -2391,6 +2429,228 @@ spec:
 ```
 
 ---
+
+## Internal vs External Communication Architecture
+
+The Edge Terrarium project implements a best-practice architecture pattern that separates internal (pod-to-pod) and external (host-to-cluster) communication. This design ensures security, performance, and scalability while maintaining developer-friendly access patterns.
+
+### Architecture Overview
+
+```mermaid
+%%{init: {'themeVariables': {'darkMode': true}}}%%
+flowchart TD
+    subgraph "External Access (Host Machine)"
+        HOST[Host Machine<br/>localhost:443, localhost:8200, localhost:5001]
+    end
+    
+    subgraph "K3s Cluster"
+        subgraph "Kong Ingress Controller"
+            KONG[Kong Gateway<br/>LoadBalancer:443]
+        end
+        
+        subgraph "edge-terrarium Namespace"
+            subgraph "Application Pods"
+                CC[custom-client Pod]
+                SS[service-sink Pod]
+                LT[logthon Pod]
+                FS[file-storage Pod]
+            end
+            
+            subgraph "Infrastructure Services"
+                VS[vault-service<br/>LoadBalancer:8200]
+                VP[vault Pod]
+            end
+        end
+    end
+    
+    %% External access flows
+    HOST --> |"HTTPS: localhost:443"| KONG
+    HOST --> |"HTTP: localhost:8200"| VS
+    HOST --> |"HTTP: localhost:5001"| LT
+    
+    %% Internal communication flows
+    CC --> |"Internal DNS"| VS
+    CC --> |"Internal DNS"| LT
+    CC --> |"Internal DNS"| FS
+    SS --> |"Internal DNS"| LT
+    
+    %% Kong routing
+    KONG --> CC
+    KONG --> SS
+    KONG --> FS
+    
+    %% Vault service routing
+    VS --> VP
+    
+    classDef external fill:#fff3e0,stroke:#f57c00,stroke-width:2px,color:#000
+    classDef ingress fill:#e3f2fd,stroke:#1976d2,stroke-width:2px,color:#000
+    classDef pod fill:#e8f5e8,stroke:#388e3c,stroke-width:2px,color:#000
+    classDef service fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#000
+    
+    class HOST external
+    class KONG ingress
+    class CC,SS,LT,FS pod
+    class VS,VP service
+```
+
+### Internal Communication (Pod-to-Pod)
+
+**Purpose**: Secure, fast communication between services within the cluster.
+
+**Implementation**: Uses Kubernetes internal DNS addresses with the format:
+```
+<service-name>.<namespace>.svc.cluster.local:<port>
+```
+
+#### Internal Address Examples
+
+| Service | Internal Address | Purpose |
+|---------|------------------|---------|
+| **Vault** | `vault.edge-terrarium.svc.cluster.local:8200` | Secrets management |
+| **Logthon** | `logthon-ingress-service.edge-terrarium.svc.cluster.local:5000` | Log aggregation |
+| **File Storage** | `file-storage-service.edge-terrarium.svc.cluster.local:9000` | File operations |
+
+#### Configuration in Deployments
+
+```yaml
+# Custom Client accessing Vault internally
+env:
+- name: VAULT_ADDR
+  value: "http://vault.edge-terrarium.svc.cluster.local:8200"
+
+# Custom Client accessing Logthon internally  
+- name: LOGTHON_HOST
+  value: "logthon-ingress-service.edge-terrarium.svc.cluster.local"
+- name: LOGTHON_PORT
+  value: "5000"
+
+# Custom Client accessing File Storage internally
+- name: FILE_STORAGE_URL
+  value: "http://file-storage-service.edge-terrarium.svc.cluster.local:9000"
+```
+
+#### Benefits of Internal Communication
+
+- ✅ **Security**: Communication stays within the cluster network
+- ✅ **Performance**: Direct pod-to-pod communication (no external routing)
+- ✅ **Reliability**: Kubernetes DNS resolution is highly available
+- ✅ **Scalability**: Works seamlessly with multiple replicas and load balancing
+- ✅ **Service Discovery**: Automatic DNS resolution for service endpoints
+
+### External Communication (Host-to-Cluster)
+
+**Purpose**: Developer-friendly access from the host machine and production-ready external access.
+
+**Implementation**: Uses LoadBalancer services and Ingress controllers to expose services externally.
+
+#### External Access Points
+
+| Service | External Access | Method | Purpose |
+|---------|----------------|--------|---------|
+| **Main Application** | `https://localhost:443` | Kong Ingress | API gateway routing |
+| **Vault UI** | `http://localhost:8200` | LoadBalancer | Direct Vault access |
+| **Logthon UI** | `http://localhost:5001` | LoadBalancer | Log viewing interface |
+| **Kubernetes Dashboard** | `https://localhost:9443` | LoadBalancer | Cluster management |
+
+#### Ingress Configuration
+
+```yaml
+# Main application ingress with TLS support
+spec:
+  ingressClassName: kong
+  tls:
+  - hosts:
+    - edge-terrarium.local    # Custom domain for production
+    - localhost               # Local development access
+    secretName: edge-terrarium-tls
+  
+  rules:
+  - host: localhost
+    http:
+      paths:
+      - path: /fake-provider
+        backend:
+          service:
+            name: custom-client-service
+            port:
+              number: 1337
+      - path: /storage
+        backend:
+          service:
+            name: file-storage-service
+            port:
+              number: 9000
+      - path: /
+        backend:
+          service:
+            name: service-sink-service
+            port:
+              number: 8080
+```
+
+#### LoadBalancer Services
+
+```yaml
+# Vault service with external access
+spec:
+  type: LoadBalancer
+  ports:
+  - port: 8200
+    targetPort: 8200
+    protocol: TCP
+```
+
+#### Benefits of External Communication
+
+- ✅ **Developer Experience**: Easy localhost access for testing
+- ✅ **Production Ready**: Custom domain support for production deployments
+- ✅ **TLS Support**: HTTPS encryption for secure external communication
+- ✅ **Load Balancing**: Automatic traffic distribution across replicas
+- ✅ **Monitoring**: Direct access to monitoring and management interfaces
+
+### Communication Flow Examples
+
+#### Internal Flow: Custom Client → Vault
+```bash
+# Inside custom-client pod
+curl http://vault.edge-terrarium.svc.cluster.local:8200/v1/sys/health
+# → Direct pod-to-pod communication via Kubernetes DNS
+```
+
+#### External Flow: Host → Custom Client
+```bash
+# From host machine
+curl -k https://localhost:443/fake-provider/test
+# → Kong Ingress → custom-client-service → custom-client pod
+```
+
+#### External Flow: Host → Vault
+```bash
+# From host machine
+curl http://localhost:8200/v1/sys/health
+# → LoadBalancer → vault-service → vault pod
+```
+
+### Environment-Specific Differences
+
+| Aspect | Docker Compose | K3s |
+|--------|---------------|-----|
+| **Internal Communication** | Container names (`vault:8200`) | Kubernetes DNS (`vault.edge-terrarium.svc.cluster.local:8200`) |
+| **External Access** | Direct port mapping (`localhost:8200`) | LoadBalancer + Ingress (`localhost:443`) |
+| **Service Discovery** | Docker network DNS | Kubernetes DNS |
+| **Load Balancing** | None (single container) | Kubernetes service load balancing |
+| **TLS Termination** | Kong Gateway | Kong Ingress Controller |
+
+### Best Practices Implemented
+
+1. **Separation of Concerns**: Internal and external communication use different mechanisms
+2. **Security by Default**: Internal communication is isolated from external networks
+3. **Performance Optimization**: Direct pod-to-pod communication for internal services
+4. **Developer Experience**: Simple localhost access for development and testing
+5. **Production Readiness**: Custom domain support and TLS for production deployments
+6. **Scalability**: Kubernetes-native load balancing and service discovery
+
+This architecture pattern ensures that the application is both developer-friendly and production-ready, with secure internal communication and flexible external access options.
 
 ## Adding New Services
 

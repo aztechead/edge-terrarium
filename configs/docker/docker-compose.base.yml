@@ -81,8 +81,8 @@ services:
       vault:                        # Wait for Vault to be ready
         condition: service_healthy  # Only start when Vault is healthy
     
-    # Command to run the initialization script
-    command: ["sh", "-c", "apk add --no-cache curl bash && echo 'Waiting for Vault to be ready...' && sleep 5 && bash /scripts/init-vault.sh http://vault:8200"]
+    # Command to run the enhanced initialization script
+    command: ["sh", "-c", "apk add --no-cache curl bash && echo 'Waiting for Vault to be ready...' && sleep 5 && bash /scripts/init-vault-enhanced.sh http://vault:8200 both"]
     
     # Restart policy - don't restart this init container
     restart: "no"                  # Don't automatically restart the container
