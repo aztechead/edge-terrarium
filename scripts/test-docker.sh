@@ -243,13 +243,13 @@ test_file_storage() {
 }
 
 # Check if Docker Compose is running
-if docker-compose -f configs/docker/docker-compose.yml -p c-edge-terrarium ps | grep -q "Up"; then
+if docker-compose -f configs/docker/docker-compose.yml -p edge-terrarium ps | grep -q "Up"; then
     echo "Testing Docker Compose setup..."
     echo "================================"
     
     
     # Initialize Vault if it's running
-    if docker-compose -f configs/docker/docker-compose.yml -p c-edge-terrarium ps | grep -q "vault.*Up"; then
+    if docker-compose -f configs/docker/docker-compose.yml -p edge-terrarium ps | grep -q "vault.*Up"; then
         echo "Initializing Vault with secrets..."
         ./scripts/init-vault-enhanced.sh http://localhost:8200 both
         echo ""
@@ -288,7 +288,7 @@ if docker-compose -f configs/docker/docker-compose.yml -p c-edge-terrarium ps | 
     test_file_storage "https://localhost:8443" "Docker Compose - File Storage Service"
     
     # Test Vault secrets if it's running
-    if docker-compose -f configs/docker/docker-compose.yml -p c-edge-terrarium ps | grep -q "vault.*Up"; then
+    if docker-compose -f configs/docker/docker-compose.yml -p edge-terrarium ps | grep -q "vault.*Up"; then
         echo "Testing Vault secrets..."
         echo "Checking for expected secrets:"
         
@@ -433,7 +433,7 @@ fi
 echo "Checking request logs..."
 echo "=========================="
 
-if docker-compose -f configs/docker/docker-compose.yml -p c-edge-terrarium ps | grep -q "Up"; then
+if docker-compose -f configs/docker/docker-compose.yml -p edge-terrarium ps | grep -q "Up"; then
     echo "Docker Compose logs:"
     echo "Custom Client request files:"
     file_count=$(docker exec edge-terrarium-custom-client ls -1 /tmp/requests/ 2>/dev/null | wc -l)

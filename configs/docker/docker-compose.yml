@@ -16,7 +16,7 @@
 # =============================================================================
 
 # Project name - this will be used as the prefix for container names and networks
-name: c-edge-terrarium
+name: edge-terrarium
 
 # Include all compose files in the correct startup order
 include:

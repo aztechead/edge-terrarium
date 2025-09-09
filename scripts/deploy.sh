@@ -154,7 +154,7 @@ deploy_docker() {
     
     # Start services (includes automatic Vault initialization)
     print_status "Starting services with Docker Compose..."
-    docker-compose -f configs/docker/docker-compose.yml -p c-edge-terrarium up -d
+    docker-compose -f configs/docker/docker-compose.yml -p edge-terrarium up -d
     
     # Wait for services to be ready
     print_status "Services are ready..."
@@ -224,9 +224,9 @@ deploy_k3s() {
     
     # First, ensure Docker Compose is completely cleaned up
     print_status "Ensuring Docker Compose deployment is completely cleaned up..."
-    if docker-compose -f configs/docker/docker-compose.yml -p c-edge-terrarium ps | grep -q "Up"; then
+    if docker-compose -f configs/docker/docker-compose.yml -p edge-terrarium ps | grep -q "Up"; then
         print_warning "Docker Compose deployment is running. Stopping it completely..."
-        docker-compose -f configs/docker/docker-compose.yml -p c-edge-terrarium down -v
+        docker-compose -f configs/docker/docker-compose.yml -p edge-terrarium down -v
         print_success "Docker Compose deployment stopped and volumes removed."
     fi
     
@@ -861,7 +861,7 @@ test_k3s() {
 # Function to clean up Docker Compose
 clean_docker() {
     print_status "Cleaning up Docker Compose deployment..."
-    docker-compose -f configs/docker/docker-compose.yml -p c-edge-terrarium down -v
+    docker-compose -f configs/docker/docker-compose.yml -p edge-terrarium down -v
     print_success "Docker Compose cleanup completed!"
 }
 
@@ -923,7 +923,7 @@ show_logs() {
     
     if [ "$environment" = "docker" ]; then
         print_status "Showing Docker Compose logs..."
-        docker-compose -f configs/docker/docker-compose.yml -p c-edge-terrarium logs -f
+        docker-compose -f configs/docker/docker-compose.yml -p edge-terrarium logs -f
     elif [ "$environment" = "k3s" ]; then
         print_status "Showing K3s logs..."
         echo "Custom Client logs:"
