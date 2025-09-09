@@ -2,6 +2,58 @@
 
 A hands-on project that teaches Docker containerization and K3s orchestration through a real-world application. Start with simple Docker containers and progress to full K3s deployment with ingress routing, secrets management, and monitoring.
 
+## Architecture Overview
+
+```mermaid
+%%{init: {'themeVariables': {'darkMode': true}}}%%
+flowchart TD
+    subgraph "External Access"
+        USER[User/Browser<br/>localhost:443]
+    end
+    
+    subgraph "K3s Cluster"
+        subgraph "Kong Ingress Controller"
+            KONG[Kong Gateway<br/>LoadBalancer:443]
+        end
+        
+        subgraph "edge-terrarium Namespace"
+            subgraph "Application Workloads"
+                CC[custom-client Pod<br/>Port 1337]
+                SS[service-sink Pod<br/>Port 8080]
+                FS[file-storage Pod<br/>Port 9000]
+                LT[logthon Pod<br/>Port 5000]
+            end
+            
+            subgraph "Infrastructure"
+                VAULT[vault Pod<br/>Port 8200]
+            end
+        end
+    end
+    
+    %% Request routing
+    USER -->|"HTTPS Requests"| KONG
+    KONG -->|"/fake-provider/*<br/>/example-provider/*"| CC
+    KONG -->|"/storage/*"| FS
+    KONG -->|"/logs/*"| LT
+    KONG -->|"/ (default)"| SS
+    
+    %% Internal communication
+    CC -->|"Logs"| LT
+    CC -->|"File Operations"| FS
+    CC -->|"Secrets"| VAULT
+    SS -->|"Logs"| LT
+    
+    classDef external fill:#fff3e0,stroke:#f57c00,stroke-width:2px,color:#000
+    classDef ingress fill:#e3f2fd,stroke:#1976d2,stroke-width:2px,color:#000
+    classDef workload fill:#e8f5e8,stroke:#388e3c,stroke-width:2px,color:#000
+    classDef infrastructure fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#000
+    
+    class USER external
+    class KONG ingress
+    class CC,SS,FS,LT workload
+    class VAULT infrastructure
+```
+
 ## Table of Contents
 
 ### Getting Started
