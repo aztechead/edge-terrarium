@@ -4,7 +4,10 @@
 # TERRARIUM DEPLOYMENT SCRIPT
 # =============================================================================
 # This script deploys the Terrarium application to either Docker Compose
-# or Minikube based on the environment specified
+# or K3s based on the environment specified
+#
+# Environment Variables:
+#   CLEANUP_DASHBOARD=true - Force cleanup of Kubernetes Dashboard during teardown
 
 set -e
 
@@ -151,7 +154,7 @@ deploy_docker() {
     
     # Start services (includes automatic Vault initialization)
     print_status "Starting services with Docker Compose..."
-    docker-compose -f configs/docker/docker-compose.yml -p c-edge-terrarium up -d
+    docker-compose -f configs/docker/docker-compose.yml -p edge-terrarium up -d
     
     # Wait for services to be ready
     print_status "Services are ready..."
@@ -221,9 +224,9 @@ deploy_k3s() {
     
     # First, ensure Docker Compose is completely cleaned up
     print_status "Ensuring Docker Compose deployment is completely cleaned up..."
-    if docker-compose -f configs/docker/docker-compose.yml -p c-edge-terrarium ps | grep -q "Up"; then
+    if docker-compose -f configs/docker/docker-compose.yml -p edge-terrarium ps | grep -q "Up"; then
         print_warning "Docker Compose deployment is running. Stopping it completely..."
-        docker-compose -f configs/docker/docker-compose.yml -p c-edge-terrarium down -v
+        docker-compose -f configs/docker/docker-compose.yml -p edge-terrarium down -v
         print_success "Docker Compose deployment stopped and volumes removed."
     fi
     
@@ -444,7 +447,56 @@ deploy_k3s() {
         exit 1
     fi
     
+    print_status "Importing Kong image..."
+    if ! k3d image import edge-terrarium-kong:0.0.1 -c edge-terrarium; then
+        print_error "Failed to import Kong image into k3d cluster"
+        exit 1
+    fi
+    
     print_success "All images imported successfully into k3d cluster"
+    
+    # Install Kong ingress controller
+    print_status "Installing Kong ingress controller..."
+    helm repo add kong https://charts.konghq.com >/dev/null 2>&1 || true
+    helm repo update >/dev/null 2>&1
+    
+    # Uninstall any existing Kong installation
+    helm uninstall kong >/dev/null 2>&1 || true
+    sleep 2
+    
+    # Install Kong with custom image
+    helm install kong kong/kong \
+        --set image.repository=edge-terrarium-kong \
+        --set image.tag=0.0.1 \
+        --set ingressController.enabled=true \
+        --set ingressController.ingressClass=kong \
+        --set admin.enabled=false \
+        --set manager.enabled=false \
+        --set portal.enabled=false \
+        --set postgresql.enabled=false \
+        --set replicaCount=1 \
+        --set proxy.type=LoadBalancer \
+        --set proxy.http.enabled=true \
+        --set proxy.tls.enabled=true \
+        --set resources.requests.memory=128Mi \
+        --set resources.requests.cpu=100m \
+        --set resources.limits.memory=256Mi \
+        --set resources.limits.cpu=200m \
+        >/dev/null 2>&1
+    
+    print_status "Waiting for Kong to be ready..."
+    kubectl wait --for=condition=ready pod -l app=kong-kong -n default --timeout=120s
+    
+    if [ $? -ne 0 ]; then
+        print_error "Kong pods failed to become ready"
+        print_status "Checking Kong pod status..."
+        kubectl get pods -l app=kong-kong -n default
+        print_status "Checking Kong pod logs..."
+        kubectl logs -l app=kong-kong -n default --tail=50
+        exit 1
+    fi
+    
+    print_success "Kong is ready"
     
     # Check if helm is installed
     if ! command -v helm &> /dev/null; then
@@ -493,68 +545,28 @@ deploy_k3s() {
         exit 1
     fi
     
-    # Install Kong ingress controller (lightweight configuration)
-    print_status "Installing Kong ingress controller..."
-    helm repo add kong https://charts.konghq.com >/dev/null 2>&1 || true
-    helm repo update >/dev/null 2>&1
     
-    # Uninstall any existing Kong installation
-    helm uninstall kong >/dev/null 2>&1 || true
-    sleep 2
-    
-    # Install Kong with K3s-compatible configuration
-    helm install kong kong/kong \
-        --set ingressController.enabled=true \
-        --set ingressController.ingressClass=kong \
-        --set admin.enabled=false \
-        --set manager.enabled=false \
-        --set portal.enabled=false \
-        --set postgresql.enabled=false \
-        --set replicaCount=1 \
-        --set proxy.type=LoadBalancer \
-        --set proxy.http.enabled=true \
-        --set proxy.tls.enabled=true \
-        --set resources.requests.memory=128Mi \
-        --set resources.requests.cpu=100m \
-        --set resources.limits.memory=256Mi \
-        --set resources.limits.cpu=200m \
-        >/dev/null 2>&1
-    
-    print_status "Waiting for Kong to be ready..."
-    
-    # Wait for Kong pods to be created first
-    print_status "Waiting for Kong pods to be created..."
-    kubectl wait --for=condition=ready pod -l app=kong-kong -n default --timeout=120s
-    
-    if [ $? -ne 0 ]; then
-        print_error "Kong pods failed to become ready"
-        print_status "Checking Kong pod status..."
-        kubectl get pods -l app=kong-kong -n default
-        print_status "Checking Kong pod logs..."
-        kubectl logs -l app=kong-kong -n default --tail=50
-        exit 1
-    fi
-    
-    print_success "Kong is ready"
-    
-    # Install Kubernetes Dashboard
-    print_status "Installing Kubernetes Dashboard..."
+    # Install Kubernetes Dashboard (only if not already installed)
+    print_status "Checking Kubernetes Dashboard installation..."
     helm repo add kubernetes-dashboard https://kubernetes.github.io/dashboard/ >/dev/null 2>&1 || true
-    helm repo update >/dev/null 2>&1
     
-    # Uninstall any existing dashboard installation
-    helm uninstall kubernetes-dashboard -n kubernetes-dashboard >/dev/null 2>&1 || true
-    sleep 2
-    
-    # Install Kubernetes Dashboard
-    helm upgrade --install kubernetes-dashboard kubernetes-dashboard/kubernetes-dashboard \
-        --create-namespace \
-        --namespace kubernetes-dashboard \
-        --set kong.proxy.type=LoadBalancer \
-        --set kong.proxy.http.enabled=true \
-        --set kong.proxy.http.containerPort=8000 \
-        --set kong.proxy.http.servicePort=80 \
-        >/dev/null 2>&1
+    # Check if dashboard is already installed
+    if helm list -n kubernetes-dashboard | grep -q "kubernetes-dashboard"; then
+        print_status "Kubernetes Dashboard is already installed, skipping installation"
+    else
+        print_status "Installing Kubernetes Dashboard..."
+        helm repo update >/dev/null 2>&1
+        
+        # Install Kubernetes Dashboard
+        helm install kubernetes-dashboard kubernetes-dashboard/kubernetes-dashboard \
+            --create-namespace \
+            --namespace kubernetes-dashboard \
+            --set kong.proxy.type=LoadBalancer \
+            --set kong.proxy.http.enabled=true \
+            --set kong.proxy.http.containerPort=8000 \
+            --set kong.proxy.http.servicePort=80 \
+            >/dev/null 2>&1
+    fi
     
     print_status "Waiting for Kubernetes Dashboard to be ready..."
     kubectl wait --for=condition=available --timeout=120s deployment/kubernetes-dashboard-kong -n kubernetes-dashboard
@@ -849,7 +861,7 @@ test_k3s() {
 # Function to clean up Docker Compose
 clean_docker() {
     print_status "Cleaning up Docker Compose deployment..."
-    docker-compose -f configs/docker/docker-compose.yml -p c-edge-terrarium down -v
+    docker-compose -f configs/docker/docker-compose.yml -p edge-terrarium down -v
     print_success "Docker Compose cleanup completed!"
 }
 
@@ -881,9 +893,14 @@ clean_k3s() {
             kubectl delete -k configs/k3s/ --ignore-not-found=true
             kubectl delete secret edge-terrarium-tls -n edge-terrarium --ignore-not-found=true
             
-            # Clean up Kubernetes Dashboard
-            helm uninstall kubernetes-dashboard -n kubernetes-dashboard --ignore-not-found=true
-            kubectl delete namespace kubernetes-dashboard --ignore-not-found=true
+            # Clean up Kubernetes Dashboard (only if explicitly requested)
+            if [ "$CLEANUP_DASHBOARD" = "true" ]; then
+                print_status "Cleaning up Kubernetes Dashboard..."
+                helm uninstall kubernetes-dashboard -n kubernetes-dashboard --ignore-not-found=true
+                kubectl delete namespace kubernetes-dashboard --ignore-not-found=true
+            else
+                print_status "Skipping Kubernetes Dashboard cleanup (use CLEANUP_DASHBOARD=true to force cleanup)"
+            fi
             
             print_status "Deleting k3d cluster 'edge-terrarium'..."
             k3d cluster delete edge-terrarium
@@ -906,7 +923,7 @@ show_logs() {
     
     if [ "$environment" = "docker" ]; then
         print_status "Showing Docker Compose logs..."
-        docker-compose -f configs/docker/docker-compose.yml -p c-edge-terrarium logs -f
+        docker-compose -f configs/docker/docker-compose.yml -p edge-terrarium logs -f
     elif [ "$environment" = "k3s" ]; then
         print_status "Showing K3s logs..."
         echo "Custom Client logs:"

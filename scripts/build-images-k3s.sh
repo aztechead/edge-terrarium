@@ -83,6 +83,21 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
+# Build Kong Gateway (platform-specific for K3s)
+echo "Building Kong Gateway image for $PLATFORM..."
+docker build \
+  --no-cache \
+  --platform $PLATFORM \
+  -t edge-terrarium-kong:latest \
+  -t edge-terrarium-kong:0.0.1 \
+  -f ./kong/Dockerfile \
+  .
+
+if [ $? -ne 0 ]; then
+    echo "Error: Failed to build Kong Gateway image"
+    exit 1
+fi
+
 # Verify Logthon image has the required package structure and dependencies
 echo "Verifying Logthon image structure and dependencies..."
 docker run --rm edge-terrarium-logthon:latest sh -c "

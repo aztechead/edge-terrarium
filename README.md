@@ -82,7 +82,7 @@ This project teaches you:
 ```bash
 # Clone the repository
 git clone <repository-url>
-cd c-edge-terrarium
+cd edge-terrarium
 
 # Deploy with Docker Compose
 ./scripts/deploy.sh docker deploy
@@ -1577,7 +1577,7 @@ The File Storage service is a Python FastAPI application that provides:
 ```mermaid
 %%{init: {'themeVariables': {'darkMode': true}}}%%
 flowchart TD
-    ROOT[c-edge-terrarium/]
+    ROOT[edge-terrarium/]
     
     subgraph "Application Services"
         CC[custom-client/]
@@ -1636,7 +1636,7 @@ flowchart TD
 ### Detailed Directory Structure
 
 ```
-c-edge-terrarium/
+edge-terrarium/
 ├── custom-client/           # C application for special requests
 │   ├── src/                # Source code directory
 │   │   ├── main.c          # Main application entry point

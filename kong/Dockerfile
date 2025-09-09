@@ -11,8 +11,8 @@ FROM kong:latest
 USER root
 
 # Copy TLS certificates to a location Kong can access
-COPY ../certs/edge-terrarium.crt /tmp/edge-terrarium.crt
-COPY ../certs/edge-terrarium.key /tmp/edge-terrarium.key
+COPY certs/edge-terrarium.crt /tmp/edge-terrarium.crt
+COPY certs/edge-terrarium.key /tmp/edge-terrarium.key
 
 # Set proper permissions
 RUN chmod 644 /tmp/edge-terrarium.crt && \
