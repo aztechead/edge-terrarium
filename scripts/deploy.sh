@@ -229,7 +229,7 @@ deploy_docker() {
     
     # Build images with smart caching
     print_status "Building Docker images with smart caching..."
-    if ! ./scripts/build-images-smart.sh; then
+    if ! ./scripts/build-images.sh; then
         print_error "Failed to build Docker images"
         exit 1
     fi
@@ -466,7 +466,7 @@ deploy_k3s() {
     
     # Build images for K3s with smart caching
     print_status "Building Docker images for K3s with smart caching..."
-    if ! ./scripts/build-images-k3s-smart.sh; then
+    if ! ./scripts/build-images.sh --k3s; then
         print_error "Failed to build Docker images for K3s"
         exit 1
     fi
