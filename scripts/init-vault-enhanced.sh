@@ -714,8 +714,7 @@ main() {
     echo ""
     echo "Your applications can now retrieve secrets from Vault."
     echo "To test the setup, run:"
-    echo "  ./scripts/test-docker.sh (for Docker)"
-    echo "  ./scripts/test-k3s.sh (for K3s)"
+    echo "  ./scripts/test.sh"
     echo ""
 }
 

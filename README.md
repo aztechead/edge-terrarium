@@ -2,6 +2,58 @@
 
 A hands-on project that teaches Docker containerization and K3s orchestration through a real-world application. Start with simple Docker containers and progress to full K3s deployment with ingress routing, secrets management, and monitoring.
 
+## Architecture Overview
+
+```mermaid
+%%{init: {'themeVariables': {'darkMode': true}}}%%
+flowchart TD
+    subgraph "External Access"
+        USER[User/Browser<br/>localhost:443]
+    end
+    
+    subgraph "K3s Cluster"
+        subgraph "Kong Ingress Controller"
+            KONG[Kong Gateway<br/>LoadBalancer:443]
+        end
+        
+        subgraph "edge-terrarium Namespace"
+            subgraph "Application Workloads"
+                CC[custom-client Pod<br/>Port 1337]
+                SS[service-sink Pod<br/>Port 8080]
+                FS[file-storage Pod<br/>Port 9000]
+                LT[logthon Pod<br/>Port 5000]
+            end
+            
+            subgraph "Infrastructure"
+                VAULT[vault Pod<br/>Port 8200]
+            end
+        end
+    end
+    
+    %% Request routing
+    USER -->|"HTTPS Requests"| KONG
+    KONG -->|"/fake-provider/*<br/>/example-provider/*"| CC
+    KONG -->|"/storage/*"| FS
+    KONG -->|"/logs/*"| LT
+    KONG -->|"/ (default)"| SS
+    
+    %% Internal communication
+    CC -->|"Logs"| LT
+    CC -->|"File Operations"| FS
+    CC -->|"Secrets"| VAULT
+    SS -->|"Logs"| LT
+    
+    classDef external fill:#fff3e0,stroke:#f57c00,stroke-width:2px,color:#000
+    classDef ingress fill:#e3f2fd,stroke:#1976d2,stroke-width:2px,color:#000
+    classDef workload fill:#e8f5e8,stroke:#388e3c,stroke-width:2px,color:#000
+    classDef infrastructure fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#000
+    
+    class USER external
+    class KONG ingress
+    class CC,SS,FS,LT workload
+    class VAULT infrastructure
+```
+
 ## Table of Contents
 
 ### Getting Started
@@ -88,7 +140,7 @@ cd edge-terrarium
 ./scripts/deploy.sh docker deploy
 
 # Test the application
-./scripts/test-docker.sh
+./scripts/test.sh
 ```
 
 ### Option 2: K3s (Recommended if you're familiar with containers)
@@ -97,7 +149,7 @@ cd edge-terrarium
 ./scripts/deploy.sh k3s deploy
 
 # Test the application
-./scripts/test-k3s.sh
+./scripts/test.sh
 ```
 
 ### Available Script Arguments
@@ -130,16 +182,33 @@ logs      # Show application logs
 ```bash
 # Build Docker images
 ./scripts/build-images.sh           # Build images for Docker Compose
-./scripts/build-images-k3s.sh       # Build images for K3s
+./scripts/build-images.sh --k3s     # Build images for K3s (includes Kong)
 
 # Testing scripts
-./scripts/test-docker.sh             # Test Docker Compose deployment
-./scripts/test-k3s.sh               # Test K3s deployment
+./scripts/test.sh                   # Test both Docker Compose and K3s deployments
 
 # Utility scripts
 ./scripts/generate-tls-certs.sh     # Generate TLS certificates
 ./scripts/init-vault-enhanced.sh    # Initialize Vault with secrets
 ./scripts/create-k3s-tls-secret.sh  # Create K3s TLS secret
+```
+
+### Unified Build Script
+
+The `build-images.sh` script is a **unified build solution** that handles both Docker Compose and K3s environments with smart caching:
+
+- **Smart Caching**: Only rebuilds images when source files have changed since the last build
+- **Architecture Detection**: Automatically detects your system architecture (AMD64/ARM64)
+- **Environment-Aware**: Uses the `--k3s` flag to enable K3s-specific features (like Kong image building)
+- **Consistent Interface**: Same script works for both deployment environments
+
+**Usage Examples**:
+```bash
+# Build for Docker Compose (default)
+./scripts/build-images.sh
+
+# Build for K3s (includes Kong gateway)
+./scripts/build-images.sh --k3s
 ```
 
 **Goal**: Get the application running in 5 minutes, then explore each component.
@@ -223,7 +292,12 @@ Docker is a containerization platform that packages applications and their depen
 ./scripts/build-images.sh
 ```
 
-**What happens**: Docker reads the Dockerfile in each service directory and creates a runnable image.
+**What happens**: The unified build script:
+- Reads the Dockerfile in each service directory
+- Creates runnable images with smart caching (only rebuilds if source files changed)
+- Automatically detects your system architecture (AMD64/ARM64)
+- Builds all core services: Custom Client, Service Sink, Logthon, and File Storage
+- For K3s deployments, also builds the Kong gateway image
 
 #### Step 2: Start the Services
 ```bash
@@ -239,7 +313,7 @@ Docker is a containerization platform that packages applications and their depen
 #### Step 3: Test the Application
 ```bash
 # This sends test requests to verify everything works
-./scripts/test-docker.sh
+./scripts/test.sh
 ```
 
 ### Understanding Docker Compose
@@ -415,7 +489,7 @@ The script automatically:
 #### Step 3: Test the Application
 ```bash
 # This tests the K3s deployment
-./scripts/test-k3s.sh
+./scripts/test.sh
 ```
 
 #### Step 4: Access the Kubernetes Dashboard
@@ -1722,10 +1796,9 @@ edge-terrarium/
 │       └── kustomization.yaml
 ├── scripts/                # Automation scripts
 │   ├── deploy.sh           # Main deployment script
-│   ├── build-images.sh     # Docker image building
-│   ├── build-images-k3s.sh # K3s image building
+│   ├── build-images.sh     # Unified Docker image building with smart caching
 │   ├── test-setup.sh       # Docker testing
-│   ├── test-k3s.sh         # Kubernetes testing
+│   ├── test.sh             # Unified testing for both environments
 │   ├── generate-tls-certs.sh # Certificate generation
 │   ├── init-vault-enhanced.sh # Vault initialization
 │   ├── create-k3s-tls-secret.sh # K3s TLS secret creation
@@ -1839,7 +1912,7 @@ spec:
 
 #### Docker Testing
 ```bash
-./scripts/test-docker.sh
+./scripts/test.sh
 ```
 **Tests**:
 - Service health checks
@@ -1852,7 +1925,7 @@ spec:
 
 #### Kubernetes Testing
 ```bash
-./scripts/test-k3s.sh
+./scripts/test.sh
 ```
 **Tests**:
 - Pod status and health
@@ -3001,21 +3074,16 @@ resources:
 - admin-service-ingress.yaml
 ```
 
-#### Step 4: Update Build Scripts
+#### Step 4: Update Build Script
 
-1. **Update build-images.sh**:
+**Update build-images.sh**:
 ```bash
 # Add to the script
 echo "Building Admin Service image..."
 docker build -t edge-terrarium-admin-service:latest admin-service/
 ```
 
-2. **Update build-images-k3s.sh**:
-```bash
-# Add to the script
-echo "Building Admin Service image for K3s..."
-docker build -t edge-terrarium-admin-service:latest admin-service/
-```
+**Note**: The unified build script automatically handles both Docker Compose and K3s environments. Use `./scripts/build-images.sh` for Docker Compose or `./scripts/build-images.sh --k3s` for K3s.
 
 **Note**: The Python service uses a multi-stage Dockerfile that installs dependencies and creates a production-ready image. The build process is the same as the C services, but the resulting image will be larger due to the Python runtime and dependencies.
 

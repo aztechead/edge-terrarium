@@ -35,6 +35,82 @@ print_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
+# Function to install k3d
+install_k3d() {
+    print_status "k3d is not installed. Attempting to install k3d..."
+    
+    # Try to install k3d using the official install script
+    if curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash; then
+        print_success "k3d installed successfully via official install script"
+    else
+        print_warning "Official install script failed. Trying package manager..."
+        
+        # Try package managers based on OS
+        if command -v brew &> /dev/null; then
+            print_status "Installing k3d via Homebrew..."
+            if brew install k3d; then
+                print_success "k3d installed successfully via Homebrew"
+            else
+                print_error "Homebrew installation failed"
+                exit 1
+            fi
+        elif command -v apt-get &> /dev/null; then
+            print_status "Installing k3d via apt..."
+            if curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash; then
+                print_success "k3d installed successfully"
+            else
+                print_error "apt installation failed"
+                exit 1
+            fi
+        else
+            print_error "k3d installation failed. Please install k3d manually:"
+            echo "  curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash"
+            echo "  or"
+            echo "  brew install k3d"
+            echo "  or visit: https://github.com/k3d-io/k3d?tab=readme-ov-file#get"
+            exit 1
+        fi
+    fi
+}
+
+# Function to install helm
+install_helm() {
+    print_status "helm is not installed. Attempting to install helm..."
+    
+    # Try to install helm using the official install script
+    if curl -s https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash; then
+        print_success "helm installed successfully via official install script"
+    else
+        print_warning "Official helm install script failed. Trying package manager..."
+        
+        # Try package managers based on OS
+        if command -v brew &> /dev/null; then
+            print_status "Installing helm via Homebrew..."
+            if brew install helm; then
+                print_success "helm installed successfully via Homebrew"
+            else
+                print_error "Homebrew installation failed"
+                exit 1
+            fi
+        elif command -v apt-get &> /dev/null; then
+            print_status "Installing helm via apt..."
+            if curl -s https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash; then
+                print_success "helm installed successfully"
+            else
+                print_error "apt installation failed"
+                exit 1
+            fi
+        else
+            print_error "helm installation failed. Please install helm manually:"
+            echo "  curl -s https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash"
+            echo "  or"
+            echo "  brew install helm"
+            echo "  or visit: https://helm.sh/docs/intro/install/"
+            exit 1
+        fi
+    fi
+}
+
 # Function to show usage
 show_usage() {
     echo "Usage: $0 [ENVIRONMENT] [ACTION]"
@@ -85,6 +161,7 @@ deploy_docker() {
     check_and_handle_port_conflicts() {
         local port=$1
         local service_name=$2
+        local strict_mode=${3:-true}  # Default to strict mode for Docker
         
         if lsof -i :$port | grep -q "LISTEN"; then
             print_warning "Port $port is already in use. Checking for conflicting services..."
@@ -101,10 +178,15 @@ deploy_docker() {
             
             # Verify port is now free
             if lsof -i :$port | grep -q "LISTEN"; then
-                print_error "Port $port is still in use after cleanup attempts"
-                print_error "Please manually stop the service using port $port and try again"
-                print_error "You can check what's using the port with: lsof -i :$port"
-                exit 1
+                if [ "$strict_mode" = "true" ]; then
+                    print_error "Port $port is still in use after cleanup attempts"
+                    print_error "Please manually stop the service using port $port and try again"
+                    print_error "You can check what's using the port with: lsof -i :$port"
+                    exit 1
+                else
+                    print_warning "Port $port is still in use after stopping container"
+                    print_warning "K3s will use different ports for external access via k3d loadbalancer"
+                fi
             else
                 print_success "Port $port is now available"
             fi
@@ -145,8 +227,8 @@ deploy_docker() {
         ./scripts/generate-tls-certs.sh
     fi
     
-    # Build images
-    print_status "Building Docker images..."
+    # Build images with smart caching
+    print_status "Building Docker images with smart caching..."
     if ! ./scripts/build-images.sh; then
         print_error "Failed to build Docker images"
         exit 1
@@ -181,29 +263,26 @@ deploy_docker() {
         print_warning "Vault initialization may still be in progress. Check logs with: docker logs edge-terrarium-vault-init"
     fi
     
-    # Verify logthon service is working
-    print_status "Verifying logthon service is working..."
-    sleep 2  # Give logthon time to start
+    # Verify services are working
+    verify_docker_service() {
+        local service_name=$1
+        local url=$2
+        local container_name=$3
+        
+        print_status "Verifying $service_name service is working..."
+        sleep 2  # Give service time to start
+        
+        if curl -s "$url" >/dev/null 2>&1; then
+            print_success "$service_name service is healthy"
+        else
+            print_warning "$service_name service may not be fully ready yet"
+            print_status "Checking $service_name container logs..."
+            docker logs "$container_name" --tail 10
+        fi
+    }
     
-    if curl -s http://localhost:5001/health >/dev/null 2>&1; then
-        print_success "Logthon service is healthy"
-    else
-        print_warning "Logthon service may not be fully ready yet"
-        print_status "Checking logthon container logs..."
-        docker logs edge-terrarium-logthon --tail 10
-    fi
-    
-    # Verify file storage service is working
-    print_status "Verifying file storage service is working..."
-    sleep 2  # Give file storage time to start
-    
-    if curl -s http://localhost:9000/health >/dev/null 2>&1; then
-        print_success "File storage service is healthy"
-    else
-        print_warning "File storage service may not be fully ready yet"
-        print_status "Checking file storage container logs..."
-        docker logs edge-terrarium-file-storage --tail 10
-    fi
+    verify_docker_service "Logthon" "http://localhost:5001/health" "edge-terrarium-logthon"
+    verify_docker_service "File Storage" "http://localhost:9000/health" "edge-terrarium-file-storage"
     
     print_success "Docker Compose deployment completed!"
     echo ""
@@ -215,7 +294,7 @@ deploy_docker() {
     echo "  - Vault: http://localhost:8200"
     echo ""
     echo "To test the deployment:"
-    echo "  ./scripts/test-docker.sh"
+    echo "  ./scripts/test.sh"
 }
 
 # Function to deploy to K3s
@@ -239,10 +318,11 @@ deploy_k3s() {
         print_success "Edge-terrarium containers stopped and removed."
     fi
     
-    # Check for port conflicts and handle them
-    check_k3s_port_conflicts() {
+    # Use the consolidated port conflict checking function
+    check_and_handle_port_conflicts() {
         local port=$1
         local service_name=$2
+        local strict_mode=${3:-false}  # Default to non-strict mode for K3s
         
         if lsof -i :$port | grep -q "LISTEN"; then
             print_warning "Port $port is already in use. Checking for conflicting services..."
@@ -255,26 +335,30 @@ deploy_k3s() {
                 docker stop "$container_using_port" 2>/dev/null || true
                 docker rm "$container_using_port" 2>/dev/null || true
                 sleep 2
-                
-                # Verify port is now free
-                if lsof -i :$port | grep -q "LISTEN"; then
+            fi
+            
+            # Verify port is now free
+            if lsof -i :$port | grep -q "LISTEN"; then
+                if [ "$strict_mode" = "true" ]; then
+                    print_error "Port $port is still in use after cleanup attempts"
+                    print_error "Please manually stop the service using port $port and try again"
+                    print_error "You can check what's using the port with: lsof -i :$port"
+                    exit 1
+                else
                     print_warning "Port $port is still in use after stopping container"
                     print_warning "K3s will use different ports for external access via k3d loadbalancer"
-                else
-                    print_success "Port $port is now available"
                 fi
             else
-                print_warning "Port $port is in use by another service"
-                print_warning "K3s will use different ports for external access via k3d loadbalancer"
+                print_success "Port $port is now available"
             fi
         fi
     }
     
-    # Check for potential port conflicts
-    check_k3s_port_conflicts 8200 "Vault"
-    check_k3s_port_conflicts 80 "HTTP"
-    check_k3s_port_conflicts 443 "HTTPS"
-    check_k3s_port_conflicts 5001 "Logthon"
+    # Check for potential port conflicts (non-strict mode for K3s)
+    check_and_handle_port_conflicts 8200 "Vault" false
+    check_and_handle_port_conflicts 80 "HTTP" false
+    check_and_handle_port_conflicts 443 "HTTPS" false
+    check_and_handle_port_conflicts 5001 "Logthon" false
     
     # Final verification that critical ports are free
     print_status "Verifying critical ports are available for K3s..."
@@ -326,40 +410,7 @@ deploy_k3s() {
         else
             # Check if k3d is installed
             if ! command -v k3d &> /dev/null; then
-                print_status "k3d is not installed. Attempting to install k3d..."
-                
-                # Try to install k3d using the official install script
-                if curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash; then
-                    print_success "k3d installed successfully via official install script"
-                else
-                    print_warning "Official install script failed. Trying package manager..."
-                    
-                    # Try package managers based on OS
-                    if command -v brew &> /dev/null; then
-                        print_status "Installing k3d via Homebrew..."
-                        if brew install k3d; then
-                            print_success "k3d installed successfully via Homebrew"
-                        else
-                            print_error "Homebrew installation failed"
-                            exit 1
-                        fi
-                    elif command -v apt-get &> /dev/null; then
-                        print_status "Installing k3d via apt..."
-                        if curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash; then
-                            print_success "k3d installed successfully"
-                        else
-                            print_error "apt installation failed"
-                            exit 1
-                        fi
-                    else
-                        print_error "k3d installation failed. Please install k3d manually:"
-                        echo "  curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash"
-                        echo "  or"
-                        echo "  brew install k3d"
-                        echo "  or visit: https://github.com/k3d-io/k3d?tab=readme-ov-file#get"
-                        exit 1
-                    fi
-                fi
+                install_k3d
             fi
             
             # Create k3d cluster with port mappings
@@ -413,9 +464,9 @@ deploy_k3s() {
         -n edge-terrarium \
         --dry-run=client -o yaml | kubectl apply -f -
     
-    # Build images for K3s
-    print_status "Building Docker images for K3s..."
-    if ! ./scripts/build-images-k3s.sh; then
+    # Build images for K3s with smart caching
+    print_status "Building Docker images for K3s with smart caching..."
+    if ! ./scripts/build-images.sh --k3s; then
         print_error "Failed to build Docker images for K3s"
         exit 1
     fi
@@ -500,40 +551,7 @@ deploy_k3s() {
     
     # Check if helm is installed
     if ! command -v helm &> /dev/null; then
-        print_status "helm is not installed. Attempting to install helm..."
-        
-        # Try to install helm using the official install script
-        if curl -s https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash; then
-            print_success "helm installed successfully via official install script"
-        else
-            print_warning "Official helm install script failed. Trying package manager..."
-            
-            # Try package managers based on OS
-            if command -v brew &> /dev/null; then
-                print_status "Installing helm via Homebrew..."
-                if brew install helm; then
-                    print_success "helm installed successfully via Homebrew"
-                else
-                    print_error "Homebrew installation failed"
-                    exit 1
-                fi
-            elif command -v apt-get &> /dev/null; then
-                print_status "Installing helm via apt..."
-                if curl -s https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash; then
-                    print_success "helm installed successfully"
-                else
-                    print_error "apt installation failed"
-                    exit 1
-                fi
-            else
-                print_error "helm installation failed. Please install helm manually:"
-                echo "  curl -s https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash"
-                echo "  or"
-                echo "  brew install helm"
-                echo "  or visit: https://helm.sh/docs/intro/install/"
-                exit 1
-            fi
-        fi
+        install_helm
     fi
 
     # Verify cluster is accessible before installing Kong
@@ -718,45 +736,35 @@ deploy_k3s() {
     # Clean up temporary port forward
     kill $VAULT_VERIFY_PID 2>/dev/null || true
     
-    # Verify file storage service is working
-    print_status "Verifying file storage service is working..."
+    # Verify K3s services are working
+    verify_k3s_service() {
+        local service_name=$1
+        local service_path=$2
+        local local_port=$3
+        local service_port=$4
+        
+        print_status "Verifying $service_name service is working..."
+        
+        # Set up temporary port forwarding for service verification
+        kubectl port-forward -n edge-terrarium "$service_path" "$local_port:$service_port" >/dev/null 2>&1 &
+        local verify_pid=$!
+        sleep 3
+        
+        # Check if service is accessible
+        if curl -s "http://localhost:$local_port/health" >/dev/null 2>&1; then
+            print_success "$service_name service is accessible and healthy"
+        else
+            print_error "$service_name service is not accessible"
+            kill $verify_pid 2>/dev/null || true
+            exit 1
+        fi
+        
+        # Clean up temporary port forward
+        kill $verify_pid 2>/dev/null || true
+    }
     
-    # Set up temporary port forwarding for file storage verification
-    kubectl port-forward -n edge-terrarium service/file-storage-service 9001:9000 >/dev/null 2>&1 &
-    FILE_STORAGE_VERIFY_PID=$!
-    sleep 3
-    
-    # Check if file storage service is accessible
-    if curl -s http://localhost:9001/health >/dev/null 2>&1; then
-        print_success "File storage service is accessible and healthy"
-    else
-        print_error "File storage service is not accessible"
-        kill $FILE_STORAGE_VERIFY_PID 2>/dev/null || true
-        exit 1
-    fi
-    
-    # Clean up temporary port forward
-    kill $FILE_STORAGE_VERIFY_PID 2>/dev/null || true
-    
-    # Verify logthon service is working
-    print_status "Verifying logthon service is working..."
-    
-    # Set up temporary port forwarding for logthon verification
-    kubectl port-forward -n edge-terrarium service/logthon-service 5001:5000 >/dev/null 2>&1 &
-    LOGTHON_VERIFY_PID=$!
-    sleep 3
-    
-    # Check if logthon service is accessible
-    if curl -s http://localhost:5001/health >/dev/null 2>&1; then
-        print_success "Logthon service is accessible and healthy"
-    else
-        print_error "Logthon service is not accessible"
-        kill $LOGTHON_VERIFY_PID 2>/dev/null || true
-        exit 1
-    fi
-    
-    # Clean up temporary port forward
-    kill $LOGTHON_VERIFY_PID 2>/dev/null || true
+    verify_k3s_service "File Storage" "service/file-storage-service" 9001 9000
+    verify_k3s_service "Logthon" "service/logthon-service" 5001 5000
     
     # Set up automatic port forwarding for Vault (if port 8200 is not already in use)
     print_status "Setting up Vault port forwarding..."
@@ -835,7 +843,7 @@ deploy_k3s() {
     echo "  Alternative: kubectl -n kubernetes-dashboard port-forward svc/kubernetes-dashboard-kong-proxy 9443:443"
     echo ""
     echo "To test the deployment:"
-    echo "  ./scripts/test-k3s.sh"
+    echo "  ./scripts/test.sh"
     echo ""
     echo "To stop port forwarding:"
     echo "  Vault: kill \$(cat /tmp/vault-port-forward.pid) && rm /tmp/vault-port-forward.pid"
@@ -849,13 +857,13 @@ deploy_k3s() {
 # Function to test Docker Compose deployment
 test_docker() {
     print_status "Testing Docker Compose deployment..."
-    ./scripts/test-docker.sh
+    ./scripts/test.sh
 }
 
 # Function to test K3s deployment
 test_k3s() {
     print_status "Testing K3s deployment..."
-    ./scripts/test-k3s.sh
+    ./scripts/test.sh
 }
 
 # Function to clean up Docker Compose

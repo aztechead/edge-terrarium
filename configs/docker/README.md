@@ -192,7 +192,7 @@ docker-compose -f configs/docker/docker-compose.yml up -d --scale service-name=3
 ### Testing
 ```bash
 # Test all services
-./scripts/test-docker.sh
+./scripts/test.sh
 
 # Test specific endpoint
 curl -H "Host: localhost" https://localhost:443/fake-provider/test
