@@ -444,7 +444,56 @@ deploy_k3s() {
         exit 1
     fi
     
+    print_status "Importing Kong image..."
+    if ! k3d image import edge-terrarium-kong:0.0.1 -c edge-terrarium; then
+        print_error "Failed to import Kong image into k3d cluster"
+        exit 1
+    fi
+    
     print_success "All images imported successfully into k3d cluster"
+    
+    # Install Kong ingress controller
+    print_status "Installing Kong ingress controller..."
+    helm repo add kong https://charts.konghq.com >/dev/null 2>&1 || true
+    helm repo update >/dev/null 2>&1
+    
+    # Uninstall any existing Kong installation
+    helm uninstall kong >/dev/null 2>&1 || true
+    sleep 2
+    
+    # Install Kong with custom image
+    helm install kong kong/kong \
+        --set image.repository=edge-terrarium-kong \
+        --set image.tag=0.0.1 \
+        --set ingressController.enabled=true \
+        --set ingressController.ingressClass=kong \
+        --set admin.enabled=false \
+        --set manager.enabled=false \
+        --set portal.enabled=false \
+        --set postgresql.enabled=false \
+        --set replicaCount=1 \
+        --set proxy.type=LoadBalancer \
+        --set proxy.http.enabled=true \
+        --set proxy.tls.enabled=true \
+        --set resources.requests.memory=128Mi \
+        --set resources.requests.cpu=100m \
+        --set resources.limits.memory=256Mi \
+        --set resources.limits.cpu=200m \
+        >/dev/null 2>&1
+    
+    print_status "Waiting for Kong to be ready..."
+    kubectl wait --for=condition=ready pod -l app=kong-kong -n default --timeout=120s
+    
+    if [ $? -ne 0 ]; then
+        print_error "Kong pods failed to become ready"
+        print_status "Checking Kong pod status..."
+        kubectl get pods -l app=kong-kong -n default
+        print_status "Checking Kong pod logs..."
+        kubectl logs -l app=kong-kong -n default --tail=50
+        exit 1
+    fi
+    
+    print_success "Kong is ready"
     
     # Check if helm is installed
     if ! command -v helm &> /dev/null; then
@@ -493,58 +542,6 @@ deploy_k3s() {
         exit 1
     fi
     
-    # Install Kong ingress controller (lightweight configuration)
-    print_status "Installing Kong ingress controller..."
-    helm repo add kong https://charts.konghq.com >/dev/null 2>&1 || true
-    helm repo update >/dev/null 2>&1
-    
-    # Uninstall any existing Kong installation
-    helm uninstall kong >/dev/null 2>&1 || true
-    sleep 2
-    
-    # Import Kong image into k3d cluster
-    print_status "Importing Kong image into k3d cluster..."
-    if ! k3d image import edge-terrarium-kong:latest -c edge-terrarium; then
-        print_error "Failed to import Kong image into k3d cluster"
-        exit 1
-    fi
-    
-    # Install Kong with custom image containing TLS certificates
-    helm install kong kong/kong \
-        --set image.repository=edge-terrarium-kong \
-        --set image.tag=latest \
-        --set ingressController.enabled=true \
-        --set ingressController.ingressClass=kong \
-        --set admin.enabled=false \
-        --set manager.enabled=false \
-        --set portal.enabled=false \
-        --set postgresql.enabled=false \
-        --set replicaCount=1 \
-        --set proxy.type=LoadBalancer \
-        --set proxy.http.enabled=true \
-        --set proxy.tls.enabled=true \
-        --set resources.requests.memory=128Mi \
-        --set resources.requests.cpu=100m \
-        --set resources.limits.memory=256Mi \
-        --set resources.limits.cpu=200m \
-        >/dev/null 2>&1
-    
-    print_status "Waiting for Kong to be ready..."
-    
-    # Wait for Kong pods to be created first
-    print_status "Waiting for Kong pods to be created..."
-    kubectl wait --for=condition=ready pod -l app=kong-kong -n default --timeout=120s
-    
-    if [ $? -ne 0 ]; then
-        print_error "Kong pods failed to become ready"
-        print_status "Checking Kong pod status..."
-        kubectl get pods -l app=kong-kong -n default
-        print_status "Checking Kong pod logs..."
-        kubectl logs -l app=kong-kong -n default --tail=50
-        exit 1
-    fi
-    
-    print_success "Kong is ready"
     
     # Install Kubernetes Dashboard
     print_status "Installing Kubernetes Dashboard..."
