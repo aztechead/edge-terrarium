@@ -502,8 +502,17 @@ deploy_k3s() {
     helm uninstall kong >/dev/null 2>&1 || true
     sleep 2
     
-    # Install Kong with K3s-compatible configuration
+    # Import Kong image into k3d cluster
+    print_status "Importing Kong image into k3d cluster..."
+    if ! k3d image import edge-terrarium-kong:latest -c edge-terrarium; then
+        print_error "Failed to import Kong image into k3d cluster"
+        exit 1
+    fi
+    
+    # Install Kong with custom image containing TLS certificates
     helm install kong kong/kong \
+        --set image.repository=edge-terrarium-kong \
+        --set image.tag=latest \
         --set ingressController.enabled=true \
         --set ingressController.ingressClass=kong \
         --set admin.enabled=false \
