@@ -4,7 +4,10 @@
 # TERRARIUM DEPLOYMENT SCRIPT
 # =============================================================================
 # This script deploys the Terrarium application to either Docker Compose
-# or Minikube based on the environment specified
+# or K3s based on the environment specified
+#
+# Environment Variables:
+#   CLEANUP_DASHBOARD=true - Force cleanup of Kubernetes Dashboard during teardown
 
 set -e
 
@@ -543,24 +546,27 @@ deploy_k3s() {
     fi
     
     
-    # Install Kubernetes Dashboard
-    print_status "Installing Kubernetes Dashboard..."
+    # Install Kubernetes Dashboard (only if not already installed)
+    print_status "Checking Kubernetes Dashboard installation..."
     helm repo add kubernetes-dashboard https://kubernetes.github.io/dashboard/ >/dev/null 2>&1 || true
-    helm repo update >/dev/null 2>&1
     
-    # Uninstall any existing dashboard installation
-    helm uninstall kubernetes-dashboard -n kubernetes-dashboard >/dev/null 2>&1 || true
-    sleep 2
-    
-    # Install Kubernetes Dashboard
-    helm upgrade --install kubernetes-dashboard kubernetes-dashboard/kubernetes-dashboard \
-        --create-namespace \
-        --namespace kubernetes-dashboard \
-        --set kong.proxy.type=LoadBalancer \
-        --set kong.proxy.http.enabled=true \
-        --set kong.proxy.http.containerPort=8000 \
-        --set kong.proxy.http.servicePort=80 \
-        >/dev/null 2>&1
+    # Check if dashboard is already installed
+    if helm list -n kubernetes-dashboard | grep -q "kubernetes-dashboard"; then
+        print_status "Kubernetes Dashboard is already installed, skipping installation"
+    else
+        print_status "Installing Kubernetes Dashboard..."
+        helm repo update >/dev/null 2>&1
+        
+        # Install Kubernetes Dashboard
+        helm install kubernetes-dashboard kubernetes-dashboard/kubernetes-dashboard \
+            --create-namespace \
+            --namespace kubernetes-dashboard \
+            --set kong.proxy.type=LoadBalancer \
+            --set kong.proxy.http.enabled=true \
+            --set kong.proxy.http.containerPort=8000 \
+            --set kong.proxy.http.servicePort=80 \
+            >/dev/null 2>&1
+    fi
     
     print_status "Waiting for Kubernetes Dashboard to be ready..."
     kubectl wait --for=condition=available --timeout=120s deployment/kubernetes-dashboard-kong -n kubernetes-dashboard
@@ -887,9 +893,14 @@ clean_k3s() {
             kubectl delete -k configs/k3s/ --ignore-not-found=true
             kubectl delete secret edge-terrarium-tls -n edge-terrarium --ignore-not-found=true
             
-            # Clean up Kubernetes Dashboard
-            helm uninstall kubernetes-dashboard -n kubernetes-dashboard --ignore-not-found=true
-            kubectl delete namespace kubernetes-dashboard --ignore-not-found=true
+            # Clean up Kubernetes Dashboard (only if explicitly requested)
+            if [ "$CLEANUP_DASHBOARD" = "true" ]; then
+                print_status "Cleaning up Kubernetes Dashboard..."
+                helm uninstall kubernetes-dashboard -n kubernetes-dashboard --ignore-not-found=true
+                kubectl delete namespace kubernetes-dashboard --ignore-not-found=true
+            else
+                print_status "Skipping Kubernetes Dashboard cleanup (use CLEANUP_DASHBOARD=true to force cleanup)"
+            fi
             
             print_status "Deleting k3d cluster 'edge-terrarium'..."
             k3d cluster delete edge-terrarium
