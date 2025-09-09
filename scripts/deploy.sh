@@ -294,7 +294,7 @@ deploy_docker() {
     echo "  - Vault: http://localhost:8200"
     echo ""
     echo "To test the deployment:"
-    echo "  ./scripts/test-docker.sh"
+    echo "  ./scripts/test.sh"
 }
 
 # Function to deploy to K3s
@@ -843,7 +843,7 @@ deploy_k3s() {
     echo "  Alternative: kubectl -n kubernetes-dashboard port-forward svc/kubernetes-dashboard-kong-proxy 9443:443"
     echo ""
     echo "To test the deployment:"
-    echo "  ./scripts/test-k3s.sh"
+    echo "  ./scripts/test.sh"
     echo ""
     echo "To stop port forwarding:"
     echo "  Vault: kill \$(cat /tmp/vault-port-forward.pid) && rm /tmp/vault-port-forward.pid"
@@ -857,13 +857,13 @@ deploy_k3s() {
 # Function to test Docker Compose deployment
 test_docker() {
     print_status "Testing Docker Compose deployment..."
-    ./scripts/test-docker.sh
+    ./scripts/test.sh
 }
 
 # Function to test K3s deployment
 test_k3s() {
     print_status "Testing K3s deployment..."
-    ./scripts/test-k3s.sh
+    ./scripts/test.sh
 }
 
 # Function to clean up Docker Compose

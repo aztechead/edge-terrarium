@@ -140,7 +140,7 @@ cd edge-terrarium
 ./scripts/deploy.sh docker deploy
 
 # Test the application
-./scripts/test-docker.sh
+./scripts/test.sh
 ```
 
 ### Option 2: K3s (Recommended if you're familiar with containers)
@@ -149,7 +149,7 @@ cd edge-terrarium
 ./scripts/deploy.sh k3s deploy
 
 # Test the application
-./scripts/test-k3s.sh
+./scripts/test.sh
 ```
 
 ### Available Script Arguments
@@ -185,8 +185,7 @@ logs      # Show application logs
 ./scripts/build-images-k3s.sh       # Build images for K3s
 
 # Testing scripts
-./scripts/test-docker.sh             # Test Docker Compose deployment
-./scripts/test-k3s.sh               # Test K3s deployment
+./scripts/test.sh                   # Test both Docker Compose and K3s deployments
 
 # Utility scripts
 ./scripts/generate-tls-certs.sh     # Generate TLS certificates
@@ -291,7 +290,7 @@ Docker is a containerization platform that packages applications and their depen
 #### Step 3: Test the Application
 ```bash
 # This sends test requests to verify everything works
-./scripts/test-docker.sh
+./scripts/test.sh
 ```
 
 ### Understanding Docker Compose
@@ -467,7 +466,7 @@ The script automatically:
 #### Step 3: Test the Application
 ```bash
 # This tests the K3s deployment
-./scripts/test-k3s.sh
+./scripts/test.sh
 ```
 
 #### Step 4: Access the Kubernetes Dashboard
@@ -1777,7 +1776,7 @@ edge-terrarium/
 │   ├── build-images.sh     # Docker image building
 │   ├── build-images-k3s.sh # K3s image building
 │   ├── test-setup.sh       # Docker testing
-│   ├── test-k3s.sh         # Kubernetes testing
+│   ├── test.sh             # Unified testing for both environments
 │   ├── generate-tls-certs.sh # Certificate generation
 │   ├── init-vault-enhanced.sh # Vault initialization
 │   ├── create-k3s-tls-secret.sh # K3s TLS secret creation
@@ -1891,7 +1890,7 @@ spec:
 
 #### Docker Testing
 ```bash
-./scripts/test-docker.sh
+./scripts/test.sh
 ```
 **Tests**:
 - Service health checks
@@ -1904,7 +1903,7 @@ spec:
 
 #### Kubernetes Testing
 ```bash
-./scripts/test-k3s.sh
+./scripts/test.sh
 ```
 **Tests**:
 - Pod status and health
