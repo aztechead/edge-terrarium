@@ -33,7 +33,7 @@ void send_log_to_logthon(const char* level, const char* message) {
         logthon_port = "5000";
     }
     
-    snprintf(logthon_url, sizeof(logthon_url), "http://%s:%s/api/logs", logthon_host, logthon_port);
+    snprintf(logthon_url, sizeof(logthon_url), "http://%s:%s/logs", logthon_host, logthon_port);
     
     // Get container ID from hostname (pod name in Kubernetes)
     const char* container_id = getenv("HOSTNAME");

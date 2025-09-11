@@ -11,15 +11,15 @@ services:
       context: ./apps/{{ app.name }}
       dockerfile: {{ app.docker.dockerfile }}
     {% endif %}
-    {% if app.name == 'nginx' %}
+    {% if app.runtime.port_forward %}
+    ports:
+      - "{{ app.runtime.port_forward }}:{{ app.runtime.port }}"
+    {% elif app.name == 'nginx' %}
     ports:
       - "8443:443"
     {% elif app.name == 'vault' %}
     ports:
       - "8200:8200"
-    {% elif app.runtime.port_forward %}
-    ports:
-      - "{{ app.runtime.port_forward }}:{{ app.runtime.port }}"
     {% endif %}
     {% if app.environment %}
     environment:
@@ -55,7 +55,7 @@ services:
       - vault
     {% endif %}
     networks:
-      - edge-terrarium
+      - {{ global_config.network_name }}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:{{ app.runtime.port }}{{ app.runtime.health_check_path }}"]
@@ -74,5 +74,5 @@ volumes:
 {% endfor %}
 
 networks:
-  edge-terrarium:
+  {{ global_config.network_name }}:
     driver: bridge

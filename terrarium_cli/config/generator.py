@@ -10,6 +10,7 @@ from jinja2 import Environment, FileSystemLoader
 
 from terrarium_cli.config.app_loader import AppConfig
 from terrarium_cli.config.nginx_generator import NginxConfigGenerator
+from terrarium_cli.config.global_config import load_global_config
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +23,7 @@ class ConfigGenerator:
         self.templates_dir = Path("terrarium_cli/templates")
         self.configs_dir = Path("configs")
         self.jinja_env = Environment(loader=FileSystemLoader(self.templates_dir))
+        self.global_config = load_global_config()
         
         # Initialize NGINX config generator
         self.nginx_generator = NginxConfigGenerator()
@@ -92,7 +94,7 @@ class ConfigGenerator:
     def _generate_main_docker_compose(self, config_dir: Path, apps: List[AppConfig]) -> None:
         """Generate main docker-compose.yml file."""
         template = self.jinja_env.get_template('docker-compose.yml.j2')
-        compose_content = template.render(apps=apps)
+        compose_content = template.render(apps=apps, global_config=self.global_config)
         
         compose_file = config_dir / "docker-compose.yml"
         with open(compose_file, 'w') as f:
@@ -306,7 +308,7 @@ class ConfigGenerator:
     def _generate_deployment(self, config_dir: Path, app: AppConfig) -> None:
         """Generate deployment manifest for an app."""
         template = self.jinja_env.get_template('k3s-deployment.yaml.j2')
-        deployment_content = template.render(app=app)
+        deployment_content = template.render(app=app, global_config=self.global_config)
         
         with open(config_dir / f"{app.name}-deployment.yaml", 'w') as f:
             f.write(deployment_content)
@@ -400,7 +402,7 @@ class ConfigGenerator:
     def _generate_service(self, config_dir: Path, app: AppConfig) -> None:
         """Generate service manifest for an app."""
         template = self.jinja_env.get_template('k3s-service.yaml.j2')
-        service_content = template.render(app=app)
+        service_content = template.render(app=app, global_config=self.global_config)
         
         with open(config_dir / f"{app.name}-service.yaml", 'w') as f:
             f.write(service_content)
@@ -417,7 +419,7 @@ class ConfigGenerator:
     def _generate_nginx_k3s_config(self, config_dir: Path, apps: List[AppConfig]) -> None:
         """Generate NGINX configuration for K3s."""
         template = self.jinja_env.get_template('k3s-ingress.yaml.j2')
-        ingress_content = template.render(apps=apps)
+        ingress_content = template.render(apps=apps, global_config=self.global_config)
         
         with open(config_dir / "ingress.yaml", 'w') as f:
             f.write(ingress_content)

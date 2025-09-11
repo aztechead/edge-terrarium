@@ -34,13 +34,13 @@ environment:
 
 # Routing Configuration
 routes:
-  - path: /api/custom-client/*
+  - path: /custom-client/*
     target: /
     strip_prefix: true
-  - path: /api/fake-provider/*
+  - path: /fake-provider/*
     target: /
     strip_prefix: false
-  - path: /api/example-provider/*
+  - path: /example-provider/*
     target: /
     strip_prefix: false
 

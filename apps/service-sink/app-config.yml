@@ -27,16 +27,8 @@ environment:
     value: "5000"
 
 # Routing Configuration
-routes:
-  - path: /api/service-sink/*
-    target: /
-    strip_prefix: true
-  - path: /api/*
-    target: /
-    strip_prefix: true
-  - path: /
-    target: /
-    strip_prefix: false
+# Service-sink is the catch-all - no specific routes defined
+routes: []
 
 # Dependencies
 dependencies:

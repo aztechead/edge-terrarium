@@ -10,8 +10,9 @@ upstream {{ app.name }} {
 
 # Main server block
 server {
-    listen 80;
-    listen 443 ssl;
+    listen 80 default_server;
+    listen 443 ssl default_server;
+    server_name edge-terrarium.local;
     
     # SSL configuration
     ssl_certificate /etc/nginx/ssl/tls.crt;
@@ -39,12 +40,21 @@ server {
         add_header Content-Type text/plain;
     }
 
-    # Route configurations - specific routes first
+    # Route configurations - generated from app route configurations
     {% if apps %}
     {% for app in apps %}
-    {% if app.name == 'custom-client' %}
-    location /api/fake-provider/ {
-        proxy_pass http://custom-client/;
+    {% for route in app.routes %}
+    {% if route.path != '/' %}
+    location {{ '/api' + route.path.replace('*', '') }} {
+        {% if route.strip_prefix %}
+        # Strip prefix: /api{{ route.path }} -> {{ route.target }}
+        rewrite ^/api{{ route.path | replace('*', '(.*)') }}$ {{ route.target }}$1 break;
+        {% endif %}
+        {% if route.strip_prefix %}
+        proxy_pass http://{{ app.name }}{{ route.target }};
+        {% else %}
+        proxy_pass http://{{ app.name }};
+        {% endif %}
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -58,75 +68,40 @@ server {
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
-    }
-    location /api/example-provider/ {
-        proxy_pass http://custom-client/;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_connect_timeout 30s;
-        proxy_send_timeout 30s;
-        proxy_read_timeout 30s;
-        proxy_buffering on;
-        proxy_buffer_size 4k;
-        proxy_buffers 8 4k;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-    }
-    {% elif app.name == 'file-storage' %}
-    location /api/storage/ {
-        proxy_pass http://file-storage/;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_connect_timeout 30s;
-        proxy_send_timeout 30s;
-        proxy_read_timeout 30s;
-        proxy_buffering on;
-        proxy_buffer_size 4k;
-        proxy_buffers 8 4k;
-    }
-    {% elif app.name == 'logthon' %}
-    location /api/logs/ {
-        proxy_pass http://logthon/;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_connect_timeout 30s;
-        proxy_send_timeout 30s;
-        proxy_read_timeout 30s;
-        proxy_buffering on;
-        proxy_buffer_size 4k;
-        proxy_buffers 8 4k;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-    }
-    {% elif app.name == 'vault' %}
-    location /api/vault/ {
-        proxy_pass http://vault/;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_connect_timeout 30s;
-        proxy_send_timeout 30s;
-        proxy_read_timeout 30s;
-        proxy_buffering on;
-        proxy_buffer_size 4k;
-        proxy_buffers 8 4k;
     }
     {% endif %}
     {% endfor %}
+    {% endfor %}
     {% endif %}
 
-    # Default route (catch-all)
+    # Catch-all for unmatched /api/* requests
+    location /api/ {
+        proxy_pass http://service-sink/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_connect_timeout 30s;
+        proxy_send_timeout 30s;
+        proxy_read_timeout 30s;
+        proxy_buffering on;
+        proxy_buffer_size 4k;
+        proxy_buffers 8 4k;
+    }
+
+    # Root route (catch-all) - use the first app that has a root route, or service-sink as default
+    {% set root_app = 'service-sink' %}
+    {% if apps %}
+    {% for app in apps %}
+    {% for route in app.routes %}
+    {% if route.path == '/' %}
+    {% set root_app = app.name %}
+    {% endif %}
+    {% endfor %}
+    {% endfor %}
+    {% endif %}
     location / {
-        proxy_pass http://service-sink;
+        proxy_pass http://{{ root_app }};
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;

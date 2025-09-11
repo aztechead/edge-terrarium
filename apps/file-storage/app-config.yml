@@ -34,10 +34,10 @@ environment:
 
 # Routing Configuration
 routes:
-  - path: /api/file-storage/*
+  - path: /file-storage/*
     target: /
     strip_prefix: true
-  - path: /api/storage/*
+  - path: /storage/*
     target: /
     strip_prefix: true
 

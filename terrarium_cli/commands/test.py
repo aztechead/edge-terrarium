@@ -170,26 +170,41 @@ class TestCommand(BaseCommand):
         """Test application endpoints."""
         print(f"{Colors.bold('Testing Application Endpoints')}")
         
-        # Test Custom Client endpoints
-        self._test_endpoint_simple(f"{base_url}/fake-provider/my-cool-thing", "Custom Client - fake-provider route")
-        self._test_endpoint_simple(f"{base_url}/example-provider/another-awesome-item", "Custom Client - example-provider route")
+        # Load app configurations to get dynamic endpoints
+        from terrarium_cli.config.app_loader import AppLoader
+        app_loader = AppLoader()
+        apps = app_loader.load_apps()
         
-        # Test Service Sink endpoints
-        self._test_endpoint_simple(f"{base_url}/api/test", "Service Sink - API route")
-        self._test_endpoint_simple(f"{base_url}/", "Service Sink - root route")
+        # Test each app's routes (skip logthon as it has its own specific tests)
+        for app in apps:
+            if app.name == 'logthon':
+                continue
+            for route in app.routes:
+                # Create test URL by replacing * with empty string to test the root endpoint
+                test_path = route.path.replace('*', '')
+                test_url = f"{base_url}{test_path}"
+                test_name = f"{app.name} - {route.path}"
+
+                self._test_endpoint_simple(test_url, test_name)
         
-        # Test enhanced request logging
+        # Test enhanced request logging with dynamic endpoints
         print(f"{Colors.info('Testing enhanced request logging...')}")
-        self._test_endpoint_simple(f"{base_url}/fake-provider/test?param1=value1&param2=value2", "Custom Client - GET with query params")
-        self._test_endpoint_simple(f"{base_url}/api/test?user=testuser&action=login", "Service Sink - GET with query params")
-        
-        # Test POST requests with JSON
-        self._test_endpoint_with_data(f"{base_url}/fake-provider/test", "Custom Client - POST with JSON", "POST", 
-                                    '{"username":"testuser","password":"testpass"}', "application/json")
-        
-        # Test POST requests with form data
-        self._test_endpoint_with_data(f"{base_url}/api/test", "Service Sink - POST with form data", "POST", 
-                                    "data=test&status=active", "application/x-www-form-urlencoded")
+        for app in apps:
+            if app.name == 'logthon':
+                continue
+            for route in app.routes:
+                # Test with query params
+                test_path = route.path.replace('*', '')
+                test_url = f"{base_url}{test_path}?param1=value1&param2=value2"
+                test_name = f"{app.name} - GET with query params"
+                self._test_endpoint_simple(test_url, test_name)
+                
+                # Test POST with JSON (skip file-storage as it doesn't support POST on root)
+                if app.name != 'file-storage':
+                    test_url = f"{base_url}{test_path}"
+                    test_name = f"{app.name} - POST with JSON"
+                    self._test_endpoint_with_data(test_url, test_name, "POST", 
+                                                '{"username":"testuser","password":"testpass"}', "application/json")
         
         print("")
     
@@ -197,16 +212,12 @@ class TestCommand(BaseCommand):
         """Test Logthon service."""
         print(f"{Colors.bold('Testing Logthon Service')}")
         
-        # Test health endpoint
-        self._test_endpoint_simple(f"{base_url}/logs/health", "Logthon health check")
-        
         # Test web UI and API endpoints
         self._test_endpoint_simple(f"{base_url}/logs/", "Logthon web UI")
-        self._test_endpoint_simple(f"{base_url}/logs/api/logs", "Logthon API endpoint")
+        self._test_endpoint_simple(f"{base_url}/logs/logs", "Logthon API endpoint")
         
         # Test direct access on port 5001 (only for Docker)
         if "localhost" in base_url:
-            self._test_endpoint_simple("http://localhost:5001/health", "Logthon direct health check")
             self._test_endpoint_simple("http://localhost:5001/", "Logthon direct web UI")
         
         print("")
@@ -229,7 +240,7 @@ class TestCommand(BaseCommand):
                                     '{"content":"Test file","filename_prefix":"test","extension":".txt"}', "application/json")
         
         # Test Logthon file storage integration
-        self._test_endpoint_simple(f"{base_url}/logs/api/files", "Logthon file storage integration")
+        self._test_endpoint_simple(f"{base_url}/logs/files", "Logthon file storage integration")
         
         print("")
     

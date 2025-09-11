@@ -58,10 +58,6 @@ class DeployCommand(BaseCommand):
             if not self._start_docker_services():
                 return 1
             
-            # Wait for Vault to be ready
-            print(f"{Colors.info('Waiting for Vault to be ready...')}")
-            import time
-            time.sleep(10)  # Wait for Vault to start
             
             # Initialize Vault with secrets
             print(f"{Colors.info('Initializing Vault with secrets...')}")

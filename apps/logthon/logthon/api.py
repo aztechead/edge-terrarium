@@ -49,7 +49,7 @@ def _add_routes(app: FastAPI) -> None:
         """Serve the log viewing UI."""
         return HTMLResponse(content=get_log_ui_html())
     
-    @app.post("/api/logs", response_model=ApiResponse)
+    @app.post("/logs", response_model=ApiResponse)
     async def submit_log(log_submission: LogSubmission):
         """Endpoint for services to submit logs."""
         try:
@@ -66,7 +66,7 @@ def _add_routes(app: FastAPI) -> None:
             logger.error(f"Error adding log entry: {e}")
             raise HTTPException(status_code=500, detail="Failed to add log entry")
     
-    @app.get("/api/logs", response_model=LogsResponse)
+    @app.get("/logs", response_model=LogsResponse)
     async def get_logs(service: Optional[str] = None, limit: int = 100):
         """Get recent logs, optionally filtered by service."""
         try:
@@ -114,7 +114,7 @@ def _add_routes(app: FastAPI) -> None:
             log_counts=log_storage.get_log_counts()
         )
     
-    @app.delete("/api/logs")
+    @app.delete("/logs")
     async def clear_logs(service: Optional[str] = None):
         """Clear logs for a specific service or all services."""
         try:
@@ -127,7 +127,7 @@ def _add_routes(app: FastAPI) -> None:
             logger.error(f"Error clearing logs: {e}")
             raise HTTPException(status_code=500, detail="Failed to clear logs")
     
-    @app.get("/api/storage/info")
+    @app.get("/storage/info")
     async def get_storage_info():
         """Get information about log storage."""
         try:
@@ -137,7 +137,7 @@ def _add_routes(app: FastAPI) -> None:
             logger.error(f"Error getting storage info: {e}")
             raise HTTPException(status_code=500, detail="Failed to get storage info")
     
-    @app.get("/api/websocket/info")
+    @app.get("/websocket/info")
     async def get_websocket_info():
         """Get information about WebSocket connections."""
         try:
@@ -148,7 +148,7 @@ def _add_routes(app: FastAPI) -> None:
             raise HTTPException(status_code=500, detail="Failed to get WebSocket info")
     
     # File Storage Proxy Endpoints
-    @app.get("/api/files")
+    @app.get("/files")
     async def get_files():
         """Proxy request to file storage service to get list of files."""
         try:
@@ -162,7 +162,7 @@ def _add_routes(app: FastAPI) -> None:
             logger.error(f"Error getting files: {e}")
             raise HTTPException(status_code=500, detail="Failed to get files")
     
-    @app.get("/api/files/{filename}")
+    @app.get("/files/{filename}")
     async def get_file(filename: str):
         """Proxy request to file storage service to get specific file content."""
         try:
@@ -180,7 +180,7 @@ def _add_routes(app: FastAPI) -> None:
             logger.error(f"Error getting file {filename}: {e}")
             raise HTTPException(status_code=500, detail="Failed to get file")
     
-    @app.delete("/api/files/{filename}")
+    @app.delete("/files/{filename}")
     async def delete_file(filename: str):
         """Proxy request to file storage service to delete specific file."""
         try:
@@ -198,7 +198,7 @@ def _add_routes(app: FastAPI) -> None:
             logger.error(f"Error deleting file {filename}: {e}")
             raise HTTPException(status_code=500, detail="Failed to delete file")
     
-    @app.delete("/api/files")
+    @app.delete("/files")
     async def clear_all_files():
         """Proxy request to file storage service to clear all files."""
         try:

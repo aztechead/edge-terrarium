@@ -31,10 +31,10 @@ environment:
 
 # Routing Configuration
 routes:
-  - path: /api/logthon/*
+  - path: /logthon/*
     target: /
     strip_prefix: true
-  - path: /api/logs/*
+  - path: /logs/*
     target: /
     strip_prefix: true
 

@@ -28,7 +28,7 @@ environment:
 
 # Routing Configuration
 routes:
-  - path: /api/vault/*
+  - path: /vault/*
     target: /
     strip_prefix: true
 

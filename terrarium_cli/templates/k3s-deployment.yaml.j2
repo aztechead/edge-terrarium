@@ -2,10 +2,10 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ app.name }}
-  namespace: edge-terrarium
+  namespace: {{ global_config.namespace }}
   labels:
     app: {{ app.name }}
-    project: edge-terrarium
+    project: {{ global_config.project_name }}
 spec:
   replicas: 1
   selector:
@@ -15,7 +15,7 @@ spec:
     metadata:
       labels:
         app: {{ app.name }}
-        project: edge-terrarium
+        project: {{ global_config.project_name }}
     spec:
       containers:
       - name: {{ app.name }}

@@ -2,10 +2,10 @@ apiVersion: v1
 kind: Service
 metadata:
   name: {{ app.name }}
-  namespace: edge-terrarium
+  namespace: {{ global_config.namespace }}
   labels:
     app: {{ app.name }}
-    project: edge-terrarium
+    project: {{ global_config.project_name }}
 spec:
   selector:
     app: {{ app.name }}

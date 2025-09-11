@@ -488,7 +488,7 @@ def _get_javascript_code(service_colors_json: str) -> str:
         // File storage functionality
         async function refreshFiles() {{
             try {{
-                const response = await fetch('/api/files');
+                const response = await fetch('/files');
                 const data = await response.json();
                 files = data.files || [];
                 renderFiles();
@@ -540,7 +540,7 @@ def _get_javascript_code(service_colors_json: str) -> str:
         
         async function viewFile(filename) {{
             try {{
-                const response = await fetch(`/api/files/${{encodeURIComponent(filename)}}`);
+                const response = await fetch(`/files/${{encodeURIComponent(filename)}}`);
                 const data = await response.json();
                 
                 // Create a modal or new window to display the file content
@@ -568,7 +568,7 @@ def _get_javascript_code(service_colors_json: str) -> str:
             }}
             
             try {{
-                const response = await fetch(`/api/files/${{encodeURIComponent(filename)}}`, {{
+                const response = await fetch(`/files/${{encodeURIComponent(filename)}}`, {{
                     method: 'DELETE'
                 }});
                 
@@ -589,7 +589,7 @@ def _get_javascript_code(service_colors_json: str) -> str:
             }}
             
             try {{
-                const response = await fetch('/api/files', {{
+                const response = await fetch('/files', {{
                     method: 'DELETE'
                 }});
                 

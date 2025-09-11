@@ -21,10 +21,7 @@ runtime:
 environment: []
 
 # Routing Configuration
-routes:
-  - path: /api/*
-    target: /
-    strip_prefix: true
+routes: []
 
 # Dependencies
 dependencies:

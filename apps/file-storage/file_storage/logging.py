@@ -15,7 +15,7 @@ class LoggingManager:
     
     def __init__(self, config: Config):
         self.config = config
-        self.logthon_url = f"http://{config.logging.logthon_host}:{config.logging.logthon_port}/api/logs"
+        self.logthon_url = f"http://{config.logging.logthon_host}:{config.logging.logthon_port}/logs"
         self.service_name = config.logging.service_name
     
     def _send_log(self, level: str, message: str, metadata: Optional[dict] = None) -> None:

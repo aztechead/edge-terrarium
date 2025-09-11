@@ -15,7 +15,6 @@ metadata:
     nginx.ingress.kubernetes.io/cors-allow-headers: "DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization"
     nginx.ingress.kubernetes.io/cors-expose-headers: "Content-Length,Content-Range"
     nginx.ingress.kubernetes.io/use-regex: "true"
-    # Rewrite rules for strip_prefix: true routes
     nginx.ingress.kubernetes.io/rewrite-target: /$1
 spec:
   tls:
@@ -26,80 +25,122 @@ spec:
   - host: edge-terrarium.local
     http:
       paths:
-      # File Storage routes with strip_prefix: true
-      - path: /api/file-storage/(.*)
-        pathType: ImplementationSpecific
-        backend:
-          service:
-            name: file-storage
-            port:
-              number: 9000
-      - path: /api/storage/(.*)
-        pathType: ImplementationSpecific
-        backend:
-          service:
-            name: file-storage
-            port:
-              number: 9000
-      # Custom Client routes with strip_prefix: true
-      - path: /api/custom-client/(.*)
-        pathType: ImplementationSpecific
-        backend:
-          service:
-            name: custom-client
-            port:
-              number: 1337
-      # Custom Client routes with strip_prefix: false (no rewriting)
-      - path: /api/fake-provider/(.*)
-        pathType: ImplementationSpecific
-        backend:
-          service:
-            name: custom-client
-            port:
-              number: 1337
-      - path: /api/example-provider/(.*)
-        pathType: ImplementationSpecific
-        backend:
-          service:
-            name: custom-client
-            port:
-              number: 1337
-      # Logthon routes with strip_prefix: true
-      - path: /api/logthon/(.*)
-        pathType: ImplementationSpecific
-        backend:
-          service:
-            name: logthon
-            port:
-              number: 5000
-      - path: /api/logs/(.*)
-        pathType: ImplementationSpecific
-        backend:
-          service:
-            name: logthon
-            port:
-              number: 5000
-      # Vault routes with strip_prefix: true
-      - path: /api/vault/(.*)
-        pathType: ImplementationSpecific
-        backend:
-          service:
-            name: vault
-            port:
-              number: 8200
-      # Service Sink routes with strip_prefix: true (catch-all)
-      - path: /api/(.*)
-        pathType: ImplementationSpecific
-        backend:
-          service:
-            name: service-sink
-            port:
-              number: 8080
-      # Root path fallback
-      - path: /
-        pathType: ImplementationSpecific
-        backend:
-          service:
-            name: service-sink
-            port:
-              number: 8080
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+             
+             - path: /api/file-storage/(.*)
+               pathType: ImplementationSpecific
+               backend:
+                 service:
+                   name: file-storage
+                   port:
+                     number: 9000
+             
+             - path: /api/storage/(.*)
+               pathType: ImplementationSpecific
+               backend:
+                 service:
+                   name: file-storage
+                   port:
+                     number: 9000
+             
+             - path: /api/custom-client/(.*)
+               pathType: ImplementationSpecific
+               backend:
+                 service:
+                   name: custom-client
+                   port:
+                     number: 1337
+             
+             - path: /api/fake-provider/(.*)
+               pathType: ImplementationSpecific
+               backend:
+                 service:
+                   name: custom-client
+                   port:
+                     number: 1337
+             
+             - path: /api/example-provider/(.*)
+               pathType: ImplementationSpecific
+               backend:
+                 service:
+                   name: custom-client
+                   port:
+                     number: 1337
+             
+             - path: /api/logthon/(.*)
+               pathType: ImplementationSpecific
+               backend:
+                 service:
+                   name: logthon
+                   port:
+                     number: 5000
+             
+             - path: /api/logs/(.*)
+               pathType: ImplementationSpecific
+               backend:
+                 service:
+                   name: logthon
+                   port:
+                     number: 5000
+             
+             - path: /api/vault/(.*)
+               pathType: ImplementationSpecific
+               backend:
+                 service:
+                   name: vault
+                   port:
+                     number: 8200
+             
+             # Catch-all for unmatched /api/* requests
+             - path: /api/(.*)
+               pathType: ImplementationSpecific
+               backend:
+                 service:
+                   name: service-sink
+                   port:
+                     number: 8080
+             # Root path fallback (catch-all)
+             - path: /
+               pathType: ImplementationSpecific
+               backend:
+                 service:
+                   name: service-sink
+                   port:
+                     number: 8080
