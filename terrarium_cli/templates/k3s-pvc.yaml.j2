@@ -1,0 +1,21 @@
+{% for app in apps %}
+{% if app.volumes %}
+{% for volume in app.volumes %}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ volume.name }}-pvc
+  namespace: edge-terrarium
+  labels:
+    app: {{ app.name }}
+    project: edge-terrarium
+spec:
+  accessModes:
+    - {{ volume.access_mode }}
+  resources:
+    requests:
+      storage: {{ volume.size }}
+{% endfor %}
+{% endif %}
+{% endfor %}

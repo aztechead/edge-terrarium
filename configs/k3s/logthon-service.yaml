@@ -1,46 +1,17 @@
-# =============================================================================
-# LOGTHON SERVICE
-# =============================================================================
-# This service exposes the Logthon log aggregation service within the Kubernetes cluster.
-# It provides internal cluster access to the Logthon web UI and API endpoints.
-#
-# Key Concepts:
-# - Service: Provides a stable IP address and DNS name for pods
-# - ClusterIP: Internal cluster IP address (not accessible from outside)
-# - Port Mapping: Maps service ports to pod ports
-# - Selector: How the service finds the pods to route traffic to
-# - DNS Resolution: Services are accessible via DNS within the cluster
-#
-# Impact:
-# - Provides stable network access to Logthon pods
-# - Creates DNS name 'logthon-service.edge-terrarium.svc.cluster.local'
-# - Routes traffic to pods with matching labels
-# - Enables ingress controller to route external traffic to Logthon
-# - Provides internal cluster access to log aggregation UI
-#
-# Documentation: https://kubernetes.io/docs/concepts/services-networking/service/
-# =============================================================================
-
-apiVersion: v1                        # Core API version for Service resources
-kind: Service                         # Resource type - creates a service
-metadata:                             # Metadata about this service
-  name: logthon-service              # Name of the service (used in DNS resolution)
-  namespace: edge-terrarium          # Namespace where this service lives
-  labels:                             # Labels for organization and selection
-    app: logthon                      # Identifies this as a Logthon service component
-    project: edge-terrarium           # Identifies this as part of the edge-terrarium project
-    environment: development          # Identifies this as a development environment
-    component: logging                # Identifies this as a logging component
-spec:                                 # Specification for the service
-  type: LoadBalancer                  # LoadBalancer service - accessible from outside cluster  
-  ports:                              # List of ports this service exposes
-  - port: 5001                        # Port number on the service (external access)
-    targetPort: 5000                  # Port number on the target pods (container port)
-    protocol: TCP                     # Protocol type (TCP or UDP)
-    name: http                        # Name for the port (referenced in other resources)
-
-  # Selector for finding pods to route traffic to
-  # This service will route traffic to pods with these labels
-  # Must match the labels in the Logthon deployment pod template
+apiVersion: v1
+kind: Service
+metadata:
+  name: logthon
+  namespace: edge-terrarium
+  labels:
+    app: logthon
+    project: edge-terrarium
+spec:
   selector:
-    app: logthon                      # Select pods with this label
+    app: logthon
+  ports:
+  - port: 5000
+    targetPort: 5000
+    protocol: TCP
+    name: http
+  type: ClusterIP

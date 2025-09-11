@@ -1,0 +1,125 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ app.name }}
+  namespace: edge-terrarium
+  labels:
+    app: {{ app.name }}
+    project: edge-terrarium
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ app.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ app.name }}
+        project: edge-terrarium
+    spec:
+      containers:
+      - name: {{ app.name }}
+        {% if app.docker.image_name == 'hashicorp/vault' %}
+        image: {{ app.docker.image_name }}:{{ app.docker.tag }}
+        {% else %}
+        image: {{ app.docker.image_name }}:{{ app.docker.tag }}
+        {% endif %}
+        {% if app.docker.build_context is defined and app.docker.build_context %}
+        imagePullPolicy: Never
+        {% else %}
+        imagePullPolicy: IfNotPresent
+        {% endif %}
+        {% if app.runtime.command %}
+        command: {{ app.runtime.command }}
+        {% endif %}
+        {% if app.runtime.args %}
+        args: {{ app.runtime.args }}
+        {% endif %}
+        ports:
+        - containerPort: {{ app.runtime.port }}
+          name: http
+        {% if app.environment %}
+        env:
+          {% for env in app.environment %}
+          - name: {{ env.name }}
+            {% if env.value %}
+            value: "{{ env.value }}"
+            {% elif env.value_from %}
+            valueFrom:
+              fieldRef:
+                fieldPath: {{ env.value_from }}
+            {% endif %}
+          {% endfor %}
+        {% endif %}
+        {% if app.volumes or app.name == 'nginx' %}
+        volumeMounts:
+          {% if app.name == 'nginx' %}
+          - name: nginx-config
+            mountPath: /etc/nginx/nginx.conf
+            subPath: nginx.conf
+          - name: nginx-config
+            mountPath: /etc/nginx/conf.d/server.conf
+            subPath: server.conf
+          - name: nginx-ssl
+            mountPath: /etc/nginx/ssl
+          {% endif %}
+          {% for volume in app.volumes %}
+          - name: {{ volume.name }}
+            mountPath: {{ volume.mount_path }}
+          {% endfor %}
+        {% endif %}
+        {% if app.health_checks %}
+        {% for check_name, check in app.health_checks.items() %}
+        {% if check_name == 'liveness' %}
+        livenessProbe:
+          httpGet:
+            path: {{ check.path }}
+            port: {{ check.port }}
+          initialDelaySeconds: {{ check.period_seconds }}
+          periodSeconds: {{ check.period_seconds }}
+          timeoutSeconds: {{ check.timeout_seconds }}
+          failureThreshold: {{ check.failure_threshold }}
+        {% elif check_name == 'readiness' %}
+        readinessProbe:
+          httpGet:
+            path: {{ check.path }}
+            port: {{ check.port }}
+          initialDelaySeconds: 5
+          periodSeconds: {{ check.period_seconds }}
+          timeoutSeconds: {{ check.timeout_seconds }}
+          failureThreshold: {{ check.failure_threshold }}
+        {% endif %}
+        {% endfor %}
+        {% endif %}
+        resources:
+          requests:
+            cpu: {{ app.resources.cpu.request }}
+            memory: {{ app.resources.memory.request }}
+          limits:
+            cpu: {{ app.resources.cpu.limit }}
+            memory: {{ app.resources.memory.limit }}
+        {% if app.name != 'vault' %}
+        securityContext:
+          runAsNonRoot: {{ app.security.run_as_non_root | lower }}
+          runAsUser: {{ app.security.run_as_user }}
+          runAsGroup: {{ app.security.run_as_group }}
+          allowPrivilegeEscalation: {{ app.security.allow_privilege_escalation | lower }}
+          readOnlyRootFilesystem: {{ app.security.read_only_root_filesystem | lower }}
+        {% endif %}
+      {% if app.volumes or app.name == 'nginx' %}
+      volumes:
+        {% if app.name == 'nginx' %}
+        - name: nginx-config
+          configMap:
+            name: nginx-config
+        - name: nginx-ssl
+          secret:
+            secretName: nginx-ssl
+        {% else %}
+        {% for volume in app.volumes %}
+        - name: {{ volume.name }}
+          persistentVolumeClaim:
+            claimName: {{ volume.name }}-pvc
+        {% endfor %}
+        {% endif %}
+      {% endif %}

@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ app.name }}
+  namespace: edge-terrarium
+  labels:
+    app: {{ app.name }}
+    project: edge-terrarium
+spec:
+  selector:
+    app: {{ app.name }}
+  ports:
+  - port: {{ app.runtime.port }}
+    targetPort: {{ app.runtime.port }}
+    protocol: TCP
+    name: http
+  type: ClusterIP

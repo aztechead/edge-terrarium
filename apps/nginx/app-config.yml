@@ -1,0 +1,70 @@
+# NGINX Gateway Application Configuration
+name: nginx
+description: NGINX reverse proxy and API gateway replacing Kong
+
+# Docker Configuration
+docker:
+  build_context: .
+  dockerfile: Dockerfile
+  image_name: edge-terrarium-nginx
+  tag: latest
+
+# Runtime Configuration
+runtime:
+  port: 80
+  ssl_port: 443
+  health_check_path: /nginx-health
+  startup_timeout: 30
+  command: ["sh", "-c", "rm -f /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"]
+
+# Environment Variables
+environment: []
+
+# Routing Configuration
+routes:
+  - path: /api/*
+    target: /
+    strip_prefix: true
+
+# Dependencies
+dependencies:
+  - custom-client
+  - service-sink
+  - logthon
+  - file-storage
+  - vault
+
+# Resource Requirements
+resources:
+  cpu:
+    request: 100m
+    limit: 200m
+  memory:
+    request: 128Mi
+    limit: 256Mi
+
+# Health Checks
+health_checks:
+  liveness:
+    path: /nginx-health
+    port: 80
+    period_seconds: 30
+    timeout_seconds: 3
+    failure_threshold: 3
+  readiness:
+    path: /nginx-health
+    port: 80
+    period_seconds: 10
+    timeout_seconds: 3
+    failure_threshold: 3
+
+# Volumes
+volumes: []
+
+# Security Context
+security:
+  run_as_non_root: false
+  run_as_user: 0
+  run_as_group: 0
+  allow_privilege_escalation: false
+  read_only_root_filesystem: false

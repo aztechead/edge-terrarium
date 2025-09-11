@@ -1,170 +1,129 @@
-# =============================================================================
-# KUBERNETES DEPLOYMENT - FILE STORAGE SERVICE
-# =============================================================================
-# A Deployment manages a set of identical Pods (containers) and ensures they
-# are running and healthy. It provides declarative updates to Pods and ReplicaSets.
-#
-# Key Concepts:
-# - Deployment: Manages Pod replicas and rolling updates
-# - Pod: The smallest deployable unit in Kubernetes (one or more containers)
-# - ReplicaSet: Ensures a specified number of Pod replicas are running
-# - Service: Provides network access to Pods
-# - Volume: Storage that persists beyond the lifecycle of a Pod
-# - Init Container: Runs before main containers start
-#
-# Impact:
-# - Runs the file storage application in Kubernetes
-# - Provides CRUD operations for file storage with automatic rotation
-# - Maintains maximum of 15 files with automatic cleanup
-# - Integrates with logthon for centralized logging
-# - Uses single replica to prevent conflicts
-# - Mounts persistent storage for files
-#
-# Documentation: https://kubernetes.io/docs/concepts/workloads/controllers/deployment/
-# =============================================================================
-
-apiVersion: apps/v1                # Apps API version for Deployment resources
-kind: Deployment                   # Resource type - creates a deployment
-metadata:                          # Metadata about this deployment
-  name: file-storage                 # Name of the deployment
-  namespace: edge-terrarium        # Namespace where this resource lives
-  labels:                          # Labels for organizing resources
-    app: file-storage                # Identifies this as the file storage app
-    component: backend             # Identifies this as a backend component
-
-spec:                              # Specification of the deployment
-  replicas: 1                      # Number of Pod replicas to maintain (single instance for development)
-  
-  # Deployment strategy - use Recreate to ensure only one pod at a time
-  # This prevents multiple instances from running simultaneously
-  strategy:
-    type: Recreate                 # Terminate old pods before creating new ones
-  
-  # Selector tells the deployment which Pods it manages
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: file-storage
+  namespace: edge-terrarium
+  labels:
+    app: file-storage
+    project: edge-terrarium
+spec:
+  replicas: 1
   selector:
-    matchLabels:                   # Pods with these labels are managed by this deployment
-      app: file-storage              # Must match the labels in the Pod template below
-
-  # Template defines how new Pods should be created
+    matchLabels:
+      app: file-storage
   template:
-    metadata:                      # Metadata for Pods created from this template
-      labels:                      # Labels applied to each Pod
-        app: file-storage            # Must match the selector above
-        component: backend         # Identifies this as a backend component
-
-    spec:                          # Specification for Pods created from this template
-      # Init container to wait for logthon to be ready
-      # This ensures file-storage can send logs to logthon on startup
-      initContainers:
-      - name: wait-for-logthon        # Name of the init container
-        image: curlimages/curl:latest  # Lightweight curl image for health checks
-        command: ['sh', '-c']          # Command to run
-        args:                          # Arguments for the command
-        - |                            # Multi-line script
-          echo "Waiting for logthon service to be ready..."
-          
-          # Wait for logthon service to be ready
-          # This ensures file-storage can send logs to logthon on startup
-          RETRY_COUNT=0
-          MAX_RETRIES=60  # 2 minutes max wait time
-          until curl -s http://logthon-ingress-service.edge-terrarium.svc.cluster.local:5000/health > /dev/null; do
-            RETRY_COUNT=$((RETRY_COUNT + 1))
-            if [ $RETRY_COUNT -gt $MAX_RETRIES ]; then
-              echo "ERROR: Timeout waiting for logthon service after $MAX_RETRIES attempts"
-              echo "This indicates logthon failed to start or is taking too long"
-              exit 1
-            fi
-            echo "Logthon service not ready yet (attempt $RETRY_COUNT/$MAX_RETRIES). Waiting..."
-            sleep 2
-          done
-          echo "Logthon service is ready! File-storage can start."
-        resources:                     # Resource requirements for init container
-          requests:                    # Minimum resources required
-            memory: "32Mi"             # 32 MB of memory
-            cpu: "50m"                 # 50 millicores of CPU
-          limits:                      # Maximum resources allowed
-            memory: "64Mi"             # 64 MB of memory
-            cpu: "100m"                # 100 millicores of CPU
-      
-      containers:                  # List of containers in each Pod
-      - name: file-storage           # Name of the container
-        image: edge-terrarium-file-storage:latest  # Docker image to use
-        imagePullPolicy: Never     # Never pull from registry (use local image for development)
+    metadata:
+      labels:
+        app: file-storage
+        project: edge-terrarium
+    spec:
+      containers:
+      - name: file-storage
         
-        # Ports exposed by the container
+        image: edge-terrarium-file-storage:latest
+        
+        
+        imagePullPolicy: Never
+        
+        
+        
         ports:
-        - containerPort: 9000      # Port the container listens on
-          name: http               # Name for referencing this port
-          protocol: TCP            # Protocol (TCP or UDP)
+        - containerPort: 9000
+          name: http
         
-        # Environment variables passed to the container
         env:
-        - name: SERVICE_NAME       # Environment variable name
-          value: "file-storage"      # Environment variable value
-        - name: LOG_LEVEL          # Logging level
-          value: "info"            # Set to info level
-        - name: FILE_STORAGE_HOST  # Host to bind to
-          value: "0.0.0.0"        # Bind to all interfaces
-        - name: FILE_STORAGE_PORT  # Port to listen on
-          value: "9000"            # Port number
-        - name: FILE_STORAGE_PATH  # Storage directory path
-          value: "/app/storage"    # Storage path
-        - name: FILE_STORAGE_MAX_FILES  # Maximum number of files
-          value: "15"              # Maximum files
-        - name: LOGTHON_HOST       # Logthon service hostname for log aggregation
-          value: "logthon-ingress-service.edge-terrarium.svc.cluster.local"
-        - name: LOGTHON_PORT       # Logthon service port
-          value: "5000"
-        - name: CONTAINER_NAME     # Container name for logging
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.name  # Use pod name as container name
-        - name: POD_NAME           # Pod name for logging
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.name  # Use pod name
+          
+          - name: SERVICE_NAME
+            
+            value: "file-storage"
+            
+          
+          - name: FILE_STORAGE_HOST
+            
+            value: "0.0.0.0"
+            
+          
+          - name: FILE_STORAGE_PORT
+            
+            value: "9000"
+            
+          
+          - name: FILE_STORAGE_PATH
+            
+            value: "/app/storage"
+            
+          
+          - name: FILE_STORAGE_MAX_FILES
+            
+            value: "15"
+            
+          
+          - name: LOGTHON_HOST
+            
+            value: "logthon"
+            
+          
+          - name: LOGTHON_PORT
+            
+            value: "5000"
+            
+          
         
-        # Resource requirements and limits
-        resources:
-          requests:                # Minimum resources required
-            memory: "128Mi"         # 128 megabytes of memory
-            cpu: "100m"            # 100 millicores of CPU (0.1 cores)
-          limits:                  # Maximum resources allowed
-            memory: "512Mi"        # 512 megabytes of memory
-            cpu: "500m"            # 500 millicores of CPU (0.5 cores)
         
-        # Liveness probe - checks if container is alive
-        livenessProbe:
-          httpGet:                 # HTTP GET request to check health
-            path: /health          # Health check endpoint
-            port: 9000             # Port to check
-            scheme: HTTP           # Use HTTP (not HTTPS)
-          initialDelaySeconds: 30  # Wait 30 seconds before first check
-          periodSeconds: 30        # Check every 30 seconds (industry standard)
-          timeoutSeconds: 5        # Wait 5 seconds for response
-          failureThreshold: 3      # Mark unhealthy after 3 failures
-        
-        # Readiness probe - checks if container is ready to serve traffic
-        readinessProbe:
-          httpGet:                 # HTTP GET request to check readiness
-            path: /health          # Health check endpoint
-            port: 9000             # Port to check
-            scheme: HTTP           # Use HTTP (not HTTPS)
-          initialDelaySeconds: 10  # Wait 10 seconds before first check
-          periodSeconds: 10        # Check every 10 seconds (industry standard)
-          timeoutSeconds: 3        # Wait 3 seconds for response
-          failureThreshold: 3      # Mark not ready after 3 failures
-        
-        # Volume mounts - where to mount volumes in the container
         volumeMounts:
-        - name: file-storage-data  # Name of the volume to mount
-          mountPath: /app/storage  # Path where volume is mounted in container
-
-      # Volumes available to containers in the Pod
+          
+          
+          - name: file-storage-data
+            mountPath: /app/storage
+          
+        
+        
+        
+        
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 9000
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 3
+          failureThreshold: 3
+        
+        
+        
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 9000
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 3
+        
+        
+        
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 200m
+            memory: 256Mi
+        
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1001
+          runAsGroup: 1001
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false
+        
+      
       volumes:
-      - name: file-storage-data    # Name of the volume
-        persistentVolumeClaim:     # Use a persistent volume claim
-          claimName: file-storage-pvc  # Name of the PVC
-
-      # Restart policy for containers in the Pod
-      restartPolicy: Always        # Always restart containers if they fail
+        
+        
+        - name: file-storage-data
+          persistentVolumeClaim:
+            claimName: file-storage-data-pvc
+        
+        
+      

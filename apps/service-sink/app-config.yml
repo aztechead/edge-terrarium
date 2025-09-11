@@ -1,0 +1,78 @@
+# Service Sink Application Configuration
+name: service-sink
+description: C application that handles all other HTTP requests as the default route
+
+# Docker Configuration
+docker:
+  build_context: .
+  dockerfile: Dockerfile
+  image_name: edge-terrarium-service-sink
+  tag: latest
+
+# Runtime Configuration
+runtime:
+  port: 8080
+  health_check_path: /health
+  startup_timeout: 30
+
+# Environment Variables
+environment:
+  - name: SERVICE_NAME
+    value: service-sink
+  - name: CONTAINER_NAME
+    value: edge-terrarium-service-sink
+  - name: LOGTHON_HOST
+    value: logthon
+  - name: LOGTHON_PORT
+    value: "5000"
+
+# Routing Configuration
+routes:
+  - path: /api/service-sink/*
+    target: /
+    strip_prefix: true
+  - path: /api/*
+    target: /
+    strip_prefix: true
+  - path: /
+    target: /
+    strip_prefix: false
+
+# Dependencies
+dependencies:
+  - logthon
+
+# Resource Requirements
+resources:
+  cpu:
+    request: 100m
+    limit: 200m
+  memory:
+    request: 128Mi
+    limit: 256Mi
+
+# Health Checks
+health_checks:
+  liveness:
+    path: /health
+    port: 8080
+    period_seconds: 30
+    timeout_seconds: 3
+    failure_threshold: 3
+  readiness:
+    path: /health
+    port: 8080
+    period_seconds: 10
+    timeout_seconds: 3
+    failure_threshold: 3
+
+# Volumes (if needed)
+volumes: []
+
+# Security Context
+security:
+  run_as_non_root: true
+  run_as_user: 1001
+  run_as_group: 1001
+  allow_privilege_escalation: false
+  read_only_root_filesystem: false

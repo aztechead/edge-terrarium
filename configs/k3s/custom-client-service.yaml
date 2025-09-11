@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: custom-client
+  namespace: edge-terrarium
+  labels:
+    app: custom-client
+    project: edge-terrarium
+spec:
+  selector:
+    app: custom-client
+  ports:
+  - port: 1337
+    targetPort: 1337
+    protocol: TCP
+    name: http
+  type: ClusterIP

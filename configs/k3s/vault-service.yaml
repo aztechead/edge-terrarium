@@ -1,53 +1,17 @@
-# =============================================================================
-# VAULT SERVICE CONFIGURATION
-# =============================================================================
-# This file defines the Kubernetes service for HashiCorp Vault.
-# Services provide a stable network endpoint for accessing pods,
-# enabling other services in the cluster to communicate with Vault.
-#
-# Key Concepts:
-# - Service: Provides a stable IP address and DNS name for pods
-# - LoadBalancer: Makes the service accessible from outside the cluster
-# - Port Mapping: Maps service ports to pod ports
-# - Selector: How the service finds the pods to route traffic to
-# - DNS Resolution: Services are accessible via DNS within the cluster
-#
-# Impact:
-# - Provides stable network access to Vault pods
-# - Enables external access via LoadBalancer on port 8200
-# - Creates DNS name 'vault.edge-terrarium.svc.cluster.local'
-# - Routes traffic to pods with matching labels
-# - Allows port forwarding for development access
-#
-# Documentation: https://kubernetes.io/docs/concepts/services-networking/service/
-# =============================================================================
-
-apiVersion: v1                        # Core API version for Service resources
-kind: Service                         # Resource type - creates a service
-metadata:                             # Metadata about this service
-  name: vault                         # Name of the service (used in DNS resolution)
-  namespace: edge-terrarium           # Namespace where this service lives
-  labels:                             # Labels for organization and selection
-    app: vault                        # Identifies this as a Vault service component
-    project: edge-terrarium           # Identifies this as part of the edge-terrarium project
-    environment: development          # Identifies this as a development environment
-spec:                                 # Specification for the service
-  # Service type - LoadBalancer makes it accessible from outside the cluster
-  # This allows direct access to Vault on port 8200 from the host machine
-  # In K3s, this creates a load balancer that maps to localhost:8200
-  type: LoadBalancer                  # Expose service externally via load balancer
-  
-  # Port configuration
-  ports:                              # List of ports this service exposes
-  - name: http                        # Name of the port (referenced in other resources)
-    port: 8200                        # Port number on the service (external access)
-    targetPort: 8200                  # Port number on the target pods (container port)
-    protocol: TCP                     # Protocol type (TCP or UDP)
-  
-  # Selector for finding pods to route traffic to
-  # This service will route traffic to pods with these labels
-  # Must match the labels in the Vault deployment pod template
+apiVersion: v1
+kind: Service
+metadata:
+  name: vault
+  namespace: edge-terrarium
+  labels:
+    app: vault
+    project: edge-terrarium
+spec:
   selector:
-    app: vault                        # Select pods with this label
-    project: edge-terrarium           # Select pods with this label
-    environment: development          # Select pods with this label
+    app: vault
+  ports:
+  - port: 8200
+    targetPort: 8200
+    protocol: TCP
+    name: http
+  type: ClusterIP

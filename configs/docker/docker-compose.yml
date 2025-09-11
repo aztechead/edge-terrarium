@@ -1,51 +1,349 @@
-# =============================================================================
-# TERRARIUM DOCKER COMPOSE CONFIGURATION
-# =============================================================================
-# This is the main Docker Compose file that orchestrates all services.
-# It includes multiple compose files in the correct startup order:
-#
-# 1. Base services (vault, vault-init)
-# 2. Core services (logthon, file-storage) 
-# 3. Application services (custom-client, service-sink)
-# 4. Gateway services (kong-gateway)
-#
-# Startup Order:
-# vault → vault-init → logthon → file-storage → (custom-client, service-sink) → kong-gateway
-#
-# Documentation: https://docs.docker.com/compose/
-# =============================================================================
+version: '3.8'
 
-# Project name - this will be used as the prefix for container names and networks
-name: edge-terrarium
+services:
 
-# Include all compose files in the correct startup order
-include:
-  - docker-compose.base.yml      # Base services: vault, vault-init
-  - docker-compose.core.yml      # Core services: logthon, file-storage
-  - docker-compose.apps.yml      # Application services: custom-client, service-sink
-  - docker-compose.gateway.yml   # Gateway services: kong-gateway
+  # Python FastAPI service that provides CRUD operations for file system storage with automatic file rotation
+  file-storage:
+    
+    build:
+      context: ./apps/file-storage
+      dockerfile: Dockerfile
+    
+    
+    
+    environment:
+      
+      
+      - SERVICE_NAME=file-storage
+      
+      
+      
+      - FILE_STORAGE_HOST=0.0.0.0
+      
+      
+      
+      - FILE_STORAGE_PORT=9000
+      
+      
+      
+      - FILE_STORAGE_PATH=/app/storage
+      
+      
+      
+      - FILE_STORAGE_MAX_FILES=15
+      
+      
+      
+      - LOGTHON_HOST=logthon
+      
+      
+      
+      - LOGTHON_PORT=5000
+      
+      
+    
+    
+    volumes:
+      
+      
+      - file-storage-data:/app/storage
+      
+      
+      
+    
+    
+    depends_on:
+      
+      - logthon
+      
+    
+    networks:
+      - edge-terrarium
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 
-# =============================================================================
-# SHARED VOLUMES
-# =============================================================================
-# These volumes are shared across all compose files
+
+  # C application that handles special requests to /fake-provider/* and /example-provider/* paths
+  custom-client:
+    
+    build:
+      context: ./apps/custom-client
+      dockerfile: Dockerfile
+    
+    
+    
+    environment:
+      
+      
+      - SERVICE_NAME=custom-client
+      
+      
+      
+      - CONTAINER_NAME=edge-terrarium-custom-client
+      
+      
+      
+      - VAULT_ADDR=http://vault:8200
+      
+      
+      
+      - VAULT_TOKEN=root
+      
+      
+      
+      - FILE_STORAGE_URL=http://file-storage:9000
+      
+      
+      
+      - LOGTHON_HOST=logthon
+      
+      
+      
+      - LOGTHON_PORT=5000
+      
+      
+    
+    
+    
+    depends_on:
+      
+      - vault
+      
+      - logthon
+      
+      - file-storage
+      
+    
+    networks:
+      - edge-terrarium
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:1337/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+
+  # NGINX reverse proxy and API gateway replacing Kong
+  nginx:
+    
+    build:
+      context: ./apps/nginx
+      dockerfile: Dockerfile
+    
+    
+    ports:
+      - "8443:443"
+    
+    
+    
+    volumes:
+      
+      
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/server.conf:/etc/nginx/conf.d/server.conf:ro
+      - ../../certs/edge-terrarium.crt:/etc/nginx/ssl/tls.crt:ro
+      - ../../certs/edge-terrarium.key:/etc/nginx/ssl/tls.key:ro
+      
+    
+    
+    depends_on:
+      
+      - custom-client
+      
+      - service-sink
+      
+      - logthon
+      
+      - file-storage
+      
+      - vault
+      
+    
+    networks:
+      - edge-terrarium
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/nginx-health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+
+  # Python FastAPI service for log aggregation and web UI with file storage viewer
+  logthon:
+    
+    build:
+      context: ./apps/logthon
+      dockerfile: Dockerfile
+    
+    
+    ports:
+      - "5001:5000"
+    
+    
+    environment:
+      
+      
+      - SERVICE_NAME=logthon
+      
+      
+      
+      - LOGTHON_HOST=0.0.0.0
+      
+      
+      
+      - LOGTHON_PORT=5000
+      
+      
+      
+      - LOGTHON_LOG_LEVEL=INFO
+      
+      
+      
+      - FILE_STORAGE_URL=http://file-storage:9000
+      
+      
+    
+    
+    
+    depends_on:
+      - vault
+    
+    networks:
+      - edge-terrarium
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+
+  # C application that handles all other HTTP requests as the default route
+  service-sink:
+    
+    build:
+      context: ./apps/service-sink
+      dockerfile: Dockerfile
+    
+    
+    
+    environment:
+      
+      
+      - SERVICE_NAME=service-sink
+      
+      
+      
+      - CONTAINER_NAME=edge-terrarium-service-sink
+      
+      
+      
+      - LOGTHON_HOST=logthon
+      
+      
+      
+      - LOGTHON_PORT=5000
+      
+      
+    
+    
+    
+    depends_on:
+      
+      - logthon
+      
+    
+    networks:
+      - edge-terrarium
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+
+  # HashiCorp Vault for secrets management
+  vault:
+    
+    image: hashicorp/vault:latest
+    
+    
+    ports:
+      - "8200:8200"
+    
+    
+    environment:
+      
+      
+      - VAULT_ADDR=http://0.0.0.0:8200
+      
+      
+      
+      - VAULT_API_ADDR=http://vault.edge-terrarium.svc.cluster.local:8200
+      
+      
+      
+      - VAULT_LOG_LEVEL=INFO
+      
+      
+      
+      - VAULT_LOG_FORMAT=json
+      
+      
+    
+    
+    volumes:
+      
+      
+      - vault-data:/vault/data
+      
+      
+      
+    
+    
+    networks:
+      - edge-terrarium
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8200/v1/sys/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+
+
 volumes:
-  custom-requests:                     # Named volume for Custom client request logs
-    driver: local                   # Store on local filesystem
-  vault-data:                       # Named volume for Vault data storage
-    driver: local                   # Store on local filesystem
-  vault-logs:                       # Named volume for Vault logs
-    driver: local                   # Store on local filesystem
-  file-storage-data:                # Named volume for file storage data
-    driver: local                   # Store on local filesystem
 
-# =============================================================================
-# SHARED NETWORKS
-# =============================================================================
-# This network is shared across all compose files
+  
+  file-storage-data:
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+  vault-data:
+  
+
+
 networks:
-  edge-terrarium-network:           # Custom network name
-    driver: bridge                  # Bridge driver for container communication
-    ipam:                          # IP Address Management
-      config:
-        - subnet: 172.25.0.0/16    # Custom subnet for container IPs
+  edge-terrarium:
+    driver: bridge

@@ -84,19 +84,6 @@ def create_file_storage_app() -> FastAPI:
             max_files=config.get_max_files()
         )
     
-    @app.get("/storage/health", response_model=HealthResponse)
-    async def health_check_with_prefix():
-        """Health check endpoint with /storage prefix for ingress routing."""
-        file_count = storage_manager.get_file_count()
-        
-        return HealthResponse(
-            status="healthy",
-            service="file-storage",
-            timestamp=datetime.now().isoformat(),
-            storage_path=config.get_storage_path(),
-            total_files=file_count,
-            max_files=config.get_max_files()
-        )
     
     @app.get("/files", response_model=FileListResponse)
     async def list_files():
@@ -119,26 +106,6 @@ def create_file_storage_app() -> FastAPI:
             logging_manager.error(f"Failed to list files: {str(e)}")
             raise HTTPException(status_code=500, detail="Failed to list files")
     
-    @app.get("/storage/files", response_model=FileListResponse)
-    async def list_files_with_prefix():
-        """List all files in storage with /storage prefix for ingress routing."""
-        try:
-            files = storage_manager.list_files()
-            
-            logging_manager.info(f"Listed {len(files)} files", {
-                "file_count": len(files),
-                "storage_path": config.get_storage_path()
-            })
-            
-            return FileListResponse(
-                files=files,
-                count=len(files),
-                storage_path=config.get_storage_path(),
-                max_files=config.get_max_files()
-            )
-        except Exception as e:
-            logging_manager.error(f"Failed to list files: {str(e)}")
-            raise HTTPException(status_code=500, detail="Failed to list files")
     
     @app.get("/files/{filename}", response_model=FileContent)
     async def get_file(filename: str):
@@ -191,34 +158,6 @@ def create_file_storage_app() -> FastAPI:
             logging_manager.error(f"File creation failed: {str(e)}")
             raise HTTPException(status_code=500, detail="Failed to create file")
     
-    @app.put("/storage/files", response_model=FileCreateResponse)
-    async def create_file_with_prefix(request: FileCreateRequest):
-        """Create a new file with the given content (with /storage prefix for ingress routing)."""
-        try:
-            file_info = storage_manager.create_file(
-                content=request.content,
-                filename_prefix=request.filename_prefix,
-                extension=request.extension
-            )
-            
-            logging_manager.log_file_operation("create", file_info.filename, True, {
-                "file_size": file_info.size,
-                "extension": file_info.extension,
-                "has_prefix": request.filename_prefix is not None
-            })
-            
-            return FileCreateResponse(
-                filename=file_info.filename,
-                size=file_info.size,
-                created_at=file_info.created_at,
-                message=f"File '{file_info.filename}' created successfully"
-            )
-        except ValueError as e:
-            logging_manager.error(f"File creation failed: {str(e)}")
-            raise HTTPException(status_code=400, detail=str(e))
-        except Exception as e:
-            logging_manager.error(f"File creation failed: {str(e)}")
-            raise HTTPException(status_code=500, detail="Failed to create file")
     
     @app.delete("/files/{filename}", response_model=FileDeleteResponse)
     async def delete_file(filename: str):
@@ -265,7 +204,7 @@ def create_file_storage_app() -> FastAPI:
             logging_manager.error(f"Failed to clear files: {str(e)}")
             raise HTTPException(status_code=500, detail="Failed to clear files")
     
-    @app.get("/storage/info", response_model=StorageInfoResponse)
+    @app.get("/info", response_model=StorageInfoResponse)
     async def get_storage_info():
         """Get information about the storage."""
         try:
