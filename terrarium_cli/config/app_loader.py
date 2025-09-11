@@ -192,24 +192,29 @@ class AppLoader:
         
         # Parse environment variables
         environment = []
-        for env_data in data.get("environment", []):
-            if isinstance(env_data, dict):
-                env_var = EnvironmentVariable(
-                    name=env_data.get("name", ""),
-                    value=env_data.get("value"),
-                    value_from=env_data.get("value_from")
-                )
-                environment.append(env_var)
+        env_data = data.get("environment", [])
+        if env_data and isinstance(env_data, list):
+            for env_item in env_data:
+                if isinstance(env_item, dict):
+                    env_var = EnvironmentVariable(
+                        name=env_item.get("name", ""),
+                        value=env_item.get("value"),
+                        value_from=env_item.get("value_from")
+                    )
+                    environment.append(env_var)
         
         # Parse routes
         routes = []
-        for route_data in data.get("routes", []):
-            route = RouteConfig(
-                path=route_data.get("path", ""),
-                target=route_data.get("target", "/"),
-                strip_prefix=route_data.get("strip_prefix", True)
-            )
-            routes.append(route)
+        routes_data = data.get("routes", [])
+        if routes_data and isinstance(routes_data, list):
+            for route_data in routes_data:
+                if isinstance(route_data, dict):
+                    route = RouteConfig(
+                        path=route_data.get("path", ""),
+                        target=route_data.get("target", "/"),
+                        strip_prefix=route_data.get("strip_prefix", True)
+                    )
+                    routes.append(route)
         
         # Parse resources
         resources_data = data.get("resources", {})
@@ -233,14 +238,17 @@ class AppLoader:
         
         # Parse volumes
         volumes = []
-        for volume_data in data.get("volumes", []):
-            volume = VolumeConfig(
-                name=volume_data.get("name", ""),
-                mount_path=volume_data.get("mount_path", ""),
-                size=volume_data.get("size", "1Gi"),
-                access_mode=volume_data.get("access_mode", "ReadWriteOnce")
-            )
-            volumes.append(volume)
+        volumes_data = data.get("volumes", [])
+        if volumes_data and isinstance(volumes_data, list):
+            for volume_data in volumes_data:
+                if isinstance(volume_data, dict):
+                    volume = VolumeConfig(
+                        name=volume_data.get("name", ""),
+                        mount_path=volume_data.get("mount_path", ""),
+                        size=volume_data.get("size", "1Gi"),
+                        access_mode=volume_data.get("access_mode", "ReadWriteOnce")
+                    )
+                    volumes.append(volume)
         
         # Parse security
         security_data = data.get("security", {})
@@ -259,7 +267,7 @@ class AppLoader:
             runtime=runtime_config,
             environment=environment,
             routes=routes,
-            dependencies=data.get("dependencies", []),
+            dependencies=data.get("dependencies", []) if data.get("dependencies") is not None else [],
             resources=resources,
             health_checks=health_checks,
             volumes=volumes,

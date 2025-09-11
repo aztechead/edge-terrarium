@@ -1,0 +1,44 @@
+# {{ app_name }}
+
+{{ app_description }}
+
+## Configuration
+
+This application is configured via `app-config.yml` and will be automatically included in deployments.
+
+## Development
+
+1. Add your source code to the `src/` directory
+2. Update the Dockerfile as needed
+3. Run `terrarium.py build` to build the image
+4. Run `terrarium.py deploy` to deploy all apps
+
+## API Routes
+
+{% if routes %}
+{% for route in routes %}
+- {{ route.path }} -> {{ route.target }}
+{% endfor %}
+{% else %}
+- No routes configured
+{% endif %}
+
+## Environment Variables
+
+{% if environment_vars %}
+{% for env in environment_vars %}
+- {{ env.name }}
+{% endfor %}
+{% else %}
+- None configured
+{% endif %}
+
+## Volumes
+
+{% if volumes %}
+{% for vol in volumes %}
+- {{ vol.mount_path }} ({{ vol.size }})
+{% endfor %}
+{% else %}
+- None configured
+{% endif %}

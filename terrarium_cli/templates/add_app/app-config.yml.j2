@@ -1,0 +1,103 @@
+# {{ app_name.title() }} Application Configuration
+# This file defines how the application is deployed and configured in both Docker and K3s environments.
+# The /api/ prefix is automatically added by the ingress layer, so routes should be defined without it.
+
+# Basic Application Information
+name: {{ app_name }}
+description: {{ app_description }}
+
+# Docker Configuration
+# These settings control how the application is built and containerized
+docker:
+  build_context: .                    # Directory containing the Dockerfile (relative to app directory)
+  dockerfile: Dockerfile              # Name of the Dockerfile to use
+  image_name: {{ image_name }}        # Docker image name (will be prefixed with edge-terrarium-)
+  tag: latest                         # Docker image tag
+
+# Runtime Configuration
+# These settings control how the application runs inside containers
+runtime:
+  port: {{ port }}                    # Internal port the application listens on
+  health_check_path: /health          # Health check endpoint path
+  startup_timeout: 30                 # Maximum time (seconds) to wait for app to start
+
+# Environment Variables
+# These variables are passed to the application at runtime
+environment:
+{% if environment_vars %}
+{% for env in environment_vars %}
+  - name: {{ env.name }}
+    value: {{ env.value }}
+{% endfor %}
+{% else %}
+  # No environment variables configured
+{% endif %}
+
+# Routing Configuration
+# Define how external requests are routed to this application
+# The /api/ prefix is automatically added by NGINX, so define routes without it
+# strip_prefix: true removes the matched path before forwarding to the app
+# strip_prefix: false forwards the full path including the matched portion
+routes:
+{% if routes %}
+{% for route in routes %}
+  - path: {{ route.path }}
+    target: {{ route.target }}
+    strip_prefix: {{ route.strip_prefix | lower }}
+{% endfor %}
+{% else %}
+  # No routes configured
+{% endif %}
+
+# Dependencies
+# Other applications this app depends on (they will start first)
+dependencies: []
+
+# Resource Requirements
+# CPU and memory limits for Kubernetes deployments
+resources:
+  cpu:
+    request: 100m                     # Minimum CPU allocation
+    limit: 200m                       # Maximum CPU allocation
+  memory:
+    request: 128Mi                    # Minimum memory allocation
+    limit: 256Mi                      # Maximum memory allocation
+
+# Health Checks
+# Kubernetes health check configuration
+health_checks:
+  liveness:
+    path: /health                     # Endpoint to check if app is alive
+    port: {{ port }}                  # Port to check
+    period_seconds: 30                # How often to check
+    timeout_seconds: 3                # How long to wait for response
+    failure_threshold: 3              # How many failures before restart
+  readiness:
+    path: /health                     # Endpoint to check if app is ready
+    port: {{ port }}                  # Port to check
+    period_seconds: 10                # How often to check
+    timeout_seconds: 3                # How long to wait for response
+    failure_threshold: 3              # How many failures before marking as not ready
+
+# Persistent Volumes
+# Storage that persists across container restarts
+volumes:
+{% if volumes %}
+{% for vol in volumes %}
+  - name: {{ vol.name }}
+    mount_path: {{ vol.mount_path }}
+    size: {{ vol.size }}
+    access_mode: {{ vol.access_mode }}
+{% endfor %}
+{% else %}
+  # No persistent volumes configured
+{% endif %}
+
+# Security Context
+# Security settings for the container
+security:
+  run_as_non_root: true               # Run container as non-root user
+  run_as_user: 1001                  # User ID to run as
+  run_as_group: 1001                 # Group ID to run as
+  allow_privilege_escalation: false   # Prevent privilege escalation
+  read_only_root_filesystem: false    # Allow writing to root filesystem (set to true for better security)

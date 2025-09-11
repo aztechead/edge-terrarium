@@ -1,0 +1,76 @@
+# {{ app_name }}
+
+{{ app_description }}
+
+## Configuration
+
+This application is configured via `app-config.yml` and will be automatically included in deployments.
+
+## Development
+
+1. Add your source code to the `src/` directory
+2. Update `requirements.txt` with your dependencies
+3. Update `main.py` with your FastAPI application
+4. Run `terrarium.py build` to build the image
+5. Run `terrarium.py deploy` to deploy all apps
+
+## Python Dependencies
+
+Create a `requirements.txt` file with your dependencies:
+
+```
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+```
+
+## FastAPI Application
+
+Create a `main.py` file with your FastAPI application:
+
+```python
+from fastapi import FastAPI
+
+app = FastAPI(title="{{ app_name }}")
+
+@app.get("/")
+async def root():
+    return {"message": "Hello from {{ app_name }}!"}
+
+@app.get("/health")
+async def health():
+    return {"status": "healthy"}
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port={{ port }})
+```
+
+## API Routes
+
+{% if routes %}
+{% for route in routes %}
+- {{ route.path }} -> {{ route.target }}
+{% endfor %}
+{% else %}
+- No routes configured
+{% endif %}
+
+## Environment Variables
+
+{% if environment_vars %}
+{% for env in environment_vars %}
+- {{ env.name }}
+{% endfor %}
+{% else %}
+- None configured
+{% endif %}
+
+## Volumes
+
+{% if volumes %}
+{% for vol in volumes %}
+- {{ vol.mount_path }} ({{ vol.size }})
+{% endfor %}
+{% else %}
+- None configured
+{% endif %}

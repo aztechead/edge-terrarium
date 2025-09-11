@@ -8,6 +8,8 @@ import yaml
 from pathlib import Path
 from typing import Dict, Any
 
+from jinja2 import Environment, FileSystemLoader
+
 from terrarium_cli.commands.base import BaseCommand
 from terrarium_cli.utils.colors import Colors
 
@@ -17,13 +19,38 @@ logger = logging.getLogger(__name__)
 class AddAppCommand(BaseCommand):
     """Command to add a new application."""
     
+    def __init__(self, args):
+        super().__init__(args)
+        self.templates_dir = Path(__file__).parent.parent / "templates" / "add_app"
+        self.jinja_env = Environment(
+            loader=FileSystemLoader(str(self.templates_dir)),
+            trim_blocks=True,
+            lstrip_blocks=True
+        )
+        self.template_config = self._load_template_config()
+    
+    def _load_template_config(self) -> Dict[str, Any]:
+        """Load template configuration."""
+        try:
+            config_file = self.templates_dir / "templates.yml"
+            with open(config_file, 'r') as f:
+                return yaml.safe_load(f)
+        except Exception as e:
+            self.logger.warning(f"Failed to load template config: {e}")
+            return {"templates": {"generic": {"dockerfile": "Dockerfile.j2", "app_config": "app-config.yml.j2", "readme": "README.md.j2"}}}
+    
     def run(self) -> int:
         """Run the add-app command."""
         try:
             print(f"{Colors.info('Adding new application...')}")
             
+            # Get template selection
+            template = self._get_template_selection()
+            if not template:
+                return 1
+            
             # Get app information
-            app_info = self._get_app_info()
+            app_info = self._get_app_info(template)
             if not app_info:
                 return 1
             
@@ -44,7 +71,7 @@ class AddAppCommand(BaseCommand):
                 return 1
             
             print(f"{Colors.success(f'Application {app_info["name"]} created successfully!')}")
-            print(f"\n{Colors.BOLD('Next steps:')}")
+            print(f"\n{Colors.bold('Next steps:')}")
             print(f"  1. Add your source code to apps/{app_info['name']}/")
             print(f"  2. Update the Dockerfile if needed")
             print(f"  3. Run 'terrarium.py build' to build the image")
@@ -56,7 +83,34 @@ class AddAppCommand(BaseCommand):
             self.logger.error(f"Failed to add app: {e}")
             return 1
     
-    def _get_app_info(self) -> Dict[str, Any]:
+    def _get_template_selection(self) -> str:
+        """Get template selection from user."""
+        print(f"\n{Colors.info('Available templates:')}")
+        templates = self.template_config.get("templates", {})
+        
+        for i, (key, config) in enumerate(templates.items(), 1):
+            description = config.get("description", key)
+            print(f"  {i}. {key} - {description}")
+        
+        while True:
+            try:
+                choice = input(f"\nSelect template (1-{len(templates)}, default: 1): ").strip()
+                if not choice:
+                    choice = "1"
+                
+                choice_idx = int(choice) - 1
+                template_keys = list(templates.keys())
+                
+                if 0 <= choice_idx < len(template_keys):
+                    selected_template = template_keys[choice_idx]
+                    print(f"{Colors.success(f'Selected template: {selected_template}')}")
+                    return selected_template
+                else:
+                    print(f"{Colors.error(f'Please enter a number between 1 and {len(templates)}')}")
+            except ValueError:
+                print(f"{Colors.error('Please enter a valid number')}")
+    
+    def _get_app_info(self, template: str) -> Dict[str, Any]:
         """Get application information from user."""
         app_info = {}
         
@@ -103,9 +157,9 @@ class AddAppCommand(BaseCommand):
         print(f"\n{Colors.info('Configure routing (press Enter to skip):')}")
         
         # Default route
-        default_route = input(f"Default API route (default: /api/{app_name}/*): ").strip()
+        default_route = input(f"Default API route (default: /{app_name}/*): ").strip()
         if not default_route:
-            default_route = f"/api/{app_name}/*"
+            default_route = f"/{app_name}/*"
         
         routes.append({
             "path": default_route,
@@ -115,7 +169,7 @@ class AddAppCommand(BaseCommand):
         
         # Additional routes
         while True:
-            additional_route = input("Additional route (e.g., /api/custom/* -> /custom/): ").strip()
+            additional_route = input("Additional route (e.g., /custom/* -> /custom/): ").strip()
             if not additional_route:
                 break
             
@@ -172,6 +226,7 @@ class AddAppCommand(BaseCommand):
                 print(f"{Colors.warning('Volume format should be: mount_path:size')}")
         
         app_info["volumes"] = volumes
+        app_info["template"] = template
         
         return app_info
     
@@ -191,62 +246,26 @@ class AddAppCommand(BaseCommand):
     def _create_app_config(self, app_info: Dict[str, Any]) -> bool:
         """Create app configuration file."""
         try:
-            config_data = {
-                "name": app_info["name"],
-                "description": app_info["description"],
-                "docker": {
-                    "build_context": ".",
-                    "dockerfile": "Dockerfile",
-                    "image_name": app_info["image_name"],
-                    "tag": "latest"
-                },
-                "runtime": {
-                    "port": app_info["port"],
-                    "health_check_path": "/health",
-                    "startup_timeout": 30
-                },
-                "environment": app_info["environment"],
+            template_name = self.template_config["templates"][app_info["template"]]["app_config"]
+            template = self.jinja_env.get_template(template_name)
+            
+            # Prepare template context
+            context = {
+                "app_name": app_info["name"],
+                "app_description": app_info["description"],
+                "image_name": app_info["image_name"],
+                "port": app_info["port"],
+                "environment_vars": app_info["environment"],
                 "routes": app_info["routes"],
-                "dependencies": [],
-                "resources": {
-                    "cpu": {
-                        "request": "100m",
-                        "limit": "200m"
-                    },
-                    "memory": {
-                        "request": "128Mi",
-                        "limit": "256Mi"
-                    }
-                },
-                "health_checks": {
-                    "liveness": {
-                        "path": "/health",
-                        "port": app_info["port"],
-                        "period_seconds": 30,
-                        "timeout_seconds": 3,
-                        "failure_threshold": 3
-                    },
-                    "readiness": {
-                        "path": "/health",
-                        "port": app_info["port"],
-                        "period_seconds": 10,
-                        "timeout_seconds": 3,
-                        "failure_threshold": 3
-                    }
-                },
-                "volumes": app_info["volumes"],
-                "security": {
-                    "run_as_non_root": True,
-                    "run_as_user": 1001,
-                    "run_as_group": 1001,
-                    "allow_privilege_escalation": False,
-                    "read_only_root_filesystem": False
-                }
+                "volumes": app_info["volumes"]
             }
+            
+            # Render template
+            config_content = template.render(**context)
             
             config_file = Path(f"apps/{app_info['name']}/app-config.yml")
             with open(config_file, 'w') as f:
-                yaml.dump(config_data, f, default_flow_style=False, sort_keys=False)
+                f.write(config_content)
             
             print(f"{Colors.success(f'Created configuration: {config_file}')}")
             return True
@@ -255,43 +274,21 @@ class AddAppCommand(BaseCommand):
             print(f"{Colors.error(f'Failed to create app config: {e}')}")
             return False
     
+    
     def _create_dockerfile(self, app_info: Dict[str, Any]) -> bool:
         """Create Dockerfile."""
         try:
-            dockerfile_content = f"""# Dockerfile for {app_info['name']}
-# TODO: Customize this Dockerfile for your application
-
-FROM alpine:3.18
-
-# Install runtime dependencies
-RUN apk add --no-cache ca-certificates curl
-
-# Create non-root user
-RUN addgroup -g 1001 -S appgroup && \\
-    adduser -u 1001 -S appuser -G appgroup
-
-# Set working directory
-WORKDIR /app
-
-# Copy application code
-COPY . .
-
-# Change ownership to non-root user
-RUN chown -R appuser:appgroup /app
-
-# Switch to non-root user
-USER appuser
-
-# Expose port
-EXPOSE {app_info['port']}
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \\
-    CMD curl -f http://localhost:{app_info['port']}/health || exit 1
-
-# Run the application
-CMD ["echo", "Hello from {app_info['name']}"]
-"""
+            template_name = self.template_config["templates"][app_info["template"]]["dockerfile"]
+            template = self.jinja_env.get_template(template_name)
+            
+            # Prepare template context
+            context = {
+                "app_name": app_info["name"],
+                "port": app_info["port"]
+            }
+            
+            # Render template
+            dockerfile_content = template.render(**context)
             
             dockerfile_path = Path(f"apps/{app_info['name']}/Dockerfile")
             with open(dockerfile_path, 'w') as f:
@@ -313,38 +310,29 @@ CMD ["echo", "Hello from {app_info['name']}"]
             src_dir = app_dir / "src"
             src_dir.mkdir(exist_ok=True)
             
-            # Create README
-            readme_content = f"""# {app_info['name']}
-
-{app_info['description']}
-
-## Configuration
-
-This application is configured via `app-config.yml` and will be automatically included in deployments.
-
-## Development
-
-1. Add your source code to the `src/` directory
-2. Update the Dockerfile as needed
-3. Run `terrarium.py build` to build the image
-4. Run `terrarium.py deploy` to deploy all apps
-
-## API Routes
-
-{chr(10).join([f"- {route['path']} -> {route['target']}" for route in app_info['routes']])}
-
-## Environment Variables
-
-{chr(10).join([f"- {env['name']}" for env in app_info['environment']]) if app_info['environment'] else "- None configured"}
-
-## Volumes
-
-{chr(10).join([f"- {vol['mount_path']} ({vol['size']})" for vol in app_info['volumes']]) if app_info['volumes'] else "- None configured"}
-"""
+            # Create README using template
+            template_name = self.template_config["templates"][app_info["template"]]["readme"]
+            template = self.jinja_env.get_template(template_name)
+            
+            # Prepare template context
+            context = {
+                "app_name": app_info["name"],
+                "app_description": app_info["description"],
+                "port": app_info["port"],
+                "routes": app_info["routes"],
+                "environment_vars": app_info["environment"],
+                "volumes": app_info["volumes"]
+            }
+            
+            # Render template
+            readme_content = template.render(**context)
             
             readme_path = app_dir / "README.md"
             with open(readme_path, 'w') as f:
                 f.write(readme_content)
+            
+            # Create additional files based on template
+            self._create_template_specific_files(app_info, app_dir)
             
             print(f"{Colors.success(f'Created source structure: {app_dir}')}")
             return True
@@ -352,6 +340,60 @@ This application is configured via `app-config.yml` and will be automatically in
         except Exception as e:
             print(f"{Colors.error(f'Failed to create source structure: {e}')}")
             return False
+    
+    def _create_template_specific_files(self, app_info: Dict[str, Any], app_dir: Path) -> None:
+        """Create template-specific files like requirements.txt for Python."""
+        template = app_info["template"]
+        
+        if template == "python":
+            # Create requirements.txt for Python
+            requirements_content = """fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+"""
+            requirements_path = app_dir / "requirements.txt"
+            with open(requirements_path, 'w') as f:
+                f.write(requirements_content)
+            
+            # Create main.py for Python
+            main_py_content = f'''#!/usr/bin/env python3
+"""
+{app_info['name']} - {app_info['description']}
+"""
+
+import asyncio
+from fastapi import FastAPI
+
+app = FastAPI(title="{app_info['name']}")
+
+@app.get("/")
+async def root():
+    return {{"message": "Hello from {app_info['name']}!"}}
+
+@app.get("/health")
+async def health():
+    return {{"status": "healthy"}}
+
+async def hello_task():
+    """Background task that prints hello message every 5 seconds."""
+    while True:
+        print(f"Hello from {app_info['name']}")
+        await asyncio.sleep(5)
+
+@app.on_event("startup")
+async def startup_event():
+    """Start the hello task when the app starts."""
+    asyncio.create_task(hello_task())
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port={app_info['port']})
+'''
+            main_py_path = app_dir / "main.py"
+            with open(main_py_path, 'w') as f:
+                f.write(main_py_content)
+            
+            # Make main.py executable
+            main_py_path.chmod(0o755)
     
     @staticmethod
     def add_arguments(parser: argparse.ArgumentParser) -> None:

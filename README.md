@@ -236,7 +236,7 @@ Edge-Terrarium is a **microservices application** that demonstrates how modern a
 ```mermaid
 %%{init: {'themeVariables': {'darkMode': true}}}%%
 flowchart TD
-    A[User Request] --> B[Kong Gateway]
+    A[User Request] --> B[NGINX Gateway]
     B --> C{Which Service?}
     C -->|/fake-provider/*| D[Custom Client]
     C -->|/example-provider/*| D
@@ -305,23 +305,23 @@ Docker is a containerization platform that packages applications and their depen
 - Creates runnable images with smart caching (only rebuilds if source files changed)
 - Automatically detects your system architecture (AMD64/ARM64)
 - Builds all core services: Custom Client, Service Sink, Logthon, and File Storage
-- For K3s deployments, also builds the Kong gateway image
+- For K3s deployments, also builds the NGINX gateway image
 
 #### Step 2: Start the Services
 ```bash
 # This starts all services and connects them
-./scripts/deploy.sh docker deploy
+python3 terrarium.py deploy docker
 ```
 
 **What happens**: Docker Compose reads `configs/docker/docker-compose.yml` and:
-- Starts 5 containers (custom-client, service-sink, logthon, vault, kong)
+- Starts 5 containers (custom-client, service-sink, logthon, vault, nginx)
 - Creates a network so they can talk to each other
 - Sets up port mappings so you can access them
 
 #### Step 3: Test the Application
 ```bash
 # This sends test requests to verify everything works
-./scripts/test.sh
+python3 terrarium.py test
 ```
 
 ### Understanding Docker Compose
@@ -338,7 +338,7 @@ include:
   - docker-compose.base.yml      # Base services: vault, vault-init
   - docker-compose.core.yml      # Core services: logthon, file-storage
   - docker-compose.apps.yml      # Application services: custom-client, service-sink
-  - docker-compose.gateway.yml   # Gateway services: kong-gateway
+  - docker-compose.gateway.yml   # Gateway services: nginx-gateway
 ```
 
 #### Service Startup Order
@@ -346,7 +346,7 @@ include:
 The services start in this specific sequence to ensure dependencies are available:
 
 ```
-vault → vault-init → logthon → file-storage → (custom-client, service-sink) → kong-gateway
+vault → vault-init → logthon → file-storage → (custom-client, service-sink) → nginx-gateway
 ```
 
 **Why This Order Matters**:
@@ -354,7 +354,7 @@ vault → vault-init → logthon → file-storage → (custom-client, service-si
 - **logthon**: All other services send logs to logthon, so it must be ready first
 - **file-storage**: Custom client immediately calls file-storage API after startup
 - **custom-client & service-sink**: Can start in parallel once their dependencies are ready
-- **kong-gateway**: Routes external traffic, so it starts last after all services are healthy
+- **nginx-gateway**: Routes external traffic, so it starts last after all services are healthy
 
 #### Compose File Breakdown
 
@@ -408,7 +408,7 @@ services:
 **Gateway Services** (`docker-compose.gateway.yml`):
 ```yaml
 services:
-  kong-gateway:            # API gateway and reverse proxy
+  nginx-gateway:           # API gateway and reverse proxy
     depends_on:
       custom-client:
         condition: service_healthy
@@ -443,7 +443,7 @@ When you run `docker-compose up`, Docker creates a network where:
 
 - `custom-client` can reach `logthon` at `http://logthon:5000`
 - `service-sink` can reach `logthon` at `http://logthon:5000`
-- You can reach Kong at `https://localhost:8443`
+- You can reach NGINX at `https://localhost:8443`
 
 This is **service discovery** - containers find each other by name, not IP address.
 
@@ -473,7 +473,7 @@ K3s is a lightweight Kubernetes distribution designed for resource-constrained e
 | **Pod** | Container | Smallest deployable unit containing one or more containers |
 | **Deployment** | Docker Compose service | Manages replica sets and rolling updates |
 | **Service** | Docker network | Provides stable network endpoint for pods |
-| **Ingress** | Kong Gateway | Routes external HTTP/HTTPS traffic to services |
+| **Ingress** | NGINX Gateway | Routes external HTTP/HTTPS traffic to services |
 | **Namespace** | Docker Compose project | Logical isolation boundary for resources |
 
 ### Running Edge-Terrarium with K3s
@@ -481,7 +481,7 @@ K3s is a lightweight Kubernetes distribution designed for resource-constrained e
 #### Step 1: Create a K3s Cluster
 ```bash
 # This creates a local K3s cluster using k3d
-./scripts/deploy.sh k3s deploy
+python3 terrarium.py deploy k3s
 ```
 
 **What happens**: 
@@ -497,7 +497,7 @@ The script automatically:
 #### Step 3: Test the Application
 ```bash
 # This tests the K3s deployment
-./scripts/test.sh
+python3 terrarium.py test
 ```
 
 #### Step 4: Access the Kubernetes Dashboard
@@ -523,13 +523,13 @@ The following diagram shows how YAML configuration files work together for both 
 flowchart TD
     subgraph "Docker Compose Deployment"
         DC[docker-compose.yml]
-        DK[kong.yml]
+        DK[nginx.conf]
         DC --> DK
         DC --> |"Build Context"| CC[custom-client/Dockerfile]
         DC --> |"Build Context"| SC[service-sink/Dockerfile]
         DC --> |"Build Context"| LC[logthon/Dockerfile]
         DC --> |"Build Context"| VC[vault/Dockerfile]
-        DC --> |"Build Context"| KC[kong/Dockerfile]
+        DC --> |"Build Context"| KC[nginx/Dockerfile]
     end
     
     subgraph "K3s Deployment"
@@ -599,7 +599,7 @@ flowchart TD
 ```
 
 **Key Relationships**:
-- **Docker Compose**: Single `docker-compose.yml` orchestrates all services with Kong configuration
+- **Docker Compose**: Single `docker-compose.yml` orchestrates all services with NGINX configuration
 - **K3s**: Multiple YAML files managed by `kustomization.yaml` for declarative deployment
 - **Build Context**: Dockerfiles define how each service is containerized
 - **Resource Dependencies**: Namespace must be created before other resources
@@ -659,7 +659,7 @@ spec:
 
 ### K3d Cluster Architecture
 
-When you run `./scripts/deploy.sh k3s deploy`, k3d creates a local K3s cluster using Docker containers. Understanding these containers helps with troubleshooting and cluster management.
+When you run `python3 terrarium.py deploy k3s`, k3d creates a local K3s cluster using Docker containers. Understanding these containers helps with troubleshooting and cluster management.
 
 #### K3d Container Components
 
@@ -742,7 +742,7 @@ docker stats k3d-edge-terrarium-server-0 k3d-edge-terrarium-agent-0 k3d-edge-ter
 - **Internal Network**: All containers communicate via `k3d-edge-terrarium` Docker network
 - **Port Mapping**: serverlb container maps host ports to cluster services
 - **Service Discovery**: Pods use Kubernetes DNS for internal communication
-- **Ingress**: Kong ingress controller runs in the cluster and routes external traffic
+- **Ingress**: NGINX ingress controller runs in the cluster and routes external traffic
 
 ### K3s vs Docker: Key Differences
 
@@ -762,7 +762,7 @@ docker stats k3d-edge-terrarium-server-0 k3d-edge-terrarium-agent-0 k3d-edge-ter
 graph TB
     subgraph "Host Machine"
         subgraph "Docker Network: edge-terrarium_default"
-            KC[Kong Gateway<br/>Port 8443]
+            KC[NGINX Gateway<br/>Port 8443]
             CC[Custom Client<br/>Port 1337]
             SS[Service Sink<br/>Port 8080]
             LT[Logthon<br/>Port 5000]
@@ -816,8 +816,8 @@ graph TB
                     VTS[Vault Service<br/>ClusterIP:8200]
                 end
             end
-            subgraph "Kong Ingress Controller"
-                KIC[Kong Ingress<br/>LoadBalancer:443]
+            subgraph "NGINX Ingress Controller"
+                KIC[NGINX Ingress<br/>LoadBalancer:443]
             end
             subgraph "kubernetes-dashboard Namespace"
                 KDP[Kubernetes Dashboard Pod<br/>kubernetes-dashboard-xxx]
@@ -878,7 +878,7 @@ The Kubernetes Dashboard provides a web-based user interface for managing and mo
 
 #### Accessing the Dashboard
 
-After running `./scripts/deploy.sh k3s deploy`, the dashboard token is automatically generated and displayed:
+After running `python3 terrarium.py deploy k3s`, the dashboard token is automatically generated and displayed:
 
 ```bash
 ==========================================
@@ -887,12 +887,12 @@ KUBERNETES DASHBOARD ACCESS INFORMATION
 Dashboard Token: eyJhbGciOiJSUzI1NiIsImtpZCI6...
 Access Methods:
 1. Port Forward Access (Recommended):
-   Command: kubectl -n kubernetes-dashboard port-forward svc/kubernetes-dashboard-kong-proxy 9443:443
+   Command: kubectl -n kubernetes-dashboard port-forward svc/kubernetes-dashboard-nginx-proxy 9443:443
    URL: https://localhost:9443
    Token: eyJhbGciOiJSUzI1NiIsImtpZCI6...
 
 2. Direct LoadBalancer Access (Alternative):
-   URL: https://localhost:443 (may conflict with main Kong ingress)
+   URL: https://localhost:443 (may conflict with main NGINX ingress)
    Token: eyJhbGciOiJSUzI1NiIsImtpZCI6...
 ==========================================
 ```
@@ -1372,13 +1372,13 @@ curl -X DELETE \
 }
 ```
 
-### API Gateway with Kong
+### API Gateway with NGINX
 
 **Problem**: Multiple services need a single entry point for external traffic.
 
-**Solution**: Kong acts as a reverse proxy that routes requests to the appropriate service.
+**Solution**: NGINX acts as a reverse proxy that routes requests to the appropriate service.
 
-#### Kong Routing Rules
+#### NGINX Routing Rules
 
 | Request Path | Destination Service | Port | Method | Purpose |
 |-------------|-------------------|------|--------|---------|
@@ -1390,95 +1390,59 @@ curl -X DELETE \
 | `/health` | Service Sink | 8080 | GET | Health check endpoint |
 | `/` (root) | Service Sink | 8080 | GET/POST | Default handler for all other requests |
 
-#### Kong Configuration Details
+#### NGINX Configuration Details
 
-**Docker Compose Configuration** (`configs/docker/kong/kong.yml`):
-```yaml
-services:
-  - name: custom-client-service
-    url: http://custom-client:1337
-    routes:
-      - name: custom-client-fake-provider
-        paths:
-          - /fake-provider
-        strip_path: false
-        preserve_host: true
-        protocols:
-          - http
-          - https
-      - name: custom-client-example-provider
-        paths:
-          - /example-provider
-        strip_path: false
-        preserve_host: true
-        protocols:
-          - http
-          - https
-
-  - name: service-sink-service
-    url: http://service-sink:8080
-    routes:
-      - name: service-sink-health
-        paths:
-          - /health
-        strip_path: false
-        preserve_host: true
-        protocols:
-          - http
-          - https
-      - name: service-sink-default
-        paths:
-          - /
-        strip_path: false
-        preserve_host: true
-        protocols:
-          - http
-          - https
-
-  - name: logthon-service
-    url: http://logthon:5000/
-    routes:
-      - name: logthon-health
-        paths:
-          - /logs/health
-        strip_path: true
-        preserve_host: true
-        protocols:
-          - http
-          - https
-      - name: logthon-logs
-        paths:
-          - /logs
-        strip_path: true
-        preserve_host: true
-        protocols:
-          - http
-          - https
-
-  - name: file-storage-service
-    url: http://file-storage:9000
-    routes:
-      - name: file-storage-route
-        paths:
-          - /storage
-        strip_path: true
-        preserve_host: true
-        protocols:
-          - http
-          - https
-
-  - name: vault-service
-    url: http://vault:8200
-    routes:
-      - name: vault-health
-        paths:
-          - /vault/v1/sys/health
-        strip_path: false
-        preserve_host: true
-        protocols:
-          - http
-          - https
-```
+**Docker Compose Configuration** (`configs/docker/nginx/nginx.conf`):
+```nginx
+server {
+    listen 443 ssl;
+    server_name localhost;
+    
+    # SSL Configuration
+    ssl_certificate /etc/nginx/certs/cert.pem;
+    ssl_certificate_key /etc/nginx/certs/key.pem;
+    
+    # Custom Client Routes
+    location /api/fake-provider/ {
+        proxy_pass http://custom-client:1337/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+    
+    location /api/example-provider/ {
+        proxy_pass http://custom-client:1337/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+    
+    # File Storage Routes
+    location /api/storage/ {
+        proxy_pass http://file-storage:9000/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+    
+    # Logthon Routes
+    location /api/logs/ {
+        proxy_pass http://logthon:5000/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+    
+    # Vault Routes
+    location /api/vault/ {
+        proxy_pass http://vault:8200/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+    
+    # Default Route (Service Sink)
+    location / {
+        proxy_pass http://service-sink:8080/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+}
 
 **K3s Ingress Configuration** (`configs/k3s/ingress.yaml`):
 ```yaml
@@ -1488,11 +1452,10 @@ metadata:
   name: edge-terrarium-ingress
   namespace: edge-terrarium
   annotations:
-    konghq.com/strip-path: "false"
-    konghq.com/preserve-host: "true"
-    konghq.com/protocols: "http,https"
+    nginx.ingress.kubernetes.io/rewrite-target: /$1
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
 spec:
-  ingressClassName: kong
+  ingressClassName: nginx
   tls:
   - hosts:
     - edge-terrarium.local
@@ -1565,7 +1528,7 @@ spec:
 
 #### Routing Priority
 
-Kong processes routes in the following order:
+NGINX processes routes in the following order:
 1. **Exact path matches** (e.g., `/fake-provider/test`)
 2. **Prefix matches** (e.g., `/fake-provider/*`)
 3. **Catch-all routes** (e.g., `/`)
@@ -1671,14 +1634,14 @@ flowchart TD
         CONFIG[configs/]
         DOCKER[configs/docker/]
         K3S[configs/k3s/]
-        KONG[configs/docker/kong/]
+        NGINX[configs/docker/nginx/]
     end
     
     subgraph "Automation"
-        SCRIPTS[scripts/]
-        DEPLOY[deploy.sh]
-        BUILD[build-images.sh]
-        TEST[test-*.sh]
+        CLI[terrarium_cli/]
+        PYTHON[terrarium.py]
+        COMMANDS[commands/]
+        TEMPLATES[templates/]
     end
     
     subgraph "Security"
@@ -1695,7 +1658,7 @@ flowchart TD
     
     CONFIG --> DOCKER
     CONFIG --> K3S
-    DOCKER --> KONG
+    DOCKER --> NGINX
     DOCKER --> DOCKER_CERTS
     
     SCRIPTS --> DEPLOY
@@ -1709,7 +1672,7 @@ flowchart TD
     classDef root fill:#fce4ec,stroke:#c2185b,stroke-width:3px,color:#000
     
     class CC,SS,LT app
-    class CONFIG,DOCKER,K3S,KONG config
+    class CONFIG,DOCKER,K3S,NGINX config
     class SCRIPTS,DEPLOY,BUILD,TEST script
     class CERTS,DOCKER_CERTS security
     class ROOT root
@@ -1782,8 +1745,8 @@ edge-terrarium/
 │   │   ├── docker-compose.apps.yml
 │   │   ├── docker-compose.gateway.yml
 │   │   ├── certs/          # TLS certificates for Docker
-│   │   └── kong/           # Kong Gateway configuration
-│   │       └── kong.yml
+│   │   └── nginx/          # NGINX Gateway configuration
+│   │       └── nginx.conf
 │   └── k3s/                # Kubernetes manifests
 │       ├── README.md       # Kubernetes configuration details
 │       ├── namespace.yaml
@@ -1802,14 +1765,20 @@ edge-terrarium/
 │       ├── logthon-ingress.yaml
 │       ├── ingress.yaml
 │       └── kustomization.yaml
-├── scripts/                # Automation scripts
-│   ├── deploy.sh           # Main deployment script
-│   ├── build-images.sh     # Unified Docker image building with smart caching
-│   ├── test-setup.sh       # Docker testing
-│   ├── test.sh             # Unified testing for both environments
-│   ├── generate-tls-certs.sh # Certificate generation
-│   ├── init-vault-enhanced.sh # Vault initialization
-│   ├── create-k3s-tls-secret.sh # K3s TLS secret creation
+├── terrarium_cli/          # Python CLI tool
+│   ├── main.py             # Main CLI entry point
+│   ├── commands/           # CLI command modules
+│   │   ├── deploy.py       # Deployment commands
+│   │   ├── build.py        # Build commands
+│   │   ├── test.py         # Testing commands
+│   │   ├── add_app.py      # Add application command
+│   │   └── vault.py        # Vault management commands
+│   ├── templates/          # Jinja2 configuration templates
+│   │   ├── docker-compose.yml.j2
+│   │   ├── k3s-deployment.yaml.j2
+│   │   ├── k3s-ingress.yaml.j2
+│   │   └── k3s-service.yaml.j2
+│   └── config/             # Configuration management
 └── certs/                  # TLS certificates
 ```
 
@@ -1843,32 +1812,54 @@ edge-terrarium/
 
 ### Routing Configuration
 
-#### Docker Compose (Kong Gateway)
-```yaml
-# configs/docker/kong/kong.yml
-services:
-  - name: custom-client-service
-    url: http://custom-client:1337
-    routes:
-      - name: custom-client-fake-provider
-        paths:
-          - /fake-provider
-        strip_path: false
-        preserve_host: true
-        protocols:
-          - http
-          - https
-      - name: custom-client-example-provider
-        paths:
-          - /example-provider
-        strip_path: false
-        preserve_host: true
-        protocols:
-          - http
-          - https
+#### Docker Compose (NGINX Gateway)
+```nginx
+# configs/docker/nginx/nginx.conf
+server {
+    listen 443 ssl;
+    server_name localhost;
+    
+    # SSL Configuration
+    ssl_certificate /etc/nginx/certs/cert.pem;
+    ssl_certificate_key /etc/nginx/certs/key.pem;
+    
+    # Custom Client Routes
+    location /api/fake-provider/ {
+        proxy_pass http://custom-client:1337/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+    
+    location /api/example-provider/ {
+        proxy_pass http://custom-client:1337/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+    
+    # File Storage Routes
+    location /api/storage/ {
+        proxy_pass http://file-storage:9000/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+    
+    # Logthon Routes
+    location /api/logs/ {
+        proxy_pass http://logthon:5000/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+    
+    # Default Route (Service Sink)
+    location / {
+        proxy_pass http://service-sink:8080/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+}
 ```
 
-#### Kubernetes (Kong Ingress)
+#### Kubernetes (NGINX Ingress)
 ```yaml
 # configs/k3s/ingress.yaml
 apiVersion: networking.k8s.io/v1
@@ -1877,7 +1868,7 @@ metadata:
   name: edge-terrarium-ingress
   namespace: edge-terrarium
 spec:
-  ingressClassName: kong
+  ingressClassName: nginx
   rules:
   - host: localhost
     http:
@@ -1920,7 +1911,7 @@ spec:
 
 #### Docker Testing
 ```bash
-./scripts/test.sh
+python3 terrarium.py test
 ```
 **Tests**:
 - Service health checks
@@ -1933,7 +1924,7 @@ spec:
 
 #### Kubernetes Testing
 ```bash
-./scripts/test.sh
+python3 terrarium.py test
 ```
 **Tests**:
 - Pod status and health
@@ -1957,7 +1948,7 @@ The k3d cluster automatically creates a load balancer that maps host ports to cl
 
 | Service | Load Balancer URL | Purpose |
 |---------|------------------|---------|
-| **Kong Ingress** | `https://localhost:443` | Main application gateway |
+| **NGINX Ingress** | `https://localhost:443` | Main application gateway |
 | **Logthon Service** | `http://localhost:5001` | Log aggregation web UI |
 | **Vault Service** | `http://localhost:8200` | Secrets management |
 | **Kubernetes Dashboard** | `https://localhost:9443` | Cluster management UI |
@@ -1965,7 +1956,7 @@ The k3d cluster automatically creates a load balancer that maps host ports to cl
 ##### Testing Commands
 
 ```bash
-# Test Kong ingress routing
+# Test NGINX ingress routing
 curl -k -H "Host: localhost" https://localhost:443/fake-provider/test
 curl -k -H "Host: localhost" https://localhost:443/example-provider/test
 curl -k -H "Host: localhost" https://localhost:443/api/test
@@ -2048,12 +2039,12 @@ pkill -f "kubectl port-forward"
 
 #### Method 3: Ingress Testing
 
-Test the Kong ingress controller routing directly.
+Test the NGINX ingress controller routing directly.
 
 ##### Ingress Access
 
 ```bash
-# Test ingress routing through Kong
+# Test ingress routing through NGINX
 curl -k -H "Host: localhost" https://localhost:443/fake-provider/test
 curl -k -H "Host: localhost" https://localhost:443/example-provider/test
 curl -k -H "Host: localhost" https://localhost:443/api/test
@@ -2075,8 +2066,8 @@ curl -k -H "Host: localhost" -H "X-Test-Header: value" \
 kubectl get ingress -n edge-terrarium
 kubectl describe ingress edge-terrarium-ingress -n edge-terrarium
 
-# Check Kong ingress controller logs
-kubectl logs -n kong deployment/ingress-kong -f
+# Check NGINX ingress controller logs
+kubectl logs -n ingress-nginx deployment/ingress-nginx-controller -f
 
 # Check service endpoints
 kubectl get endpoints -n edge-terrarium
@@ -2230,51 +2221,51 @@ kubectl logs -n edge-terrarium deployment/logthon
 **Cause**: Vault not initialized or network connectivity issues
 **Solution**: Check Vault status and network connectivity
 
-#### "No targets could be found" (Kong)
+#### "No targets could be found" (NGINX)
 **Cause**: Backend services not ready
 **Solution**: Wait for services to be ready, check health probes
 
-### Kong Logs and Monitoring
+### NGINX Logs and Monitoring
 
-Kong provides detailed logs for monitoring request flow and troubleshooting routing issues.
+NGINX provides detailed logs for monitoring request flow and troubleshooting routing issues.
 
-#### Viewing Kong Logs
+#### Viewing NGINX Logs
 
-**Method 1: Kong Ingress Controller Logs (Configuration & Routing)**
+**Method 1: NGINX Ingress Controller Logs (Configuration & Routing)**
 ```bash
 # View recent logs
-kubectl logs -n kong deployment/ingress-kong --tail 20
+kubectl logs -n ingress-nginx deployment/ingress-nginx-controller --tail 20
 
 # Follow logs in real-time
-kubectl logs -n kong deployment/ingress-kong -f
+kubectl logs -n ingress-nginx deployment/ingress-nginx-controller -f
 
 # View logs from specific time
-kubectl logs -n kong deployment/ingress-kong --since=10m
+kubectl logs -n ingress-nginx deployment/ingress-nginx-controller --since=10m
 ```
 
-**Method 2: Kong Proxy Logs (Access Logs)**
+**Method 2: NGINX Access Logs**
 ```bash
 # View access logs
-kubectl logs -n kong deployment/ingress-kong -c proxy --tail 20
+kubectl logs -n ingress-nginx deployment/ingress-nginx-controller -c nginx --tail 20
 
 # Follow access logs in real-time
-kubectl logs -n kong deployment/ingress-kong -c proxy -f
+kubectl logs -n ingress-nginx deployment/ingress-nginx-controller -c nginx -f
 
 # View logs with timestamps
-kubectl logs -n kong deployment/ingress-kong -c proxy --timestamps
+kubectl logs -n ingress-nginx deployment/ingress-nginx-controller -c nginx --timestamps
 ```
 
-**Method 3: All Kong Container Logs**
+**Method 3: All NGINX Container Logs**
 ```bash
 # View logs from all containers in the pod
-kubectl logs -n kong deployment/ingress-kong --all-containers=true
+kubectl logs -n ingress-nginx deployment/ingress-nginx-controller --all-containers=true
 
 # View logs from specific container
-kubectl logs -n kong deployment/ingress-kong -c ingress-controller
-kubectl logs -n kong deployment/ingress-kong -c proxy
+kubectl logs -n ingress-nginx deployment/ingress-nginx-controller -c controller
+kubectl logs -n ingress-nginx deployment/ingress-nginx-controller -c nginx
 ```
 
-#### Understanding Kong Log Types
+#### Understanding NGINX Log Types
 
 **Ingress Controller Logs:**
 - Service discovery messages
@@ -2287,27 +2278,27 @@ kubectl logs -n kong deployment/ingress-kong -c proxy
 - Client IP addresses
 - Request paths and methods
 - Response codes and sizes
-- Kong request IDs
+- NGINX request IDs
 
 **Log Format Example:**
 ```
-10.42.0.1 - - [07/Sep/2025:23:32:53 +0000] "GET /fake-provider/test HTTP/2.0" 200 94 "-" "curl/8.7.1" kong_request_id: "a645b12c2d4dee7e1e3176543a63f42f"
+10.42.0.1 - - [07/Sep/2025:23:32:53 +0000] "GET /api/fake-provider/test HTTP/2.0" 200 94 "-" "curl/8.7.1" nginx_request_id: "a645b12c2d4dee7e1e3176543a63f42f"
 ```
 
 #### Quick Commands for Common Tasks
 
 ```bash
-# Monitor Kong in real-time
-kubectl logs -n kong deployment/ingress-kong -f
+# Monitor NGINX in real-time
+kubectl logs -n ingress-nginx deployment/ingress-nginx-controller -f
 
 # Check for errors
-kubectl logs -n kong deployment/ingress-kong | grep -i error
+kubectl logs -n ingress-nginx deployment/ingress-nginx-controller | grep -i error
 
 # View recent access logs
-kubectl logs -n kong deployment/ingress-kong -c proxy --tail 50
+kubectl logs -n ingress-nginx deployment/ingress-nginx-controller -c nginx --tail 50
 
-# Check Kong health
-kubectl logs -n kong deployment/ingress-kong | grep "Successfully synced"
+# Check NGINX health
+kubectl logs -n ingress-nginx deployment/ingress-nginx-controller | grep "Successfully synced"
 ```
 
 ### Docker Issues
@@ -2545,7 +2536,7 @@ flowchart TD
     end
     
     %% External access flows
-    HOST --> |"HTTPS: localhost:443"| KONG
+    HOST --> |"HTTPS: localhost:443"| NGINX
     HOST --> |"HTTP: localhost:8200"| VS
     HOST --> |"HTTP: localhost:5001"| LT
     
@@ -2555,10 +2546,10 @@ flowchart TD
     CC --> |"Internal DNS"| FS
     SS --> |"Internal DNS"| LT
     
-    %% Kong routing
-    KONG --> CC
-    KONG --> SS
-    KONG --> FS
+    %% NGINX routing
+    NGINX --> CC
+    NGINX --> SS
+    NGINX --> FS
     
     %% Vault service routing
     VS --> VP
@@ -2569,7 +2560,7 @@ flowchart TD
     classDef service fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#000
     
     class HOST external
-    class KONG ingress
+    class NGINX ingress
     class CC,SS,LT,FS pod
     class VS,VP service
 ```
@@ -2628,7 +2619,7 @@ env:
 
 | Service | External Access | Method | Purpose |
 |---------|----------------|--------|---------|
-| **Main Application** | `https://localhost:443` | Kong Ingress | API gateway routing |
+| **Main Application** | `https://localhost:443` | NGINX Ingress | API gateway routing |
 | **Vault UI** | `http://localhost:8200` | LoadBalancer | Direct Vault access |
 | **Logthon UI** | `http://localhost:5001` | LoadBalancer | Log viewing interface |
 | **Kubernetes Dashboard** | `https://localhost:9443` | LoadBalancer | Cluster management |
@@ -2638,7 +2629,7 @@ env:
 ```yaml
 # Main application ingress with TLS support
 spec:
-  ingressClassName: kong
+  ingressClassName: nginx
   tls:
   - hosts:
     - edge-terrarium.local    # Custom domain for production
@@ -2702,7 +2693,7 @@ curl http://vault.edge-terrarium.svc.cluster.local:8200/v1/sys/health
 ```bash
 # From host machine
 curl -k https://localhost:443/fake-provider/test
-# → Kong Ingress → custom-client-service → custom-client pod
+# → NGINX Ingress → custom-client-service → custom-client pod
 ```
 
 #### External Flow: Host → Vault
@@ -2720,7 +2711,7 @@ curl http://localhost:8200/v1/sys/health
 | **External Access** | Direct port mapping (`localhost:8200`) | LoadBalancer + Ingress (`localhost:443`) |
 | **Service Discovery** | Docker network DNS | Kubernetes DNS |
 | **Load Balancing** | None (single container) | Kubernetes service load balancing |
-| **TLS Termination** | Kong Gateway | Kong Ingress Controller |
+| **TLS Termination** | NGINX Gateway | NGINX Ingress Controller |
 
 ### Best Practices Implemented
 
@@ -3214,16 +3205,32 @@ services:
       - default
 ```
 
-2. **Update Kong configuration** (`configs/docker/kong/kong.yml`):
-```yaml
-services:
-  - name: admin-service
-    url: http://admin-service:9000
-    routes:
-      - name: admin-service-route
-        paths:
-          - /admin
-```
+2. **Update NGINX configuration** (`configs/docker/nginx/nginx.conf`):
+```nginx
+server {
+    listen 443 ssl;
+    server_name localhost;
+    
+    # SSL Configuration
+    ssl_certificate /etc/nginx/certs/cert.pem;
+    ssl_certificate_key /etc/nginx/certs/key.pem;
+    
+    # Admin Service Routes
+    location /api/admin/ {
+        proxy_pass http://admin-service:9000/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+    
+    # Existing routes...
+    location /api/fake-provider/ {
+        proxy_pass http://custom-client:1337/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+    
+    # ... other existing routes ...
+}
 
 #### Step 3: K3s Configuration
 
@@ -3328,14 +3335,14 @@ metadata:
   name: admin-service-ingress
   namespace: edge-terrarium
   annotations:
-    konghq.com/strip-path: "true"
+    nginx.ingress.kubernetes.io/rewrite-target: /$1
   labels:
     app: admin-service
     project: edge-terrarium
     environment: development
     component: admin
 spec:
-  ingressClassName: kong
+  ingressClassName: nginx
   rules:
   - host: localhost
     http:
@@ -3377,7 +3384,7 @@ echo "Building Admin Service image..."
 docker build -t edge-terrarium-admin-service:latest admin-service/
 ```
 
-**Note**: The unified build script automatically handles both Docker Compose and K3s environments. Use `./scripts/build-images.sh` for Docker Compose or `./scripts/build-images.sh --k3s` for K3s.
+**Note**: The unified build command automatically handles both Docker Compose and K3s environments. Use `python3 terrarium.py build` for both environments.
 
 **Note**: The Python service uses a multi-stage Dockerfile that installs dependencies and creates a production-ready image. The build process is the same as the C services, but the resulting image will be larger due to the Python runtime and dependencies.
 
@@ -3386,7 +3393,7 @@ docker build -t edge-terrarium-admin-service:latest admin-service/
 1. **Docker Compose**:
 ```bash
 # Deploy
-./scripts/deploy.sh docker deploy
+python3 terrarium.py deploy docker
 
 # Test admin endpoint
 curl -H "Host: localhost" https://localhost:8443/admin/test
@@ -3401,7 +3408,7 @@ curl -H "Host: localhost" https://localhost:8443/admin/
 2. **K3s**:
 ```bash
 # Deploy
-./scripts/deploy.sh k3s deploy
+python3 terrarium.py deploy k3s
 
 # Test admin endpoint
 curl -k -H "Host: localhost" https://localhost:443/admin/test
@@ -3499,7 +3506,7 @@ void handle_client(int client_socket, const char* client_ip) {
 
 1. **Rebuild the image**:
 ```bash
-./scripts/build-images.sh
+python3 terrarium.py build
 ```
 
 2. **Redeploy the service**:
@@ -3590,7 +3597,7 @@ kubectl logs -n edge-terrarium deployment/service-sink
 ### Learn More About
 - **Docker**: [Docker Documentation](https://docs.docker.com/)
 - **K3s**: [K3s Documentation](https://k3s.io/)
-- **Kong**: [Kong Documentation](https://docs.konghq.com/)
+- **NGINX**: [NGINX Documentation](https://nginx.org/en/docs/)
 - **Vault**: [HashiCorp Vault Documentation](https://www.vaultproject.io/docs)
 
 ### Practice Projects
