@@ -123,7 +123,7 @@ spec:
         # =============================================================================
         # Expose container ports
         ports:
-        - containerPort: {{ app.runtime.port }}     # Port the app listens on
+        - containerPort: {{ app.runtime.port or 8080 }}     # Port the app listens on
           name: http                                 # Port name for service reference
 
         # =============================================================================
