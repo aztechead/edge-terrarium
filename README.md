@@ -1,6 +1,6 @@
-# Edge-Terrarium - Learning Docker & K3s
+# Edge-Terrarium - Dynamic Microservices Platform
 
-A hands-on project that teaches Docker containerization and K3s orchestration through a real-world application. Start with simple Docker containers and progress to full K3s deployment with ingress routing, secrets management, and monitoring.
+A modern, dynamic microservices platform that demonstrates Docker containerization and K3s orchestration through a real-world application. Features a unified Python CLI, dynamic configuration generation, and automatic service discovery. Start with simple Docker containers and progress to full K3s deployment with NGINX ingress routing, secrets management, and monitoring.
 
 ## Architecture Overview
 
@@ -12,8 +12,8 @@ flowchart TD
     end
     
     subgraph "K3s Cluster"
-        subgraph "Kong Ingress Controller"
-            KONG[Kong Gateway<br/>LoadBalancer:443]
+        subgraph "NGINX Ingress Controller"
+            NGINX[NGINX Gateway<br/>LoadBalancer:443]
         end
         
         subgraph "edge-terrarium Namespace"
@@ -31,11 +31,11 @@ flowchart TD
     end
     
     %% Request routing
-    USER -->|"HTTPS Requests"| KONG
-    KONG -->|"/fake-provider/*<br/>/example-provider/*"| CC
-    KONG -->|"/storage/*"| FS
-    KONG -->|"/logs/*"| LT
-    KONG -->|"/ (default)"| SS
+    USER -->|"HTTPS Requests"| NGINX
+    NGINX -->|"/api/fake-provider/*<br/>/api/example-provider/*"| CC
+    NGINX -->|"/api/storage/*"| FS
+    NGINX -->|"/api/logs/*"| LT
+    NGINX -->|"/api/ (default)"| SS
     
     %% Internal communication
     CC -->|"Logs"| LT
@@ -49,7 +49,7 @@ flowchart TD
     classDef infrastructure fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#000
     
     class USER external
-    class KONG ingress
+    class NGINX ingress
     class CC,SS,FS,LT workload
     class VAULT infrastructure
 ```
@@ -100,7 +100,7 @@ This project teaches you:
 - Health checks and monitoring
 
 ### Production Concepts
-- API Gateway patterns with Kong
+- API Gateway patterns with NGINX
 - Load balancing and service discovery
 - TLS/SSL certificate management
 - Log aggregation and monitoring
@@ -136,79 +136,87 @@ This project teaches you:
 git clone <repository-url>
 cd edge-terrarium
 
+# Install Python dependencies
+pip install -r requirements.txt
+
 # Deploy with Docker Compose
-./scripts/deploy.sh docker deploy
+python3 terrarium.py deploy docker
 
 # Test the application
-./scripts/test.sh
+python3 terrarium.py test
 ```
 
 ### Option 2: K3s (Recommended if you're familiar with containers)
 ```bash
 # Deploy to K3s
-./scripts/deploy.sh k3s deploy
+python3 terrarium.py deploy k3s
 
 # Test the application
-./scripts/test.sh
+python3 terrarium.py test
 ```
 
-### Available Script Arguments
+### Available CLI Commands
 
-#### Main Deploy Script (`./scripts/deploy.sh`)
+#### Main CLI Tool (`python3 terrarium.py`)
 ```bash
-# Syntax: ./scripts/deploy.sh [ENVIRONMENT] [ACTION]
+# Syntax: python3 terrarium.py [COMMAND] [OPTIONS]
 
-# ENVIRONMENT options:
-docker    # Deploy to Docker Compose (development)
-k3s       # Deploy to K3s via k3d (Kubernetes testing)
-
-# ACTION options:
-deploy    # Deploy the application (default)
+# COMMAND options:
+deploy    # Deploy the application (Docker or K3s)
+build     # Build Docker images
 test      # Test the deployed application
-clean     # Clean up the deployment
-logs      # Show application logs
+add-app   # Add a new application to the platform
+vault     # Vault management operations
 
 # Examples:
-./scripts/deploy.sh docker deploy    # Deploy to Docker Compose
-./scripts/deploy.sh k3s deploy       # Deploy to K3s (auto-creates k3d cluster if needed)
-./scripts/deploy.sh k3s test         # Test K3s deployment
-./scripts/deploy.sh docker clean     # Clean up Docker Compose
-./scripts/deploy.sh k3s clean        # Clean up K3s deployment (deletes k3d cluster)
-./scripts/deploy.sh docker logs      # Show Docker Compose logs
-./scripts/deploy.sh k3s logs         # Show K3s logs
+python3 terrarium.py deploy docker    # Deploy to Docker Compose
+python3 terrarium.py deploy k3s       # Deploy to K3s (auto-creates k3d cluster if needed)
+python3 terrarium.py test             # Test current deployment
+python3 terrarium.py build            # Build all Docker images
+python3 terrarium.py add-app          # Interactive app creation wizard
+python3 terrarium.py vault init       # Initialize Vault with secrets
+python3 terrarium.py vault status     # Check Vault status
 ```
 
-#### Other Available Scripts
+#### Command Options
 ```bash
-# Build Docker images
-./scripts/build-images.sh           # Build images for Docker Compose
-./scripts/build-images.sh --k3s     # Build images for K3s (includes Kong)
+# Global options:
+--verbose, -v     # Enable verbose output
+--quiet, -q       # Suppress output except errors
+--help, -h        # Show help message
+--version         # Show version information
 
-# Testing scripts
-./scripts/test.sh                   # Test both Docker Compose and K3s deployments
+# Deploy options:
+python3 terrarium.py deploy docker --verbose    # Deploy with detailed output
+python3 terrarium.py deploy k3s --quiet         # Deploy with minimal output
 
-# Utility scripts
-./scripts/generate-tls-certs.sh     # Generate TLS certificates
-./scripts/init-vault-enhanced.sh    # Initialize Vault with secrets
-./scripts/create-k3s-tls-secret.sh  # Create K3s TLS secret
+# Test options:
+python3 terrarium.py test --verbose             # Test with detailed output
 ```
 
-### Unified Build Script
+### Dynamic Configuration System
 
-The `build-images.sh` script is a **unified build solution** that handles both Docker Compose and K3s environments with smart caching:
+The platform features a **dynamic configuration system** that automatically generates all deployment files from templates:
 
-- **Smart Caching**: Only rebuilds images when source files have changed since the last build
-- **Architecture Detection**: Automatically detects your system architecture (AMD64/ARM64)
-- **Environment-Aware**: Uses the `--k3s` flag to enable K3s-specific features (like Kong image building)
-- **Consistent Interface**: Same script works for both deployment environments
+- **Auto-Generated Files**: All Docker Compose and K3s manifests are generated from templates
+- **App-Based Configuration**: Each application defines its own configuration in `app-config.yml`
+- **Dynamic Routing**: NGINX routing rules are automatically generated from app route definitions
+- **Template System**: Uses Jinja2 templates for consistent, maintainable configuration generation
+- **No Manual Editing**: All generated files include warnings and are ignored by Git
 
 **Usage Examples**:
 ```bash
-# Build for Docker Compose (default)
-./scripts/build-images.sh
+# Deploy to Docker Compose (auto-generates configs)
+python3 terrarium.py deploy docker
 
-# Build for K3s (includes Kong gateway)
-./scripts/build-images.sh --k3s
+# Deploy to K3s (auto-generates configs)
+python3 terrarium.py deploy k3s
+
+# Build images only
+python3 terrarium.py build
+
+# Add a new application
+python3 terrarium.py add-app
 ```
 
 **Goal**: Get the application running in 5 minutes, then explore each component.
@@ -253,7 +261,7 @@ flowchart TD
 
 ### Component Definitions
 
-- **Kong Gateway**: API gateway that routes HTTP requests based on URL patterns
+- **NGINX Gateway**: API gateway that routes HTTP requests based on URL patterns
 - **Custom Client**: C application that handles requests to `/fake-provider/*` and `/example-provider/*` paths, and automatically creates files via the File Storage API
 - **Service Sink**: C application that handles all other HTTP requests as the default route
 - **File Storage API**: Python FastAPI service that provides CRUD operations for file system storage with automatic file rotation
@@ -1814,9 +1822,9 @@ edge-terrarium/
 | `file-storage/` | Python FastAPI service for file system CRUD operations with automatic rotation | `main.py`, `file_storage/`, `pyproject.toml`, `README.md` |
 | `logthon/` | Python FastAPI service for log aggregation and web UI with file storage viewer | `main.py`, `logthon/`, `pyproject.toml`, `README.md` |
 | `configs/` | Configuration overview and structure documentation | `README.md` |
-| `configs/docker/` | Docker Compose orchestration and Kong configuration | `docker-compose*.yml`, `kong/kong.yml`, `README.md` |
+| `configs/docker/` | Docker Compose orchestration and NGINX configuration | `docker-compose*.yml`, `nginx/`, `README.md` |
 | `configs/k3s/` | Kubernetes manifests for declarative deployment | `*-deployment.yaml`, `services.yaml`, `ingress.yaml`, `README.md` |
-| `scripts/` | Automation scripts for building, deploying, and testing | `deploy.sh`, `build-images.sh`, `test-*.sh` |
+| `terrarium_cli/` | Python CLI tool for unified deployment and management | `main.py`, `commands/`, `templates/` |
 | `certs/` | TLS certificates for secure communication | Certificate files |
 
 ---
@@ -2517,8 +2525,8 @@ flowchart TD
     end
     
     subgraph "K3s Cluster"
-        subgraph "Kong Ingress Controller"
-            KONG[Kong Gateway<br/>LoadBalancer:443]
+        subgraph "NGINX Ingress Controller"
+            NGINX[NGINX Gateway<br/>LoadBalancer:443]
         end
         
         subgraph "edge-terrarium Namespace"
@@ -2725,7 +2733,293 @@ curl http://localhost:8200/v1/sys/health
 
 This architecture pattern ensures that the application is both developer-friendly and production-ready, with secure internal communication and flexible external access options.
 
-## Adding New Services
+## How to Add Applications
+
+The Edge-Terrarium platform makes it easy to add new applications with its dynamic configuration system. You can add applications either from source code or using existing Docker images.
+
+### Method 1: Interactive CLI (Recommended)
+
+The easiest way to add a new application is using the interactive CLI:
+
+```bash
+python3 terrarium.py add-app
+```
+
+This will guide you through:
+1. **Application Details**: Name, description, port, and runtime
+2. **Source Code**: Choose between creating from scratch or using existing code
+3. **Dockerfile**: Generate a Dockerfile or use an existing one
+4. **Configuration**: Automatically create `app-config.yml`
+5. **Routing**: Define API routes and endpoints
+
+### Method 2: Manual Setup
+
+For more control, you can manually create the application structure:
+
+#### Step 1: Create Application Directory
+
+```bash
+mkdir apps/my-new-app
+cd apps/my-new-app
+```
+
+#### Step 2: Create Application Configuration
+
+Create `app-config.yml`:
+
+```yaml
+name: my-new-app
+description: "My New Application"
+runtime:
+  type: python  # or node, go, rust, generic
+  port: 8000
+  health_check: "/health"
+
+# Docker Configuration
+docker:
+  image_name: edge-terrarium-my-new-app
+  tag: latest
+  build_context: "."
+
+# Routing Configuration
+routes:
+  - path: /my-app/*
+    target: /
+    strip_prefix: true
+  - path: /api/my-app/*
+    target: /
+    strip_prefix: true
+
+# Port Forwarding (for K3s)
+port_forward: 8001
+
+# Environment Variables
+env:
+  - name: LOG_LEVEL
+    value: "INFO"
+  - name: DATABASE_URL
+    value_from:
+      secret: "my-app/database"
+
+# Volumes (optional)
+volumes:
+  - name: data
+    mount_path: /app/data
+    size: 1Gi
+```
+
+#### Step 3: Create Application Code
+
+**For Python (FastAPI example):**
+
+Create `main.py`:
+```python
+#!/usr/bin/env python3
+from fastapi import FastAPI
+import os
+
+app = FastAPI(title="My New App")
+
+@app.get("/")
+async def root():
+    return {"message": "Hello from My New App!"}
+
+@app.get("/health")
+async def health():
+    return {"status": "healthy"}
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
+```
+
+Create `pyproject.toml`:
+```toml
+[project]
+name = "my-new-app"
+version = "0.1.0"
+dependencies = [
+    "fastapi>=0.104.0",
+    "uvicorn[standard]>=0.24.0",
+]
+```
+
+**For Node.js example:**
+
+Create `package.json`:
+```json
+{
+  "name": "my-new-app",
+  "version": "1.0.0",
+  "main": "server.js",
+  "dependencies": {
+    "express": "^4.18.0"
+  }
+}
+```
+
+Create `server.js`:
+```javascript
+const express = require('express');
+const app = express();
+const port = process.env.PORT || 8000;
+
+app.get('/', (req, res) => {
+  res.json({ message: 'Hello from My New App!' });
+});
+
+app.get('/health', (req, res) => {
+  res.json({ status: 'healthy' });
+});
+
+app.listen(port, '0.0.0.0', () => {
+  console.log(`Server running on port ${port}`);
+});
+```
+
+#### Step 4: Create Dockerfile
+
+**For Python:**
+```dockerfile
+FROM python:3.13-slim
+
+WORKDIR /app
+
+# Install dependencies
+COPY pyproject.toml .
+RUN pip install -e .
+
+# Copy application code
+COPY . .
+
+# Create non-root user
+RUN groupadd -r appgroup && useradd -r -g appgroup appuser
+RUN chown -R appuser:appgroup /app
+USER appuser
+
+# Expose port
+EXPOSE 8000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+# Start the application
+CMD ["python", "main.py"]
+```
+
+**For Node.js:**
+```dockerfile
+FROM node:18-alpine
+
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+
+# Install dependencies
+RUN npm install
+
+# Copy application code
+COPY . .
+
+# Create non-root user
+RUN addgroup -g 1001 -S nodejs
+RUN adduser -S nodejs -u 1001
+RUN chown -R nodejs:nodejs /app
+USER nodejs
+
+# Expose port
+EXPOSE 8000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+# Start the application
+CMD ["node", "server.js"]
+```
+
+#### Step 5: Deploy and Test
+
+```bash
+# Deploy the application
+python3 terrarium.py deploy docker
+
+# Test the application
+python3 terrarium.py test
+
+# Check logs
+docker logs edge-terrarium-my-new-app-1
+```
+
+### Method 3: Using Existing Docker Images
+
+If you have an existing Docker image, you can use it directly:
+
+```yaml
+# app-config.yml
+name: external-app
+description: "External Application"
+runtime:
+  type: generic
+  port: 8080
+
+docker:
+  image_name: my-registry/external-app
+  tag: v1.0.0
+  # No build_context needed for external images
+
+routes:
+  - path: /external/*
+    target: /
+    strip_prefix: true
+```
+
+### Application Configuration Reference
+
+#### Required Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | string | Application name (used for service names) |
+| `description` | string | Human-readable description |
+| `runtime.type` | string | Runtime type: `python`, `node`, `go`, `rust`, `generic` |
+| `runtime.port` | integer | Internal port the app listens on |
+| `docker.image_name` | string | Docker image name |
+
+#### Optional Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `runtime.health_check` | string | Health check endpoint (default: `/health`) |
+| `docker.tag` | string | Docker image tag (default: `latest`) |
+| `docker.build_context` | string | Build context directory (default: `.`) |
+| `routes` | array | API routing configuration |
+| `port_forward` | integer | K3s port forwarding port |
+| `env` | array | Environment variables |
+| `volumes` | array | Persistent volume mounts |
+
+#### Route Configuration
+
+```yaml
+routes:
+  - path: /my-app/*          # URL pattern to match
+    target: /                # Target path in the app
+    strip_prefix: true       # Strip the matched prefix
+  - path: /api/my-app/*      # Another route
+    target: /api/            # Different target
+    strip_prefix: false      # Keep the prefix
+```
+
+### Best Practices
+
+1. **Health Checks**: Always implement a `/health` endpoint
+2. **Logging**: Use structured logging and send logs to Logthon
+3. **Configuration**: Use environment variables for configuration
+4. **Security**: Run as non-root user in containers
+5. **Monitoring**: Include proper health checks and metrics
+6. **Documentation**: Add a README.md in your app directory
 
 ### Complete Example: Adding an Admin Service
 
