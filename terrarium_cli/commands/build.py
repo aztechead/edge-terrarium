@@ -11,6 +11,7 @@ from terrarium_cli.commands.base import BaseCommand
 from terrarium_cli.utils.shell import run_command, ShellError
 from terrarium_cli.utils.colors import Colors
 from terrarium_cli.config.app_loader import AppLoader
+from terrarium_cli.utils.dependencies import DependencyChecker
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +23,12 @@ class BuildCommand(BaseCommand):
         """Run the build command."""
         try:
             print(f"{Colors.info('Building Docker images...')}")
+            
+            # Check dependencies
+            dep_checker = DependencyChecker()
+            if not dep_checker.check_all_dependencies(['docker', 'curl']):
+                print(f"\n{Colors.error('Please install the missing dependencies and try again.')}")
+                return 1
             
             # Load app configurations
             app_loader = AppLoader()

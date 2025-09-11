@@ -12,6 +12,7 @@ from jinja2 import Environment, FileSystemLoader
 
 from terrarium_cli.commands.base import BaseCommand
 from terrarium_cli.utils.colors import Colors
+from terrarium_cli.utils.dependencies import DependencyChecker
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +44,12 @@ class AddAppCommand(BaseCommand):
         """Run the add-app command."""
         try:
             print(f"{Colors.info('Adding new application...')}")
+            
+            # Check dependencies
+            dep_checker = DependencyChecker()
+            if not dep_checker.check_all_dependencies(['python3', 'curl']):
+                print(f"\n{Colors.error('Please install the missing dependencies and try again.')}")
+                return 1
             
             # Get template selection
             template = self._get_template_selection()

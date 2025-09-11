@@ -12,6 +12,7 @@ from typing import Optional
 from terrarium_cli.commands.base import BaseCommand
 from terrarium_cli.utils.shell import run_command, check_command_exists, ShellError
 from terrarium_cli.utils.colors import Colors
+from terrarium_cli.utils.dependencies import DependencyChecker, DependencyError
 from terrarium_cli.config.app_loader import AppLoader
 from terrarium_cli.config.generator import ConfigGenerator
 
@@ -38,6 +39,12 @@ class DeployCommand(BaseCommand):
         """Deploy to Docker Compose."""
         try:
             print(f"{Colors.info('Deploying to Docker Compose...')}")
+            
+            # Check dependencies
+            dep_checker = DependencyChecker()
+            if not dep_checker.check_all_dependencies(['docker', 'docker_compose', 'curl']):
+                print(f"\n{Colors.error('Please install the missing dependencies and try again.')}")
+                return 1
             
             # Check prerequisites
             if not self._check_docker_prerequisites():
@@ -87,6 +94,12 @@ class DeployCommand(BaseCommand):
         """Deploy to K3s."""
         try:
             print(f"{Colors.info('Deploying to K3s...')}")
+            
+            # Check dependencies
+            dep_checker = DependencyChecker()
+            if not dep_checker.check_all_dependencies(['docker', 'k3d', 'kubectl', 'curl']):
+                print(f"\n{Colors.error('Please install the missing dependencies and try again.')}")
+                return 1
             
             # Check prerequisites
             if not self._check_k3s_prerequisites():

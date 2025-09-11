@@ -19,6 +19,7 @@ from terrarium_cli.commands.build import BuildCommand
 from terrarium_cli.commands.test import TestCommand
 from terrarium_cli.commands.add_app import AddAppCommand
 from terrarium_cli.commands.vault import VaultCommand
+from terrarium_cli.commands.check_deps import CheckDepsCommand
 from terrarium_cli.utils.logging import setup_logging
 from terrarium_cli.utils.colors import Colors
 
@@ -36,6 +37,7 @@ Examples:
   terrarium.py test                  # Test the deployment
   terrarium.py add-app               # Add a new application
   terrarium.py vault init            # Initialize Vault
+  terrarium.py check-deps            # Check system dependencies
         """
     )
     
@@ -99,6 +101,13 @@ Examples:
     )
     VaultCommand.add_arguments(vault_parser)
     
+    # Check dependencies command
+    check_deps_parser = subparsers.add_parser(
+        "check-deps",
+        help="Check system dependencies"
+    )
+    CheckDepsCommand.add_arguments(check_deps_parser)
+    
     return parser
 
 
@@ -129,6 +138,8 @@ def main():
             command = AddAppCommand(args)
         elif args.command == "vault":
             command = VaultCommand(args)
+        elif args.command == "check-deps":
+            command = CheckDepsCommand(args)
         else:
             parser.print_help()
             return 1

@@ -12,6 +12,7 @@ from typing import List, Dict, Any
 from terrarium_cli.commands.base import BaseCommand
 from terrarium_cli.utils.shell import run_command, ShellError
 from terrarium_cli.utils.colors import Colors
+from terrarium_cli.utils.dependencies import DependencyChecker
 
 # Suppress SSL warnings for self-signed certificates
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -27,6 +28,12 @@ class TestCommand(BaseCommand):
         try:
             print(f"{Colors.info('Testing deployment...')}")
             print(f"{Colors.info('Using self-signed certificates - SSL warnings suppressed')}")
+            
+            # Check dependencies
+            dep_checker = DependencyChecker()
+            if not dep_checker.check_all_dependencies(['docker', 'kubectl', 'curl']):
+                print(f"\n{Colors.error('Please install the missing dependencies and try again.')}")
+                return 1
             
             # Determine environment
             environment = self._detect_environment()
