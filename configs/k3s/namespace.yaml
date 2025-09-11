@@ -1,7 +1,0 @@
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: edge-terrarium
-  labels:
-    name: edge-terrarium
-    project: edge-terrarium
