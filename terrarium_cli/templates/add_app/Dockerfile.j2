@@ -1,33 +1,74 @@
+# =============================================================================
 # Dockerfile for {{ app_name }}
-# TODO: Customize this Dockerfile for your application
+# =============================================================================
+# This is a generic Dockerfile template for containerizing applications.
+# It provides a secure, non-root user setup with basic runtime dependencies.
+# 
+# Template Variables:
+#   {{ app_name }} - The name of the application
+#   {{ port }} - The port the application listens on
+#
+# Customization Guide:
+#   1. Replace the base image (alpine:3.18) with your preferred base
+#   2. Add any additional runtime dependencies in the RUN apk add command
+#   3. Modify the CMD instruction to run your actual application
+#   4. Add any build steps specific to your application before the CMD
+# =============================================================================
 
+# Base image - Alpine Linux for minimal size and security
+# Alpine is preferred for production containers due to its small attack surface
 FROM alpine:3.18
 
 # Install runtime dependencies
+# ca-certificates: Required for HTTPS/TLS connections
+# curl: Used for health checks and general HTTP operations
+# --no-cache: Prevents package manager cache from being stored in image
 RUN apk add --no-cache ca-certificates curl
 
-# Create non-root user
+# Create non-root user for security
+# Running containers as root is a security risk
+# We create a dedicated user and group with specific UIDs
 RUN addgroup -g 1001 -S appgroup && \
     adduser -u 1001 -S appuser -G appgroup
 
-# Set working directory
+# Set working directory inside the container
+# This is where the application code will be located
 WORKDIR /app
 
-# Copy application code
+# Copy application code into the container
+# The .dockerignore file should be used to exclude unnecessary files
+# This copies everything from the build context (usually the app directory)
 COPY . .
 
-# Change ownership to non-root user
+# Change ownership of all files to the non-root user
+# This ensures the application can read/write its own files
 RUN chown -R appuser:appgroup /app
 
-# Switch to non-root user
+# Switch to the non-root user
+# All subsequent commands will run as this user
 USER appuser
 
-# Expose port
+# Expose the port the application listens on
+# This is informational and helps with documentation
+# The actual port mapping happens at runtime with -p flag or docker-compose
 EXPOSE {{ port }}
 
-# Health check
+# Health check configuration
+# Docker will periodically check if the application is healthy
+# interval=30s: Check every 30 seconds
+# timeout=3s: Wait up to 3 seconds for a response
+# start-period=5s: Wait 5 seconds before starting health checks
+# retries=3: Mark as unhealthy after 3 consecutive failures
+# The health check endpoint should return HTTP 200 for healthy status
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:{{ port }}/health || exit 1
 
-# Run the application
+# Default application command
+# This is a placeholder that prints hello messages every 5 seconds
+# Replace this with your actual application startup command
+# Examples:
+#   CMD ["python", "main.py"]                    # Python application
+#   CMD ["node", "index.js"]                     # Node.js application
+#   CMD ["./my-binary"]                          # Compiled binary
+#   CMD ["java", "-jar", "app.jar"]              # Java application
 CMD ["sh", "-c", "while true; do echo 'Hello from {{ app_name }}'; sleep 5; done"]

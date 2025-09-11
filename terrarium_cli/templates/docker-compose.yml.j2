@@ -8,81 +8,190 @@
 # or update the templates in terrarium_cli/templates/
 # =============================================================================
 
+# =============================================================================
+# DOCKER COMPOSE CONFIGURATION TEMPLATE
+# =============================================================================
+# This template generates a Docker Compose file for the Dynamic Microservices Platform.
+# It creates service definitions for all applications based on their app-config.yml files.
+#
+# Template Variables:
+#   {{ apps }} - List of application configurations from app-config.yml files
+#   {{ global_config.network_name }} - Name of the Docker network for service communication
+#
+# Generated Services:
+#   - Each app in the apps/ directory becomes a Docker Compose service
+#   - Services are configured with build context, ports, environment, volumes, and health checks
+#   - Special handling for nginx (gateway) and vault (secrets management)
+#
+# Service Dependencies:
+#   - Vault starts first (no dependencies)
+#   - All other services depend on Vault
+#   - Custom dependencies can be defined in app-config.yml
+# =============================================================================
+
+# Docker Compose file format version
+# Version 3.8 supports most modern Docker features including health checks and networks
 version: '3.8'
+
+# =============================================================================
+# SERVICE DEFINITIONS
+# =============================================================================
+# Each application in the apps/ directory becomes a Docker Compose service
+# Services are configured based on their app-config.yml files
 
 services:
 {% for app in apps %}
+  # =============================================================================
+  # {{ app.name.upper() }} SERVICE
+  # =============================================================================
   # {{ app.description }}
+  # 
+  # Service Configuration:
+  #   - Name: {{ app.name }}
+  #   - Port: {{ app.runtime.port }}
+  #   - Health Check: {{ app.runtime.health_check_path }}
+  #   - Dependencies: {{ app.dependencies if app.dependencies else ['vault'] }}
+  # =============================================================================
   {{ app.name }}:
+    # =============================================================================
+    # IMAGE CONFIGURATION
+    # =============================================================================
+    # Use pre-built image for Vault, build from source for all other apps
+    # Vault uses the official HashiCorp image for security and reliability
     {% if app.docker.image_name == 'hashicorp/vault' %}
+    # Pre-built Vault image from HashiCorp
     image: {{ app.docker.image_name }}:{{ app.docker.tag }}
     {% else %}
+    # Build image from source using Dockerfile in app directory
     build:
-      context: ./apps/{{ app.name }}
-      dockerfile: {{ app.docker.dockerfile }}
+      context: ./apps/{{ app.name }}              # Build context (app directory)
+      dockerfile: {{ app.docker.dockerfile }}     # Dockerfile to use for building
     {% endif %}
+
+    # =============================================================================
+    # PORT MAPPING
+    # =============================================================================
+    # Map container ports to host ports for external access
+    # Only services that need external access have port mappings
     {% if app.runtime.port_forward %}
+    # Custom port forwarding defined in app-config.yml
     ports:
       - "{{ app.runtime.port_forward }}:{{ app.runtime.port }}"
     {% elif app.name == 'nginx' %}
+    # NGINX gateway - maps HTTPS port 443 to host port 8443
     ports:
       - "8443:443"
     {% elif app.name == 'vault' %}
+    # Vault UI and API - maps port 8200 to host port 8200
     ports:
       - "8200:8200"
     {% endif %}
+
+    # =============================================================================
+    # ENVIRONMENT VARIABLES
+    # =============================================================================
+    # Pass environment variables to the container
+    # Variables can be static values or references to Vault secrets
     {% if app.environment %}
     environment:
       {% for env in app.environment %}
+      # Environment variable: {{ env.name }}
       {% if env.value %}
-      - {{ env.name }}={{ env.value }}
+      - {{ env.name }}={{ env.value }}              # Static value
       {% elif env.value_from %}
-      - {{ env.name }}={{ env.value_from }}
+      - {{ env.name }}={{ env.value_from }}         # Vault secret reference
       {% endif %}
       {% endfor %}
     {% endif %}
+
+    # =============================================================================
+    # VOLUME MOUNTS
+    # =============================================================================
+    # Mount volumes for persistent storage and configuration files
+    # App volumes are defined in app-config.yml
+    # Special volumes are mounted for nginx configuration and SSL certificates
     {% if app.volumes or app.name == 'nginx' %}
     volumes:
       {% if app.volumes %}
+      # Application-specific volumes from app-config.yml
       {% for volume in app.volumes %}
-      - {{ volume.name }}:{{ volume.mount_path }}
+      - {{ volume.name }}:{{ volume.mount_path }}   # Volume: {{ volume.name }}
       {% endfor %}
       {% endif %}
       {% if app.name == 'nginx' %}
+      # NGINX configuration files (read-only)
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./nginx/server.conf:/etc/nginx/conf.d/server.conf:ro
+      # SSL certificates for HTTPS (read-only)
       - ../../certs/edge-terrarium.crt:/etc/nginx/ssl/tls.crt:ro
       - ../../certs/edge-terrarium.key:/etc/nginx/ssl/tls.key:ro
       {% endif %}
     {% endif %}
+
+    # =============================================================================
+    # SERVICE DEPENDENCIES
+    # =============================================================================
+    # Define startup order and dependencies between services
+    # Vault starts first, then all other services depend on Vault
+    # Custom dependencies can be defined in app-config.yml
     {% if app.dependencies %}
+    # Custom dependencies from app-config.yml
     depends_on:
       {% for dep in app.dependencies %}
-      - {{ dep }}
+      - {{ dep }}                                   # Dependency: {{ dep }}
       {% endfor %}
     {% elif app.name != 'vault' %}
+    # Default dependency on Vault for all services except Vault itself
     depends_on:
       - vault
     {% endif %}
+
+    # =============================================================================
+    # NETWORK CONFIGURATION
+    # =============================================================================
+    # Connect service to the platform network for inter-service communication
     networks:
-      - {{ global_config.network_name }}
+      - {{ global_config.network_name }}            # Platform network
+
+    # =============================================================================
+    # RESTART POLICY
+    # =============================================================================
+    # Automatically restart container unless manually stopped
+    # This ensures services stay running even after failures
     restart: unless-stopped
+
+    # =============================================================================
+    # HEALTH CHECK
+    # =============================================================================
+    # Monitor service health and restart if unhealthy
+    # Health checks are essential for service reliability
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:{{ app.runtime.port }}{{ app.runtime.health_check_path }}"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
+      interval: 30s                                 # Check every 30 seconds
+      timeout: 10s                                  # Wait up to 10 seconds for response
+      retries: 3                                    # Mark unhealthy after 3 failures
+      start_period: 30s                             # Wait 30 seconds before starting checks
 
 {% endfor %}
 
+# =============================================================================
+# VOLUME DEFINITIONS
+# =============================================================================
+# Define named volumes for persistent storage
+# Volumes persist data across container restarts and recreations
 volumes:
 {% for app in apps %}
   {% for volume in app.volumes %}
+  # Volume for {{ app.name }}: {{ volume.name }}
   {{ volume.name }}:
   {% endfor %}
 {% endfor %}
 
+# =============================================================================
+# NETWORK DEFINITIONS
+# =============================================================================
+# Define custom network for service communication
+# Bridge network allows services to communicate by name
 networks:
   {{ global_config.network_name }}:
-    driver: bridge
+    driver: bridge                                  # Bridge network for container communication

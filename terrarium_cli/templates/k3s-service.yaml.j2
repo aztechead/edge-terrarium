@@ -8,20 +8,69 @@
 # or update the templates in terrarium_cli/templates/
 # =============================================================================
 
+# =============================================================================
+# KUBERNETES SERVICE TEMPLATE
+# =============================================================================
+# This template generates a Kubernetes Service manifest for a single application.
+# It creates a service that provides stable network access to the application pods.
+#
+# Template Variables:
+#   {{ app }} - Application configuration from app-config.yml
+#   {{ global_config.namespace }} - Kubernetes namespace for the service
+#   {{ global_config.project_name }} - Project name for labeling
+#
+# Generated Resources:
+#   - Service: Provides stable IP and DNS name for the application
+#   - Endpoints: Automatically managed by Kubernetes based on pod labels
+#   - Load Balancing: Distributes traffic across healthy pods
+# =============================================================================
+
+# Kubernetes API version for Service resource
+# v1 is the stable version for services
 apiVersion: v1
+
+# Resource type - Service provides network access to pods
 kind: Service
+
+# =============================================================================
+# METADATA
+# =============================================================================
+# Basic information about the service
 metadata:
-  name: {{ app.name }}
-  namespace: {{ global_config.namespace }}
+  name: {{ app.name }}                              # Service name (must be unique in namespace)
+  namespace: {{ global_config.namespace }}          # Kubernetes namespace
   labels:
-    app: {{ app.name }}
-    project: {{ global_config.project_name }}
+    app: {{ app.name }}                             # App label for organization
+    project: {{ global_config.project_name }}       # Project label for organization
+
+# =============================================================================
+# SERVICE SPECIFICATION
+# =============================================================================
+# Defines how the service should behave
 spec:
+  # =============================================================================
+  # POD SELECTOR
+  # =============================================================================
+  # Selects which pods this service routes traffic to
+  # Must match the labels in the deployment pod template
   selector:
-    app: {{ app.name }}
+    app: {{ app.name }}                             # Select pods with this label
+
+  # =============================================================================
+  # PORT CONFIGURATION
+  # =============================================================================
+  # Defines the ports the service exposes
   ports:
-  - port: {{ app.runtime.port }}
-    targetPort: {{ app.runtime.port }}
-    protocol: TCP
-    name: http
-  type: ClusterIP
+  - port: {{ app.runtime.port }}                    # Port the service listens on
+    targetPort: {{ app.runtime.port }}              # Port on the target pods
+    protocol: TCP                                   # Protocol (TCP or UDP)
+    name: http                                      # Port name for reference
+
+  # =============================================================================
+  # SERVICE TYPE
+  # =============================================================================
+  # ClusterIP: Internal cluster access only (default)
+  # NodePort: Expose on each node's IP at a static port
+  # LoadBalancer: Expose externally using cloud provider's load balancer
+  # ExternalName: Map service to external DNS name
+  type: ClusterIP                                   # Internal cluster access only

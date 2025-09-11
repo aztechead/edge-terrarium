@@ -1,36 +1,88 @@
+# =============================================================================
 # Dockerfile for {{ app_name }} (Python FastAPI)
+# =============================================================================
+# This is a specialized Dockerfile template for Python FastAPI applications.
+# It uses Python 3.13-slim as the base image and includes FastAPI-specific
+# optimizations like multi-stage dependency installation.
+#
+# Template Variables:
+#   {{ app_name }} - The name of the application
+#   {{ port }} - The port the application listens on
+#
+# Customization Guide:
+#   1. Modify the Python version in the FROM instruction if needed
+#   2. Add additional system dependencies in the apt-get install command
+#   3. Add build dependencies if you need to compile Python packages
+#   4. Modify the CMD instruction if your main file has a different name
+#   5. Add environment variables if your app needs them
+# =============================================================================
+
+# Base image - Python 3.13 slim for Python applications
+# slim variant reduces image size by removing unnecessary packages
+# Python 3.13 is the latest stable version with good performance
 FROM python:3.13-slim
 
-# Set working directory
+# Set working directory inside the container
+# This is where the Python application will be located
 WORKDIR /app
 
 # Install system dependencies
+# curl: Required for health checks and HTTP operations
+# apt-get update: Refresh package lists
+# apt-get install -y: Install packages without prompting
+# rm -rf /var/lib/apt/lists/*: Clean up package cache to reduce image size
 RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Create non-root user
+# Create non-root user for security
+# Running containers as root is a security risk
+# We create a dedicated user and group with specific UIDs
 RUN groupadd -r appgroup && useradd -r -g appgroup appuser
 
-# Copy requirements first for better caching
+# Copy requirements file first for better Docker layer caching
+# This allows Docker to cache the pip install step separately from code changes
+# Only reinstall dependencies when requirements.txt changes
 COPY requirements.txt .
+
+# Install Python dependencies
+# --no-cache-dir: Prevents pip from storing cache files
+# -r requirements.txt: Install from the requirements file
+# This step is cached unless requirements.txt changes
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application code
+# Copy application code into the container
+# This is done after dependency installation for better caching
+# The .dockerignore file should be used to exclude unnecessary files
 COPY . .
 
-# Change ownership to non-root user
+# Change ownership of all files to the non-root user
+# This ensures the Python application can read/write its own files
 RUN chown -R appuser:appgroup /app
 
-# Switch to non-root user
+# Switch to the non-root user
+# All subsequent commands will run as this user
 USER appuser
 
-# Expose port
+# Expose the port the application listens on
+# This is informational and helps with documentation
+# The actual port mapping happens at runtime with -p flag or docker-compose
 EXPOSE {{ port }}
 
-# Health check
+# Health check configuration
+# Docker will periodically check if the FastAPI application is healthy
+# interval=30s: Check every 30 seconds
+# timeout=3s: Wait up to 3 seconds for a response
+# start-period=5s: Wait 5 seconds before starting health checks
+# retries=3: Mark as unhealthy after 3 consecutive failures
+# The health check endpoint should return HTTP 200 for healthy status
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:{{ port }}/health || exit 1
 
-# Run the application
+# Run the Python FastAPI application
+# This starts the FastAPI server using the main.py file
+# The main.py file should contain the FastAPI app and uvicorn server
+# Alternative commands:
+#   CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "{{ port }}"]
+#   CMD ["gunicorn", "main:app", "-w", "4", "-k", "uvicorn.workers.UvicornWorker"]
 CMD ["python", "main.py"]

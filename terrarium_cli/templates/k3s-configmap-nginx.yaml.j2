@@ -8,13 +8,55 @@
 # or update the templates in terrarium_cli/templates/
 # =============================================================================
 
+# =============================================================================
+# KUBERNETES CONFIGMAP TEMPLATE - NGINX CONFIGURATION
+# =============================================================================
+# This template generates a Kubernetes ConfigMap containing NGINX configuration files.
+# It stores the main nginx.conf and server.conf files as ConfigMap data.
+#
+# Template Variables:
+#   {{ nginx_conf }} - Main NGINX configuration content
+#   {{ server_conf }} - Server-specific NGINX configuration content
+#   {{ global_config.namespace }} - Kubernetes namespace for the ConfigMap
+#
+# Generated Resources:
+#   - ConfigMap: Stores NGINX configuration files as key-value pairs
+#   - nginx.conf: Main NGINX configuration with global settings
+#   - server.conf: Server block configuration with routing rules
+# =============================================================================
+
+# Kubernetes API version for ConfigMap resource
+# v1 is the stable version for configmaps
 apiVersion: v1
+
+# Resource type - ConfigMap stores configuration data
 kind: ConfigMap
+
+# =============================================================================
+# METADATA
+# =============================================================================
+# Basic information about the ConfigMap
 metadata:
-  name: nginx-config
-  namespace: edge-terrarium
+  name: nginx-config                                  # ConfigMap name
+  namespace: {{ global_config.namespace }}            # Kubernetes namespace
+
+# =============================================================================
+# CONFIGURATION DATA
+# =============================================================================
+# Store NGINX configuration files as ConfigMap data
 data:
+  # =============================================================================
+  # NGINX MAIN CONFIGURATION
+  # =============================================================================
+  # Main NGINX configuration file with global settings
+  # This file contains the main context, events, and http blocks
   nginx.conf: |
 {{ nginx_conf | indent(4) }}
+
+  # =============================================================================
+  # NGINX SERVER CONFIGURATION
+  # =============================================================================
+  # Server block configuration with routing rules
+  # This file contains the server blocks for each application
   server.conf: |
 {{ server_conf | indent(4) }}

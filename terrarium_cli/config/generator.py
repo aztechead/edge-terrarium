@@ -439,7 +439,7 @@ class ConfigGenerator:
         """Generate PVC manifest for an app."""
         if app.volumes:
             template = self.jinja_env.get_template('k3s-pvc.yaml.j2')
-            pvc_content = template.render(apps=[app])
+            pvc_content = template.render(apps=[app], global_config=self.global_config)
             
             with open(config_dir / f"{app.name}-pvc.yaml", 'w') as f:
                 f.write(pvc_content)
