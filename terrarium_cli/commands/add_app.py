@@ -184,7 +184,9 @@ class AddAppCommand(BaseCommand):
                     app_info["port"] = int(port)
                     break
                 else:
-                    print(f"{Colors.error('Port is required')}")
+                    # Default to 8080 if no port provided
+                    app_info["port"] = 8080
+                    break
             except ValueError:
                 print(f"{Colors.error('Port must be a number')}")
         
