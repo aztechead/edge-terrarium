@@ -42,6 +42,11 @@ class ConfigGenerator:
         self.templates_dir = Path("terrarium_cli/templates")
         self.configs_dir = Path("configs")
         self.jinja_env = Environment(loader=FileSystemLoader(self.templates_dir))
+        
+        # Add base64encode filter
+        import base64
+        self.jinja_env.filters['base64encode'] = lambda x: base64.b64encode(x.encode('utf-8')).decode('utf-8')
+        
         self.global_config = load_global_config()
         
         # Initialize NGINX config generator
@@ -50,6 +55,55 @@ class ConfigGenerator:
     def _ensure_directory_exists(self, directory: Path) -> None:
         """Ensure directory exists, creating it if necessary."""
         directory.mkdir(parents=True, exist_ok=True)
+    
+    def _cleanup_generated_files(self, config_dir: Path) -> None:
+        """
+        Clean up auto-generated files before creating new ones.
+        
+        Args:
+            config_dir: Directory to clean up
+        """
+        logger.info(f"Cleaning up generated files in {config_dir}")
+        
+        # Define patterns for auto-generated files
+        patterns_to_remove = [
+            # Docker Compose files
+            "docker-compose*.yml",
+            "nginx/*.conf",
+            "nginx/*.template",
+            
+            # K3s manifest files
+            "*-deployment.yaml",
+            "*-service.yaml", 
+            "*-pvc.yaml",
+            "*-configmap.yaml",
+            "*-secret.yaml",
+            "ingress.yaml",
+            "kustomization.yaml",
+            "namespace.yaml"
+        ]
+        
+        # Remove files matching patterns
+        for pattern in patterns_to_remove:
+            for file_path in config_dir.glob(pattern):
+                if file_path.is_file():
+                    try:
+                        file_path.unlink()
+                        logger.debug(f"Removed: {file_path}")
+                    except OSError as e:
+                        logger.warning(f"Failed to remove {file_path}: {e}")
+        
+        # Clean up subdirectories that might be empty
+        for subdir in config_dir.iterdir():
+            if subdir.is_dir() and subdir.name in ["nginx"]:
+                try:
+                    # Remove all files in subdirectory
+                    for file_path in subdir.glob("*"):
+                        if file_path.is_file():
+                            file_path.unlink()
+                            logger.debug(f"Removed: {file_path}")
+                except OSError as e:
+                    logger.warning(f"Failed to clean subdirectory {subdir}: {e}")
     
     def _write_yaml_file_with_warning(self, file_path: Path, data: Dict[str, Any]) -> None:
         """Write YAML file with auto-generated warning comment."""
@@ -103,6 +157,10 @@ class ConfigGenerator:
     
     def generate_all_configs(self, apps: List[AppConfig]) -> None:
         """Generate all configuration files including NGINX."""
+        # Clean up existing generated files first
+        self._cleanup_generated_files(self.configs_dir / "docker")
+        self._cleanup_generated_files(self.configs_dir / "k3s")
+        
         # Generate NGINX configurations first
         self.nginx_generator.generate_configs()
         
@@ -157,6 +215,15 @@ class ConfigGenerator:
             self._generate_service(k3s_config_dir, app)
             if app.volumes:
                 self._generate_pvc(k3s_config_dir, app)
+            
+            # Generate database deployments and services
+            for db_config in app.databases:
+                if db_config.enabled:
+                    self._generate_database_deployment(k3s_config_dir, app, db_config)
+                    self._generate_database_service(k3s_config_dir, app, db_config)
+                    self._generate_database_pvc(k3s_config_dir, app, db_config)
+                    self._generate_database_configmap(k3s_config_dir, app, db_config)
+                    self._generate_database_secret(k3s_config_dir, app, db_config)
         
         # Generate NGINX configuration
         self._generate_nginx_k3s_config(k3s_config_dir, apps)
@@ -187,6 +254,10 @@ class ConfigGenerator:
         # Gateway services (NGINX)
         gateway_services = self._generate_gateway_services(apps)
         self._write_compose_file(config_dir / "docker-compose.gateway.yml", gateway_services)
+        
+        # Database services
+        database_services = self._generate_database_services(apps)
+        self._write_compose_file(config_dir / "docker-compose.databases.yml", database_services)
     
     def _generate_vault_services(self) -> Dict[str, Any]:
         """Generate Vault services configuration."""
@@ -249,6 +320,43 @@ class ConfigGenerator:
     
     def _generate_docker_service(self, app: AppConfig) -> Dict[str, Any]:
         """Generate Docker service configuration for an app."""
+        # Collect environment variables
+        env_vars = []
+        
+        # Add regular environment variables
+        for env in app.environment:
+            if env.value:
+                env_vars.append(f"{env.name}={env.value}")
+            elif env.value_from:
+                # Handle Vault references
+                if env.value_from.startswith("vault:"):
+                    # For Docker, we'll use the actual value from Vault
+                    # This would need to be resolved at runtime
+                    env_vars.append(f"{env.name}=${{{env.name}}}")
+                else:
+                    env_vars.append(f"{env.name}={env.value_from}")
+        
+        # Add database environment variables
+        from terrarium_cli.utils.database import get_database_environment_variables
+        for db_config in app.databases:
+            if db_config.enabled:
+                # Generate mock credentials for Docker Compose
+                mock_credentials = {
+                    "host": f"{app.name}-db",
+                    "port": "5432",
+                    "username": f"{app.name}_user",
+                    "password": "generated_password",  # This would be resolved at runtime
+                    "database_name": db_config.name,
+                    "url": f"postgresql://{app.name}_user:generated_password@{app.name}-db:5432/{db_config.name}"
+                }
+                
+                db_env_vars = get_database_environment_variables(app.name, db_config, mock_credentials)
+                for db_env in db_env_vars:
+                    if db_env.get("value"):
+                        env_vars.append(f"{db_env['name']}={db_env['value']}")
+                    elif db_env.get("value_from"):
+                        env_vars.append(f"{db_env['name']}=${{{db_env['name']}}}")
+        
         service = {
             "build": {
                 "context": f"../../apps/{app.name}",
@@ -257,7 +365,7 @@ class ConfigGenerator:
             "image": f"{app.docker.image_name}:{app.docker.tag}",
             "container_name": f"edge-terrarium-{app.name}",
             "ports": [f"{app.runtime.port}:{app.runtime.port}"],
-            "environment": [f"{env.name}={env.value}" for env in app.environment if env.value],
+            "environment": env_vars,
             "networks": ["edge-terrarium-network"],
             "restart": "unless-stopped"
         }
@@ -283,6 +391,60 @@ class ConfigGenerator:
         
         return service
     
+    def _generate_database_services(self, apps: List[AppConfig]) -> Dict[str, Any]:
+        """Generate database services for all apps."""
+        services = {}
+        
+        for app in apps:
+            for db_config in app.databases:
+                if db_config.enabled:
+                    service_name = f"{app.name}-db"
+                    services[service_name] = self._generate_docker_database_service(app, db_config)
+        
+        return {"services": services}
+    
+    def _generate_docker_database_service(self, app: AppConfig, db_config) -> Dict[str, Any]:
+        """Generate Docker service configuration for a database."""
+        service_name = f"{app.name}-db"
+        
+        # Port mapping
+        ports = ["5432:5432"]
+        if db_config.port_forward:
+            ports = [f"{db_config.port_forward}:5432"]
+        
+        service = {
+            "image": f"postgres:{db_config.version}",
+            "container_name": f"edge-terrarium-{service_name}",
+            "ports": ports,
+            "environment": [
+                f"POSTGRES_DB={db_config.name}",
+                f"POSTGRES_USER={app.name}_user",
+                f"POSTGRES_PASSWORD=$${{{app.name.upper()}_DB_PASSWORD}}",
+                "POSTGRES_INITDB_ARGS=--auth-host=scram-sha-256"
+            ],
+            "volumes": [
+                f"{service_name}-data:/var/lib/postgresql/data"
+            ],
+            "networks": ["edge-terrarium-network"],
+            "restart": "unless-stopped",
+            "healthcheck": {
+                "test": ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"],
+                "interval": "30s",
+                "timeout": "10s",
+                "retries": 3,
+                "start_period": "40s"
+            }
+        }
+        
+        # Add initialization scripts if specified
+        if db_config.init_scripts:
+            init_volume_mounts = []
+            for script in db_config.init_scripts:
+                init_volume_mounts.append(f"../../apps/{app.name}/{script}:/docker-entrypoint-initdb.d/{script.split('/')[-1]}:ro")
+            service["volumes"].extend(init_volume_mounts)
+        
+        return service
+    
     def _generate_docker_volumes(self, apps: List[AppConfig]) -> Dict[str, Any]:
         """Generate Docker volumes configuration."""
         volumes = {}
@@ -290,6 +452,13 @@ class ConfigGenerator:
         for app in apps:
             for volume in app.volumes:
                 volumes[volume.name] = {"driver": "local"}
+        
+        # Add database volumes
+        for app in apps:
+            for db_config in app.databases:
+                if db_config.enabled:
+                    service_name = f"{app.name}-db"
+                    volumes[f"{service_name}-data"] = {"driver": "local"}
         
         # Add standard volumes
         volumes.update({
@@ -389,14 +558,68 @@ class ConfigGenerator:
                     "value": env_var.value
                 })
             elif env_var.value_from:
-                container["env"].append({
-                    "name": env_var.name,
-                    "valueFrom": {
-                        "fieldRef": {
-                            "fieldPath": env_var.value_from
+                if env_var.value_from.startswith("vault:"):
+                    # Handle Vault references for K3s
+                    container["env"].append({
+                        "name": env_var.name,
+                        "valueFrom": {
+                            "secretKeyRef": {
+                                "name": f"{app.name}-secrets",
+                                "key": env_var.value_from.split("#")[1] if "#" in env_var.value_from else env_var.name.lower()
+                            }
                         }
-                    }
-                })
+                    })
+                else:
+                    container["env"].append({
+                        "name": env_var.name,
+                        "valueFrom": {
+                            "fieldRef": {
+                                "fieldPath": env_var.value_from
+                            }
+                        }
+                    })
+        
+        # Add database environment variables
+        from terrarium_cli.utils.database import get_database_environment_variables
+        for db_config in app.databases:
+            if db_config.enabled:
+                # Generate mock credentials for K3s
+                mock_credentials = {
+                    "host": f"{app.name}-db",
+                    "port": "5432",
+                    "username": f"{app.name}_user",
+                    "password": "generated_password",  # This would be resolved at runtime
+                    "database_name": db_config.name,
+                    "url": f"postgresql://{app.name}_user:generated_password@{app.name}-db:5432/{db_config.name}"
+                }
+                
+                db_env_vars = get_database_environment_variables(app.name, db_config, mock_credentials)
+                for db_env in db_env_vars:
+                    if db_env.get("value"):
+                        container["env"].append({
+                            "name": db_env["name"],
+                            "value": db_env["value"]
+                        })
+                    elif db_env.get("value_from"):
+                        if db_env["value_from"].startswith("vault:"):
+                            container["env"].append({
+                                "name": db_env["name"],
+                                "valueFrom": {
+                                    "secretKeyRef": {
+                                        "name": f"{app.name}-secrets",
+                                        "key": db_env["value_from"].split("#")[1] if "#" in db_env["value_from"] else db_env["name"].lower()
+                                    }
+                                }
+                            })
+                        else:
+                            container["env"].append({
+                                "name": db_env["name"],
+                                "valueFrom": {
+                                    "fieldRef": {
+                                        "fieldPath": db_env["value_from"]
+                                    }
+                                }
+                            })
         
         # Add health checks
         if app.health_checks:
@@ -487,6 +710,15 @@ class ConfigGenerator:
             resources.append(f"{app.name}-service.yaml")
             if app.volumes:
                 resources.append(f"{app.name}-pvc.yaml")
+            
+            # Add database resources
+            for db_config in app.databases:
+                if db_config.enabled:
+                    resources.append(f"{app.name}-db-deployment.yaml")
+                    resources.append(f"{app.name}-db-service.yaml")
+                    resources.append(f"{app.name}-db-pvc.yaml")
+                    resources.append(f"{app.name}-db-secret.yaml")
+                    resources.append(f"{app.name}-db-configmap.yaml")
         
         # Add ingress resources
         resources.extend([
@@ -502,3 +734,63 @@ class ConfigGenerator:
         }
         
         self._write_yaml_file_with_warning(config_dir / "kustomization.yaml", kustomization_data)
+    
+    def _generate_database_deployment(self, config_dir: Path, app: AppConfig, db_config) -> None:
+        """Generate database deployment manifest for K3s."""
+        deployment_file = config_dir / f"{app.name}-db-deployment.yaml"
+        self._write_template_file(deployment_file, 'k3s-database-deployment.yaml.j2', 
+                                app=app, db_config=db_config, global_config=self.global_config)
+    
+    def _generate_database_service(self, config_dir: Path, app: AppConfig, db_config) -> None:
+        """Generate database service manifest for K3s."""
+        service_file = config_dir / f"{app.name}-db-service.yaml"
+        self._write_template_file(service_file, 'k3s-database-service.yaml.j2', 
+                                app=app, db_config=db_config, global_config=self.global_config)
+    
+    def _generate_database_pvc(self, config_dir: Path, app: AppConfig, db_config) -> None:
+        """Generate database PVC manifest for K3s."""
+        pvc_file = config_dir / f"{app.name}-db-pvc.yaml"
+        self._write_template_file(pvc_file, 'k3s-database-pvc.yaml.j2', 
+                                app=app, db_config=db_config, global_config=self.global_config)
+    
+    def _generate_database_configmap(self, config_dir: Path, app: AppConfig, db_config) -> None:
+        """Generate database ConfigMap manifest for init scripts."""
+        if not db_config.init_scripts:
+            return
+            
+        # Read init script files
+        init_scripts = {}
+        for script_path in db_config.init_scripts:
+            script_file = Path(f"apps/{app.name}/{script_path}")
+            if script_file.exists():
+                with open(script_file, 'r') as f:
+                    script_content = f.read()
+                script_name = script_path.split('/')[-1]
+                init_scripts[script_name] = script_content
+            else:
+                print(f"Warning: Init script not found: {script_file}")
+        
+        if not init_scripts:
+            return
+            
+        configmap_file = config_dir / f"{app.name}-db-configmap.yaml"
+        self._write_template_file(configmap_file, 'k3s-database-configmap.yaml.j2', 
+                                app=app, db_config=db_config, global_config=self.global_config,
+                                init_scripts=init_scripts)
+    
+    def _generate_database_secret(self, config_dir: Path, app: AppConfig, db_config) -> None:
+        """Generate database Secret manifest for credentials."""
+        from terrarium_cli.utils.database import DatabaseManager
+        
+        # Generate database credentials
+        db_manager = DatabaseManager()
+        credentials = db_manager.generate_database_credentials(app.name, db_config)
+        
+        # Update host to use simplified name for K3s
+        credentials["host"] = f"{app.name}-db"
+        credentials["url"] = f"postgresql://{credentials['username']}:{credentials['password']}@{credentials['host']}:{credentials['port']}/{credentials['database_name']}"
+        
+        secret_file = config_dir / f"{app.name}-db-secret.yaml"
+        self._write_template_file(secret_file, 'k3s-database-secret.yaml.j2', 
+                                app=app, db_config=db_config, global_config=self.global_config,
+                                credentials=credentials)

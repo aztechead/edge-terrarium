@@ -50,6 +50,15 @@ class AddAppCommand(BaseCommand):
     
     def _prepare_template_context(self, app_info: Dict[str, Any]) -> Dict[str, Any]:
         """Prepare common template context."""
+        # Generate dependencies based on databases
+        dependencies = []
+        if "databases" in app_info and app_info["databases"]:
+            for db in app_info["databases"]:
+                if db.get("enabled", True):
+                    # Add database as dependency using the simplified format: app_name-db
+                    db_dependency = f"{app_info['name']}-db"
+                    dependencies.append(db_dependency)
+        
         return {
             "app_name": app_info["name"],
             "app_description": app_info["description"],
@@ -57,7 +66,9 @@ class AddAppCommand(BaseCommand):
             "port": app_info["port"],
             "environment_vars": app_info["environment"],
             "routes": app_info["routes"],
-            "volumes": app_info["volumes"]
+            "volumes": app_info["volumes"],
+            "databases": app_info.get("databases", []),
+            "dependencies": dependencies
         }
     
     def _render_template(self, template_name: str, context: Dict[str, Any]) -> str:
@@ -256,9 +267,100 @@ class AddAppCommand(BaseCommand):
                 print(f"{Colors.warning('Volume format should be: mount_path:size')}")
         
         app_info["volumes"] = volumes
+        
+        # Database configuration
+        databases = []
+        print(f"\n{Colors.info('Database configuration (press Enter to skip):')}")
+        
+        while True:
+            needs_db = input("Does this app need a database? (y/n): ").strip().lower()
+            if needs_db in ['', 'n', 'no']:
+                break
+            elif needs_db in ['y', 'yes']:
+                db_config = self._get_database_config(app_name)
+                if db_config:
+                    databases.append(db_config)
+                break
+            else:
+                print(f"{Colors.warning('Please enter y/yes or n/no')}")
+        
+        app_info["databases"] = databases
         app_info["template"] = template
         
         return app_info
+    
+    def _get_database_config(self, app_name: str) -> Dict[str, Any]:
+        """Get database configuration from user."""
+        # Supported database types
+        db_types = {
+            "1": {"type": "postgres", "name": "PostgreSQL", "default_version": "15"},
+            "2": {"type": "mysql", "name": "MySQL", "default_version": "8.0"},
+            "3": {"type": "mongodb", "name": "MongoDB", "default_version": "7.0"},
+            "4": {"type": "redis", "name": "Redis", "default_version": "7.2"}
+        }
+        
+        print(f"\n{Colors.info('Supported database types:')}")
+        for key, db_info in db_types.items():
+            print(f"  {key}. {db_info['name']} (default version: {db_info['default_version']})")
+        
+        # Get database type selection
+        while True:
+            try:
+                choice = input(f"\nSelect database type (1-{len(db_types)}): ").strip()
+                if choice in db_types:
+                    selected_db = db_types[choice]
+                    break
+                else:
+                    print(f"{Colors.error(f'Please enter a number between 1 and {len(db_types)}')}")
+            except KeyboardInterrupt:
+                return None
+        
+        print(f"{Colors.success(f'Selected database: {selected_db["name"]}')}")
+        
+        # Database name
+        db_name = input(f"Database name (default: {app_name}_db): ").strip()
+        if not db_name:
+            db_name = f"{app_name}_db"
+        
+        # Database version
+        db_version = input(f"Database version (default: {selected_db['default_version']}): ").strip()
+        if not db_version:
+            db_version = selected_db['default_version']
+        
+        # Port forwarding
+        port_forward = None
+        if selected_db["type"] in ["postgres", "mysql", "mongodb"]:
+            while True:
+                port_input = input("Port forwarding (host port, press Enter to skip): ").strip()
+                if not port_input:
+                    break
+                try:
+                    port_forward = int(port_input)
+                    if 1 <= port_forward <= 65535:
+                        break
+                    else:
+                        print(f"{Colors.error('Port must be between 1 and 65535')}")
+                except ValueError:
+                    print(f"{Colors.error('Port must be a number')}")
+        
+        # Init scripts (for SQL databases)
+        init_scripts = []
+        if selected_db["type"] in ["postgres", "mysql"]:
+            print(f"\n{Colors.info('Database initialization scripts (press Enter to skip):')}")
+            while True:
+                script_path = input("Init script path (e.g., init/schema.sql): ").strip()
+                if not script_path:
+                    break
+                init_scripts.append(script_path)
+        
+        return {
+            "enabled": True,
+            "type": selected_db["type"],
+            "name": db_name,
+            "version": db_version,
+            "init_scripts": init_scripts,
+            "port_forward": port_forward
+        }
     
     def _create_app_directory(self, app_info: Dict[str, Any]) -> bool:
         """Create app directory structure."""
@@ -347,27 +449,101 @@ class AddAppCommand(BaseCommand):
     def _create_template_specific_files(self, app_info: Dict[str, Any], app_dir: Path) -> None:
         """Create template-specific files like requirements.txt for Python."""
         template = app_info["template"]
+        databases = app_info.get("databases", [])
         
         if template == "python":
             # Create requirements.txt for Python
             requirements_content = """fastapi>=0.104.0
 uvicorn[standard]>=0.24.0
 """
+            
+            # Add database dependencies if needed
+            for db in databases:
+                if db["type"] == "postgres":
+                    requirements_content += "psycopg2-binary>=2.9.0\n"
+                elif db["type"] == "mysql":
+                    requirements_content += "pymysql>=1.1.0\n"
+                elif db["type"] == "mongodb":
+                    requirements_content += "pymongo>=4.6.0\n"
+                elif db["type"] == "redis":
+                    requirements_content += "redis>=5.0.0\n"
+            
             requirements_path = app_dir / "requirements.txt"
             with open(requirements_path, 'w') as f:
                 f.write(requirements_content)
             
             # Create main.py for Python
-            main_py_content = f'''#!/usr/bin/env python3
+            main_py_content = self._generate_python_main(app_info)
+            main_py_path = app_dir / "main.py"
+            with open(main_py_path, 'w') as f:
+                f.write(main_py_content)
+            
+            # Make main.py executable
+            main_py_path.chmod(0o755)
+        
+        # Create database init scripts if configured
+        if databases:
+            self._create_database_init_scripts(app_info, app_dir)
+    
+    def _generate_python_main(self, app_info: Dict[str, Any]) -> str:
+        """Generate Python main.py content based on app configuration."""
+        databases = app_info.get("databases", [])
+        has_database = len(databases) > 0
+        
+        # Base imports
+        imports = ["import asyncio", "from fastapi import FastAPI, HTTPException"]
+        if has_database:
+            imports.extend([
+                "import os",
+                "from datetime import datetime",
+                "from typing import List, Dict"
+            ])
+            
+            # Add database-specific imports
+            for db in databases:
+                if db["type"] == "postgres":
+                    imports.append("import psycopg2")
+                elif db["type"] == "mysql":
+                    imports.append("import pymysql")
+                elif db["type"] == "mongodb":
+                    imports.append("from pymongo import MongoClient")
+                elif db["type"] == "redis":
+                    imports.append("import redis")
+        
+        # Generate database configuration
+        db_config = ""
+        if has_database:
+            db_config = f"""
+# Database configuration from environment variables
+DB_HOST = os.getenv("{databases[0]['type'].upper()}_DB_HOST", "{app_info['name']}-{databases[0]['name']}-db")
+DB_PORT = os.getenv("{databases[0]['type'].upper()}_DB_PORT", "5432")
+DB_USER = os.getenv("{databases[0]['type'].upper()}_DB_USER", "{app_info['name']}_{databases[0]['name']}_user")
+DB_PASSWORD = os.getenv("{databases[0]['type'].upper()}_DB_PASSWORD", "default_password")
+DB_NAME = os.getenv("{databases[0]['type'].upper()}_DB_NAME", "{databases[0]['name']}")
 """
-{app_info['name']} - {app_info['description']}
-"""
-
-import asyncio
-from fastapi import FastAPI
-
-app = FastAPI(title="{app_info['name']}")
-
+        
+        # Generate database connection function
+        db_connection = ""
+        if has_database and databases[0]["type"] == "postgres":
+            db_connection = '''
+def get_db_connection():
+    """Get database connection."""
+    try:
+        conn = psycopg2.connect(
+            host=DB_HOST,
+            port=DB_PORT,
+            user=DB_USER,
+            password=DB_PASSWORD,
+            database=DB_NAME
+        )
+        return conn
+    except Exception as e:
+        print(f"Database connection failed: {e}")
+        raise
+'''
+        
+        # Generate endpoints
+        endpoints = f'''
 @app.get("/")
 async def root():
     return {{"message": "Hello from {app_info['name']}!"}}
@@ -375,28 +551,106 @@ async def root():
 @app.get("/health")
 async def health():
     return {{"status": "healthy"}}
+'''
+        
+        if has_database:
+            endpoints += f'''
+@app.get("/db/test")
+async def db_test():
+    """Test database connectivity and return sample data."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Get database version
+        cursor.execute("SELECT version()")
+        db_version = cursor.fetchone()[0]
+        
+        # Get test messages
+        cursor.execute("SELECT id, message, created_at FROM test_messages ORDER BY created_at DESC LIMIT 5")
+        messages = cursor.fetchall()
+        
+        cursor.close()
+        conn.close()
+        
+        return {{
+            "status": "success",
+            "database_version": db_version,
+            "test_data": [
+                {{
+                    "id": msg[0],
+                    "message": msg[1],
+                    "created_at": msg[2].isoformat() if msg[2] else None
+                }}
+                for msg in messages
+            ]
+        }}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database test failed: {{e}}")
+'''
+        
+        # Generate main content
+        main_content = f'''#!/usr/bin/env python3
+"""
+{app_info['name']} - {app_info['description']}
+"""
 
-async def hello_task():
-    """Background task that prints hello message every 5 seconds."""
-    while True:
-        print(f"Hello from {app_info['name']}")
-        await asyncio.sleep(5)
+{chr(10).join(imports)}
 
-@app.on_event("startup")
-async def startup_event():
-    """Start the hello task when the app starts."""
-    asyncio.create_task(hello_task())
+app = FastAPI(
+    title="{app_info['name']}",
+    description="{app_info['description']}",
+    version="1.0.0"
+)
+{db_config}{db_connection}{endpoints}
 
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port={app_info['port']})
 '''
-            main_py_path = app_dir / "main.py"
-            with open(main_py_path, 'w') as f:
-                f.write(main_py_content)
-            
-            # Make main.py executable
-            main_py_path.chmod(0o755)
+        
+        return main_content
+    
+    def _create_database_init_scripts(self, app_info: Dict[str, Any], app_dir: Path) -> None:
+        """Create database initialization scripts."""
+        databases = app_info.get("databases", [])
+        
+        for db in databases:
+            if db.get("init_scripts"):
+                # Create init directory
+                init_dir = app_dir / "init"
+                init_dir.mkdir(exist_ok=True)
+                
+                # Create schema.sql for SQL databases
+                if db["type"] in ["postgres", "mysql"]:
+                    schema_content = f"""-- {app_info['name']} Database Schema
+-- This script creates the initial database schema
+
+CREATE TABLE IF NOT EXISTS test_messages (
+    id SERIAL PRIMARY KEY,
+    message TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Create an index on created_at for better query performance
+CREATE INDEX IF NOT EXISTS idx_test_messages_created_at ON test_messages(created_at);
+"""
+                    schema_path = init_dir / "schema.sql"
+                    with open(schema_path, 'w') as f:
+                        f.write(schema_content)
+                    
+                    # Create seed.sql
+                    seed_content = f"""-- {app_info['name']} Database Seed Data
+-- This script populates the database with initial test data
+
+INSERT INTO test_messages (message) VALUES 
+    ('Hello from {app_info['name']}!'),
+    ('Database connectivity test successful'),
+    ('This is a test message from the seed script');
+"""
+                    seed_path = init_dir / "seed.sql"
+                    with open(seed_path, 'w') as f:
+                        f.write(seed_content)
     
     @staticmethod
     def add_arguments(parser: argparse.ArgumentParser) -> None:

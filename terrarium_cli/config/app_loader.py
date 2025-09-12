@@ -29,6 +29,7 @@ class RuntimeConfig:
     command: Optional[List[str]] = None
     args: Optional[List[str]] = None
     port_forward: Optional[int] = None  # Host port for port forwarding
+    ssl_port: Optional[int] = None  # SSL port for HTTPS
 
 
 @dataclass
@@ -74,6 +75,32 @@ class VolumeConfig:
 
 
 @dataclass
+class DatabaseConfig:
+    """Database configuration for an app."""
+    enabled: bool = False
+    type: str = "postgres"
+    name: str = ""
+    version: str = "latest"
+    init_scripts: List[str] = field(default_factory=list)
+    port_forward: Optional[int] = None  # Host port for external access
+
+
+@dataclass
+class TestEndpointConfig:
+    """Test endpoint configuration."""
+    path: str
+    methods: List[str]
+    description: str = ""
+
+
+@dataclass
+class TestConfig:
+    """Test configuration for an app."""
+    endpoints: Optional[List[TestEndpointConfig]] = None
+    skip_generic_tests: bool = False
+
+
+@dataclass
 class SecurityConfig:
     """Security configuration for an app."""
     run_as_non_root: bool = True
@@ -97,6 +124,8 @@ class AppConfig:
     health_checks: Dict[str, HealthCheckConfig] = field(default_factory=dict)
     volumes: List[VolumeConfig] = field(default_factory=list)
     security: SecurityConfig = field(default_factory=SecurityConfig)
+    databases: List[DatabaseConfig] = field(default_factory=list)
+    test_config: Optional[TestConfig] = None
 
 
 class AppLoader:
@@ -149,6 +178,22 @@ class AppLoader:
             logger.warning(f"Config file not found: {config_file}")
             return None
         
+        # Validate YAML before parsing
+        from terrarium_cli.utils.yaml_validator import YAMLValidator
+        validator = YAMLValidator()
+        is_valid, errors, warnings = validator.validate_app_config(config_file)
+        
+        if not is_valid:
+            logger.error(f"YAML validation failed for {config_file.name}:")
+            for error in errors:
+                logger.error(f"  • {error}")
+            return None
+        
+        if warnings:
+            logger.warning(f"YAML validation warnings for {config_file.name}:")
+            for warning in warnings:
+                logger.warning(f"  • {warning}")
+        
         try:
             with open(config_file, 'r') as f:
                 data = yaml.safe_load(f)
@@ -187,7 +232,8 @@ class AppLoader:
             startup_timeout=runtime_data.get("startup_timeout", 30),
             command=runtime_data.get("command"),
             args=runtime_data.get("args"),
-            port_forward=runtime_data.get("port_forward")
+            port_forward=runtime_data.get("port_forward"),
+            ssl_port=runtime_data.get("ssl_port")
         )
         
         # Parse environment variables
@@ -260,6 +306,41 @@ class AppLoader:
             read_only_root_filesystem=security_data.get("read_only_root_filesystem", False)
         )
         
+        # Parse databases
+        databases = []
+        databases_data = data.get("databases", [])
+        if databases_data and isinstance(databases_data, list):
+            for db_data in databases_data:
+                if isinstance(db_data, dict):
+                    database = DatabaseConfig(
+                        enabled=db_data.get("enabled", True),
+                        type=db_data.get("type", "postgres"),
+                        name=db_data.get("name", f"{app_name}_db"),
+                        version=db_data.get("version", "latest"),
+                        init_scripts=db_data.get("init_scripts", []),
+                        port_forward=db_data.get("port_forward")
+                    )
+                    databases.append(database)
+        
+        # Parse test config
+        test_config = None
+        if "test_config" in data:
+            test_data = data["test_config"]
+            endpoints = []
+            if "endpoints" in test_data:
+                for endpoint_data in test_data["endpoints"]:
+                    endpoint = TestEndpointConfig(
+                        path=endpoint_data.get("path", ""),
+                        methods=endpoint_data.get("methods", []),
+                        description=endpoint_data.get("description", "")
+                    )
+                    endpoints.append(endpoint)
+            
+            test_config = TestConfig(
+                endpoints=endpoints if endpoints else None,
+                skip_generic_tests=test_data.get("skip_generic_tests", False)
+            )
+        
         return AppConfig(
             name=data.get("name", app_name),
             description=data.get("description", ""),
@@ -271,5 +352,7 @@ class AppLoader:
             resources=resources,
             health_checks=health_checks,
             volumes=volumes,
-            security=security
+            security=security,
+            databases=databases,
+            test_config=test_config
         )

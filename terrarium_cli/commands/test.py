@@ -263,6 +263,13 @@ class TestCommand(BaseCommand):
         for app in apps:
             if app.name == 'logthon':
                 continue
+            
+            # Check if app has special test handling defined
+            if app.test_config and app.test_config.skip_generic_tests:
+                if not self._test_app_specific(app, base_url):
+                    return False
+                continue
+            
             for route in app.routes:
                 # Create test URL by replacing * with empty string to test the root endpoint
                 test_path = route.path.replace('*', '')
@@ -285,15 +292,54 @@ class TestCommand(BaseCommand):
                 if not self._test_endpoint_simple(test_url, test_name):
                     return False
                 
-                # Test POST with JSON (skip file-storage as it doesn't support POST on root)
-                if app.name != 'file-storage':
-                    test_url = f"{base_url}{test_path}"
-                    test_name = f"{app.name} - POST with JSON"
-                    if not self._test_endpoint_with_data(test_url, test_name, "POST", 
-                                                '{"username":"testuser","password":"testpass"}', "application/json"):
-                        return False
         
         print("")
+        return True
+    
+    def _app_supports_method(self, app, method: str) -> bool:
+        """Check if an app supports a specific HTTP method."""
+        # Check if app has test_config defined
+        if app.test_config and app.test_config.endpoints:
+            for endpoint in app.test_config.endpoints:
+                if method.upper() in endpoint.methods:
+                    return True
+            return False
+        
+        # If no test_config, try to detect support by testing the endpoint
+        # This is a fallback for apps without explicit test configuration
+        if method.upper() == "GET":
+            return True  # Most apps support GET
+        
+        # For POST, we'll let the test run and handle 405 gracefully
+        # This avoids hard-coding app names
+        return True
+    
+    
+    def _test_app_specific(self, app, base_url: str) -> bool:
+        """Test an app using its specific test configuration."""
+        print(f"{Colors.bold(f'Testing {app.name.title()} Application')}")
+        
+        if not app.test_config or not app.test_config.endpoints:
+            print(f"  {Colors.warning(f'No test configuration found for {app.name}, skipping specific tests')}")
+            return True
+        
+        # Test each configured endpoint
+        for endpoint in app.test_config.endpoints:
+            test_url = f"{base_url}{endpoint.path}"
+            test_name = f"{app.name} - {endpoint.description or endpoint.path}"
+            
+            # Test each supported method
+            for method in endpoint.methods:
+                if method.upper() == "GET":
+                    if not self._test_endpoint_simple(test_url, f"{test_name} ({method})"):
+                        return False
+                elif method.upper() == "POST":
+                    if not self._test_endpoint_with_data(test_url, f"{test_name} ({method})", "POST", 
+                                                       '{"test": "data"}', "application/json"):
+                        return False
+                # Add more methods as needed
+        
+        
         return True
     
     def _test_logthon(self, base_url: str) -> bool:

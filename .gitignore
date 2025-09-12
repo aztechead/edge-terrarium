@@ -192,11 +192,7 @@ cython_debug/
 # =============================================================================
 
 # Docker Compose files
-configs/docker/docker-compose.yml
-configs/docker/docker-compose.apps.yml
-configs/docker/docker-compose.base.yml
-configs/docker/docker-compose.core.yml
-configs/docker/docker-compose.gateway.yml
+configs/docker/docker-compose.*
 
 # Docker NGINX configuration
 configs/docker/nginx/

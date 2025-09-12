@@ -1,18 +1,18 @@
 # =============================================================================
-# {{ app_name.title() }} Application Configuration
+# Test-Db-App Application Configuration
 # =============================================================================
 # This file defines how the application is deployed and configured in both 
 # Docker Compose and Kubernetes (K3s) environments. It serves as the single
 # source of truth for application deployment settings.
 #
 # Template Variables:
-#   {{ app_name }} - The name of the application
-#   {{ app_description }} - Description of what the application does
-#   {{ image_name }} - Docker image name (will be prefixed with edge-terrarium-)
-#   {{ port }} - Internal port the application listens on
-#   {{ environment_vars }} - List of environment variables
-#   {{ routes }} - List of API routes this app handles
-#   {{ volumes }} - List of persistent volumes
+#   test-db-app - The name of the application
+#   Test app with database - Description of what the application does
+#   edge-terrarium-test-db-app - Docker image name (will be prefixed with edge-terrarium-)
+#   8080 - Internal port the application listens on
+#   [] - List of environment variables
+#   [{'path': '/test-db-app/*', 'target': '/', 'strip_prefix': True}] - List of API routes this app handles
+#   [] - List of persistent volumes
 #
 # Important Notes:
 #   - The /api/ prefix is automatically added by the ingress layer (NGINX)
@@ -28,11 +28,11 @@
 
 # Application name - must be unique across all apps
 # Used for container names, service names, and resource naming
-name: {{ app_name }}
+name: test-db-app
 
 # Human-readable description of what this application does
 # Used in documentation and deployment logs
-description: {{ app_description }}
+description: Test app with database
 
 # =============================================================================
 # DOCKER CONFIGURATION
@@ -50,8 +50,8 @@ docker:
   dockerfile: Dockerfile              
   
   # Docker image name (will be prefixed with edge-terrarium-)
-  # Final image name will be: edge-terrarium-{{ image_name }}
-  image_name: {{ image_name }}        
+  # Final image name will be: edge-terrarium-edge-terrarium-test-db-app
+  image_name: edge-terrarium-test-db-app        
   
   # Docker image tag to use
   # "latest" is the default, but you can use version tags like "v1.0.0"
@@ -66,7 +66,7 @@ docker:
 runtime:
   # Internal port the application listens on inside the container
   # This should match the port your application actually uses
-  port: {{ port }}                    
+  port: 8080                    
   
   # Health check endpoint path
   # Your application should respond to GET /health with HTTP 200
@@ -83,21 +83,12 @@ runtime:
 # Can include both static values and references to Vault secrets
 
 environment:
-{% if environment_vars %}
-{% for env in environment_vars %}
-  # Environment variable: {{ env.name }}
-  # Value: {{ env.value }}
-  - name: {{ env.name }}
-    value: {{ env.value }}
-{% endfor %}
-{% else %}
   # No environment variables configured
   # Add variables like this:
   # - name: DATABASE_URL
   #   value: "postgresql://user:pass@localhost/db"
   # - name: API_KEY
   #   value_from: "vault:secret/myapp#api_key"
-{% endif %}
 
 # =============================================================================
 # ROUTING CONFIGURATION
@@ -112,21 +103,15 @@ environment:
 #   - Use /* at the end for wildcard matching (e.g., /api/users/*)
 
 routes:
-{% if routes %}
-{% for route in routes %}
-  # Route: {{ route.path }} -> {{ route.target }}
-  # Strip prefix: {{ route.strip_prefix | lower }}
-  - path: {{ route.path }}
-    target: {{ route.target }}
-    strip_prefix: {{ route.strip_prefix | lower }}
-{% endfor %}
-{% else %}
-  # No routes configured
-  # Add routes like this:
-  # - path: /myapp/*
-  #   target: /
-  #   strip_prefix: true
-{% endif %}
+  # Route: /test-db-app/* -> /
+  # Strip prefix: true
+  - path: /test-db-app/*
+    target: /
+    strip_prefix: true
+
+  - path: /db/test
+    target: /db/test
+    strip_prefix: true
 
 # =============================================================================
 # DEPENDENCIES
@@ -135,17 +120,10 @@ routes:
 # Dependencies are started in the order they appear in this list
 
 dependencies:
-{% if dependencies %}
-{% for dependency in dependencies %}
-  - {{ dependency }}
-{% endfor %}
-{% else %}
-  # No dependencies configured
-  # Add dependencies like this:
-  # - database
+  - test-db-app-db
+  # Add other dependencies like this:
   # - redis
   # - auth-service
-{% endif %}
 
 # =============================================================================
 # RESOURCE REQUIREMENTS
@@ -173,7 +151,7 @@ health_checks:
   # If this fails, Kubernetes will restart the container
   liveness:
     path: /health                     # Endpoint to check if app is alive
-    port: {{ port }}                  # Port to check
+    port: 8080                  # Port to check
     period_seconds: 30                # How often to check (every 30 seconds)
     timeout_seconds: 3                # How long to wait for response (3 seconds)
     failure_threshold: 3              # How many failures before restart (3 failures)
@@ -182,7 +160,7 @@ health_checks:
   # If this fails, Kubernetes will remove the pod from service
   readiness:
     path: /health                     # Endpoint to check if app is ready
-    port: {{ port }}                  # Port to check
+    port: 8080                  # Port to check
     period_seconds: 10                # How often to check (every 10 seconds)
     timeout_seconds: 3                # How long to wait for response (3 seconds)
     failure_threshold: 3              # How many failures before marking as not ready (3 failures)
@@ -194,25 +172,12 @@ health_checks:
 # Useful for databases, file storage, and configuration files
 
 volumes:
-{% if volumes %}
-{% for vol in volumes %}
-  # Volume: {{ vol.name }}
-  # Mount path: {{ vol.mount_path }}
-  # Size: {{ vol.size }}
-  # Access mode: {{ vol.access_mode }}
-  - name: {{ vol.name }}
-    mount_path: {{ vol.mount_path }}
-    size: {{ vol.size }}
-    access_mode: {{ vol.access_mode }}
-{% endfor %}
-{% else %}
   # No persistent volumes configured
   # Add volumes like this:
   # - name: data-volume
   #   mount_path: /app/data
   #   size: 10Gi
   #   access_mode: ReadWriteOnce
-{% endif %}
 
 # =============================================================================
 # DATABASE CONFIGURATION
@@ -222,37 +187,33 @@ volumes:
 # Database credentials are automatically generated and stored in Vault
 
 databases:
-{% if databases %}
-{% for db in databases %}
-  # Database: {{ db.name }}
-  # Type: {{ db.type }}
-  # Version: {{ db.version }}
-  - enabled: {{ db.enabled | lower }}
-    type: {{ db.type }}
-    name: {{ db.name }}
-    version: "{{ db.version }}"
-    {% if db.init_scripts %}
+  # Database: test_app_db
+  # Type: postgres
+  # Version: 15
+  - enabled: true
+    type: postgres
+    name: test_app_db
+    version: "15"
     init_scripts:
-    {% for script in db.init_scripts %}
-      - {{ script }}
-    {% endfor %}
-    {% endif %}
-    {% if db.port_forward %}
-    port_forward: {{ db.port_forward }}
-    {% endif %}
-{% endfor %}
-{% else %}
-  # No databases configured
-  # Add databases like this:
-  # - enabled: true
-  #   type: postgres
-  #   name: myapp_db
-  #   version: "15"
-  #   init_scripts:
-  #     - /app/init/schema.sql
-  #     - /app/init/seed.sql
-  #   port_forward: 5432
-{% endif %}
+      - init/schema.sql
+      - init/seed.sql
+    port_forward: 30433
+
+# =============================================================================
+# TEST CONFIGURATION
+# =============================================================================
+# Test configuration for the application
+# Defines what endpoints and HTTP methods are supported for testing
+
+test_config:
+  endpoints:
+    - path: /db/test
+      methods: [GET]
+      description: "Database connectivity test endpoint"
+    - path: /health
+      methods: [GET]
+      description: "Health check endpoint"
+  skip_generic_tests: true
 
 # =============================================================================
 # SECURITY CONTEXT

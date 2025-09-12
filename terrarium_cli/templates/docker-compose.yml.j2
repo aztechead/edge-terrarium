@@ -92,7 +92,7 @@ services:
     # =============================================================================
     # Pass environment variables to the container
     # Variables can be static values or references to Vault secrets
-    {% if app.environment %}
+    {% if app.environment or app.databases %}
     environment:
       {% for env in app.environment %}
       # Environment variable: {{ env.name }}
@@ -100,6 +100,17 @@ services:
       - {{ env.name }}={{ env.value }}              # Static value
       {% elif env.value_from %}
       - {{ env.name }}={{ env.value_from }}         # Vault secret reference
+      {% endif %}
+      {% endfor %}
+      {% for db_config in app.databases %}
+      {% if db_config.enabled %}
+      # Database environment variables for {{ db_config.name }}
+      - {{ db_config.type.upper() }}_DB_HOST={{ app.name }}-db
+      - {{ db_config.type.upper() }}_DB_PORT=5432
+      - {{ db_config.type.upper() }}_DB_USER={{ app.name }}_user
+      - {{ db_config.type.upper() }}_DB_PASSWORD=generated_password_placeholder
+      - {{ db_config.type.upper() }}_DB_NAME={{ db_config.name }}
+      - {{ db_config.type.upper() }}_DB_URL=postgresql://{{ app.name }}_user:generated_password_placeholder@{{ app.name }}-db:5432/{{ db_config.name }}
       {% endif %}
       {% endfor %}
     {% endif %}
@@ -174,6 +185,90 @@ services:
 
 {% endfor %}
 
+{% for app in apps %}
+{% for db_config in app.databases %}
+{% if db_config.enabled %}
+  # =============================================================================
+  # {{ app.name.upper() }}-{{ db_config.name.upper() }} DATABASE SERVICE
+  # =============================================================================
+  # PostgreSQL database for {{ app.name }}
+  # 
+  # Database Configuration:
+  #   - Name: {{ db_config.name }}
+  #   - Version: {{ db_config.version }}
+  #   - Port: {{ db_config.port_forward if db_config.port_forward else '5432' }}
+  #   - User: {{ app.name }}_{{ db_config.name }}_user
+  #   - Password: Generated and stored in Vault
+  # =============================================================================
+  {{ app.name }}-db:
+    # =============================================================================
+    # IMAGE CONFIGURATION
+    # =============================================================================
+    # Use official PostgreSQL image with specified version
+    image: postgres:{{ db_config.version }}
+
+    # =============================================================================
+    # CONTAINER CONFIGURATION
+    # =============================================================================
+    container_name: edge-terrarium-{{ app.name }}-db
+    {% if db_config.port_forward %}
+    ports:
+      - "{{ db_config.port_forward }}:5432"           # Custom port forwarding
+    {% else %}
+    ports:
+      - "5432:5432"                                   # Default PostgreSQL port
+    {% endif %}
+
+    # =============================================================================
+    # ENVIRONMENT VARIABLES
+    # =============================================================================
+    # Database configuration and credentials
+    environment:
+      - POSTGRES_DB={{ db_config.name }}              # Database name
+      - POSTGRES_USER={{ app.name }}_user  # Database user
+      - POSTGRES_PASSWORD=generated_password_placeholder  # Password from Vault
+      - POSTGRES_INITDB_ARGS=--auth-host=scram-sha-256 # Enhanced security
+
+    # =============================================================================
+    # VOLUME MOUNTS
+    # =============================================================================
+    # Persistent storage for database data
+    volumes:
+      - {{ app.name }}-db-data:/var/lib/postgresql/data
+      {% if db_config.init_scripts %}
+      {% for script in db_config.init_scripts %}
+      - ../../apps/{{ app.name }}/{{ script }}:/docker-entrypoint-initdb.d/{{ script.split('/')[-1] }}:ro
+      {% endfor %}
+      {% endif %}
+
+    # =============================================================================
+    # NETWORK CONFIGURATION
+    # =============================================================================
+    # Connect to platform network for service communication
+    networks:
+      - {{ global_config.network_name }}
+
+    # =============================================================================
+    # RESTART POLICY
+    # =============================================================================
+    # Automatically restart database unless manually stopped
+    restart: unless-stopped
+
+    # =============================================================================
+    # HEALTH CHECK
+    # =============================================================================
+    # Monitor database health and restart if unhealthy
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 30s                                    # Check every 30 seconds
+      timeout: 10s                                     # Wait up to 10 seconds for response
+      retries: 3                                       # Mark unhealthy after 3 failures
+      start_period: 40s                                # Wait 40 seconds before starting checks
+
+{% endif %}
+{% endfor %}
+{% endfor %}
+
 # =============================================================================
 # VOLUME DEFINITIONS
 # =============================================================================
@@ -184,6 +279,13 @@ volumes:
   {% for volume in app.volumes %}
   # Volume for {{ app.name }}: {{ volume.name }}
   {{ volume.name }}:
+  {% endfor %}
+  {% for db_config in app.databases %}
+  {% if db_config.enabled %}
+  # Database volume for {{ app.name }}-db
+  {{ app.name }}-db-data:
+    driver: local
+  {% endif %}
   {% endfor %}
 {% endfor %}
 

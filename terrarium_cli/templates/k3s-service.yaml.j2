@@ -65,6 +65,12 @@ spec:
     targetPort: {{ app.runtime.port }}              # Port on the target pods
     protocol: TCP                                   # Protocol (TCP or UDP)
     name: http                                      # Port name for reference
+  {% if app.runtime.ssl_port %}
+  - port: {{ app.runtime.ssl_port }}                # SSL port for HTTPS
+    targetPort: {{ app.runtime.ssl_port }}          # SSL port on the target pods
+    protocol: TCP                                   # Protocol (TCP or UDP)
+    name: https                                     # SSL port name for reference
+  {% endif %}
 
   # =============================================================================
   # SERVICE TYPE

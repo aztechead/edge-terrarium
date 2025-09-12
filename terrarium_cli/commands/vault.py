@@ -391,3 +391,33 @@ class VaultCommand(BaseCommand):
             "secret_data",
             help="Secret data as JSON"
         )
+    
+    def process_database_secrets(self, apps: list) -> None:
+        """Process and store database secrets for all apps."""
+        from terrarium_cli.utils.database import DatabaseManager
+        
+        print(f"{Colors.info('Processing database secrets...')}")
+        
+        db_manager = DatabaseManager()
+        
+        for app in apps:
+            if hasattr(app, 'databases') and app.databases:
+                print(f"{Colors.info(f'Processing databases for {app.name}...')}")
+                processed_dbs = db_manager.process_app_databases(app)
+                
+                if processed_dbs:
+                    print(f"{Colors.success(f'Processed {len(processed_dbs)} databases for {app.name}')}")
+                else:
+                    print(f"{Colors.warning(f'No databases processed for {app.name}')}")
+    
+    def _store_database_secrets(self, app_name: str, db_name: str, credentials: dict) -> bool:
+        """Store database credentials in Vault."""
+        secret_path = f"{app_name}/database/{db_name}"
+        response = self._make_vault_request("POST", f"/v1/secret/data/{secret_path}", {"data": credentials})
+        
+        if response.status_code == 200:
+            print(f"{Colors.success(f'Stored database secrets: {secret_path}')}")
+            return True
+        else:
+            print(f"{Colors.error(f'Failed to store database secrets: {secret_path}')}")
+            return False

@@ -74,6 +74,7 @@ spec:
         project: {{ global_config.project_name }}   # Project label
 
     spec:
+
       # =============================================================================
       # CONTAINER DEFINITION
       # =============================================================================
@@ -125,12 +126,16 @@ spec:
         ports:
         - containerPort: {{ app.runtime.port or 8080 }}     # Port the app listens on
           name: http                                 # Port name for service reference
+        {% if app.runtime.ssl_port %}
+        - containerPort: {{ app.runtime.ssl_port }}         # SSL port for HTTPS
+          name: https                                # SSL port name for service reference
+        {% endif %}
 
         # =============================================================================
         # ENVIRONMENT VARIABLES
         # =============================================================================
         # Pass environment variables to the container
-        {% if app.environment %}
+        {% if app.environment or app.databases %}
         env:
           {% for env in app.environment %}
           # Environment variable: {{ env.name }}
@@ -144,6 +149,29 @@ spec:
               fieldRef:
                 fieldPath: {{ env.value_from }}
             {% endif %}
+          {% endfor %}
+          {% for db_config in app.databases %}
+          {% if db_config.enabled %}
+          # Database environment variables for {{ db_config.name }}
+          - name: {{ db_config.type.upper() }}_DB_HOST
+            value: "{{ app.name }}-db"
+          - name: {{ db_config.type.upper() }}_DB_PORT
+            value: "5432"
+          - name: {{ db_config.type.upper() }}_DB_USER
+            value: "{{ app.name }}_{{ db_config.name }}_user"
+          - name: {{ db_config.type.upper() }}_DB_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: "{{ app.name }}-db-secrets"
+                key: "password"
+          - name: {{ db_config.type.upper() }}_DB_NAME
+            value: "{{ db_config.name }}"
+          - name: {{ db_config.type.upper() }}_DB_URL
+            valueFrom:
+              secretKeyRef:
+                name: "{{ app.name }}-db-secrets"
+                key: "url"
+          {% endif %}
           {% endfor %}
         {% endif %}
 

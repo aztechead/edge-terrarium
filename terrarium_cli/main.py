@@ -20,6 +20,7 @@ from terrarium_cli.commands.test import TestCommand
 from terrarium_cli.commands.add_app import AddAppCommand
 from terrarium_cli.commands.vault import VaultCommand
 from terrarium_cli.commands.check_deps import CheckDepsCommand
+from terrarium_cli.commands.validate import ValidateCommand
 from terrarium_cli.utils.logging import setup_logging
 from terrarium_cli.utils.colors import Colors
 
@@ -38,6 +39,7 @@ Examples:
   terrarium.py add-app               # Add a new application
   terrarium.py vault init            # Initialize Vault
   terrarium.py check-deps            # Check system dependencies
+  terrarium.py validate              # Validate app-config.yml files
         """
     )
     
@@ -108,6 +110,13 @@ Examples:
     )
     CheckDepsCommand.add_arguments(check_deps_parser)
     
+    # Validate command
+    validate_parser = subparsers.add_parser(
+        "validate",
+        help="Validate app-config.yml files"
+    )
+    ValidateCommand.add_arguments(validate_parser)
+    
     return parser
 
 
@@ -140,6 +149,8 @@ def main():
             command = VaultCommand(args)
         elif args.command == "check-deps":
             command = CheckDepsCommand(args)
+        elif args.command == "validate":
+            command = ValidateCommand(args)
         else:
             parser.print_help()
             return 1

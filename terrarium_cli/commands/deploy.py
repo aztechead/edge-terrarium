@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Optional
 
 from terrarium_cli.commands.base import BaseCommand
+from terrarium_cli.commands.vault import VaultCommand
 from terrarium_cli.utils.shell import run_command, check_command_exists, ShellError
 from terrarium_cli.utils.colors import Colors
 from terrarium_cli.utils.dependencies import DependencyChecker, DependencyError
@@ -25,6 +26,7 @@ class DeployCommand(BaseCommand):
     def __init__(self, args):
         super().__init__(args)
         self._app_loader = None  # Cache for AppLoader instance
+        self.port_forward_processes = []  # Store port forwarding process references
     
     def _get_app_loader(self) -> AppLoader:
         """Get cached AppLoader instance."""
@@ -40,10 +42,32 @@ class DeployCommand(BaseCommand):
             return False
         return True
     
+    def _validate_app_configs(self) -> bool:
+        """Validate all app-config.yml files before deployment."""
+        print(f"{Colors.info('Validating app-config.yml files...')}")
+        
+        from terrarium_cli.utils.yaml_validator import validate_all_app_configs, print_validation_results
+        from pathlib import Path
+        
+        apps_dir = Path("apps")
+        all_valid, errors_by_file, warnings_by_file = validate_all_app_configs(apps_dir)
+        
+        print_validation_results(all_valid, errors_by_file, warnings_by_file)
+        
+        if not all_valid:
+            print(f"\n{Colors.error('Deployment aborted due to YAML validation errors.')}")
+            return False
+        
+        return True
+    
     def run(self) -> int:
         """Run the deploy command."""
         environment = self.args.environment
         self.dashboard_token = None  # Initialize dashboard token
+        
+        # Validate all app-config.yml files before deployment
+        if not self._validate_app_configs():
+            return 1
         
         if environment == "docker":
             return self._deploy_docker()
@@ -82,17 +106,16 @@ class DeployCommand(BaseCommand):
                 return 1
             
             
-            # Initialize Vault with secrets
-            print(f"{Colors.info('Initializing Vault with secrets...')}")
-            try:
-                from terrarium_cli.commands.vault import VaultCommand
-                import argparse
-                # Create mock args for VaultCommand
-                mock_args = argparse.Namespace()
-                vault_cmd = VaultCommand(mock_args)
-                vault_cmd._init_vault()
-            except Exception as e:
-                print(f"{Colors.warning(f'Vault initialization failed: {e}')}")
+            # Initialize Vault
+            print(f"{Colors.info('Initializing Vault...')}")
+            vault_cmd = VaultCommand(None)
+            vault_cmd._init_vault()
+            
+            # Process database secrets
+            print(f"{Colors.info('Processing database secrets...')}")
+            app_loader = self._get_app_loader()
+            apps = app_loader.load_apps()
+            vault_cmd.process_database_secrets(apps)
             
             # Verify deployment
             if not self._verify_docker_deployment():
@@ -440,19 +463,18 @@ class DeployCommand(BaseCommand):
             else:
                 print(f"{Colors.warning('Vault may not be ready, continuing anyway...')}")
             
-            # Initialize Vault with secrets
-            print(f"{Colors.info('Initializing Vault with secrets...')}")
-            try:
-                from terrarium_cli.commands.vault import VaultCommand
-                import argparse
-                # Create mock args for VaultCommand
-                mock_args = argparse.Namespace()
-                vault_cmd = VaultCommand(mock_args)
-                vault_cmd._init_vault()
-            except Exception as e:
-                print(f"{Colors.warning(f'Vault initialization failed: {e}')}")
+            # Initialize Vault
+            print(f"{Colors.info('Initializing Vault...')}")
+            vault_cmd = VaultCommand(None)
+            vault_cmd._init_vault()
             
-            # Start all other services after Vault is initialized
+            # Process database secrets
+            print(f"{Colors.info('Processing database secrets...')}")
+            app_loader = self._get_app_loader()
+            apps = app_loader.load_apps()
+            vault_cmd.process_database_secrets(apps)
+            
+            # Start all other services
             print(f"{Colors.info('Starting all other services...')}")
             run_command(
                 "docker-compose -f configs/docker/docker-compose.yml -p edge-terrarium up -d",
@@ -562,8 +584,11 @@ class DeployCommand(BaseCommand):
             print(f"{Colors.info('Applying NGINX ConfigMap...')}")
             run_command("kubectl apply -f configs/k3s/nginx-configmap.yaml", check=True)
             
-            # Apply other configurations
-            run_command("kubectl apply -k configs/k3s/", check=True)
+            # Apply Vault deployment first
+            print(f"{Colors.info('Applying Vault deployment...')}")
+            run_command("kubectl apply -f configs/k3s/vault-deployment.yaml", check=True)
+            run_command("kubectl apply -f configs/k3s/vault-service.yaml", check=True)
+            run_command("kubectl apply -f configs/k3s/vault-pvc.yaml", check=True)
             
             # Wait for Vault to be ready first
             print(f"{Colors.info('Waiting for Vault to be ready...')}")
@@ -572,48 +597,58 @@ class DeployCommand(BaseCommand):
                 check=True
             )
             
-            # Set up port forwarding for Vault
-            print(f"{Colors.info('Setting up Vault port forwarding...')}")
-            vault_port_forward = subprocess.Popen(
+            # Set up Vault port forwarding first (needed for initialization)
+            print(f"{Colors.info('Setting up Vault port forwarding for initialization...')}")
+            vault_process = subprocess.Popen(
                 ["kubectl", "port-forward", "-n", "edge-terrarium", "svc/vault", "8200:8200"],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL
             )
-            
-            # Set up port forwarding for other apps
-            app_loader = self._get_app_loader()
-            apps = app_loader.load_apps()
-            
-            for app in apps:
-                if app.runtime.port_forward:
-                    print(f"{Colors.info(f'Setting up port forwarding for {app.name} on port {app.runtime.port_forward}...')}")
-                    port_forward_process = subprocess.Popen(
-                        ["kubectl", "port-forward", "-n", "edge-terrarium", f"svc/{app.name}", f"{app.runtime.port_forward}:{app.runtime.port}"],
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL
-                    )
+            self.port_forward_processes.append(vault_process)
+            print(f"{Colors.success('Vault port forwarding started')}")
             
             # Wait a moment for port forwarding to establish
             time.sleep(3)
             
-            # Initialize Vault with secrets
-            print(f"{Colors.info('Initializing Vault with secrets...')}")
-            try:
-                from terrarium_cli.commands.vault import VaultCommand
-                import argparse
-                # Create mock args for VaultCommand
-                mock_args = argparse.Namespace()
-                vault_cmd = VaultCommand(mock_args)
-                vault_cmd._init_vault()
-            except Exception as e:
-                print(f"{Colors.warning(f'Vault initialization failed: {e}')}")
+            # Initialize Vault
+            print(f"{Colors.info('Initializing Vault...')}")
+            vault_cmd = VaultCommand(None)
+            vault_cmd._init_vault()
+            
+            # Process database secrets
+            print(f"{Colors.info('Processing database secrets...')}")
+            app_loader = self._get_app_loader()
+            apps = app_loader.load_apps()
+            vault_cmd.process_database_secrets(apps)
+            
+            # Apply all other deployments after Vault is initialized
+            print(f"{Colors.info('Applying all other deployments...')}")
+            # Apply all files except Vault-related ones and non-deployment files
+            import os
+            k3s_dir = "configs/k3s"
+            vault_files = {"vault-deployment.yaml", "vault-service.yaml", "vault-pvc.yaml"}
+            exclude_files = {"kustomization.yaml", "namespace.yaml"}
+            
+            for filename in os.listdir(k3s_dir):
+                if (filename.endswith('.yaml') and 
+                    filename not in vault_files and 
+                    filename not in exclude_files):
+                    filepath = os.path.join(k3s_dir, filename)
+                    run_command(f"kubectl apply -f {filepath}", check=True)
             
             # Wait for all deployments
             print(f"{Colors.info('Waiting for all deployments to be ready...')}")
             run_command(
-                "kubectl wait --for=condition=available --timeout=120s deployment --all -n edge-terrarium",
+                "kubectl wait --for=condition=available --timeout=60s deployment --all -n edge-terrarium",
                 check=True
             )
+            
+            # Set up port forwarding for all other applications
+            print(f"{Colors.info('Setting up port forwarding for all applications...')}")
+            self._setup_k3s_port_forwarding()
+            
+            # Wait a moment for port forwarding to establish
+            time.sleep(3)
             
             # Set up Kubernetes Dashboard authentication
             print(f"{Colors.info('Setting up Kubernetes Dashboard authentication...')}")
@@ -624,6 +659,112 @@ class DeployCommand(BaseCommand):
         except ShellError as e:
             self.logger.error(f"Failed to deploy to K3s: {e}")
             return False
+    
+    
+    def _setup_k3s_port_forwarding(self) -> bool:
+        """Set up port forwarding for K3s services after pod restarts."""
+        try:
+            # Kill any existing port forwarding processes
+            print(f"{Colors.info('Cleaning up existing port forwarding processes...')}")
+            try:
+                run_command("pkill -f 'kubectl port-forward'", check=False)
+            except:
+                pass  # Ignore errors if no processes to kill
+            
+            # Clear existing process references
+            self.port_forward_processes.clear()
+            
+            # Wait a moment for processes to clean up
+            import time
+            time.sleep(2)
+            
+            # Set up port forwarding for NGINX (for application access via ingress)
+            print(f"{Colors.info('Setting up NGINX port forwarding for application access...')}")
+            nginx_process = subprocess.Popen(
+                ["kubectl", "port-forward", "-n", "edge-terrarium", "svc/nginx", "8443:443"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+            self.port_forward_processes.append(nginx_process)
+            print(f"{Colors.success('NGINX port forwarding started - applications accessible via https://localhost:8443/api/*')}")
+            
+            # Set up port forwarding for applications with port_forward configured (for direct access)
+            apps = self._get_app_loader().load_apps()
+            for app in apps:
+                if app.runtime.port_forward:
+                    print(f"{Colors.info(f'Setting up direct port forwarding for {app.name} on port {app.runtime.port_forward}...')}")
+                    app_process = subprocess.Popen(
+                        ["kubectl", "port-forward", "-n", "edge-terrarium", f"svc/{app.name}", f"{app.runtime.port_forward}:{app.runtime.port}"],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL
+                    )
+                    self.port_forward_processes.append(app_process)
+                    print(f"{Colors.success(f'{app.name} direct port forwarding started on port {app.runtime.port_forward}')}")
+            
+            # Wait a moment for all port forwarding to establish
+            time.sleep(3)
+            
+            # Verify port forwarding is working
+            print(f"{Colors.info('Verifying port forwarding...')}")
+            self._verify_port_forwarding()
+            
+            print(f"{Colors.success('Port forwarding re-established successfully')}")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Failed to set up port forwarding: {e}")
+            return False
+    
+    def _verify_port_forwarding(self) -> None:
+        """Verify that port forwarding is working."""
+        try:
+            # Check if port forwarding processes are running
+            result = run_command("ps aux | grep 'kubectl port-forward' | grep -v grep", capture_output=True, check=False)
+            if result.returncode == 0:
+                print(f"{Colors.success(f'Found {len(result.stdout.strip().split(chr(10)))} port forwarding processes running')}")
+            else:
+                print(f"{Colors.warning('No port forwarding processes found')}")
+            
+            # Test NGINX ingress (primary access method)
+            try:
+                import requests
+                response = requests.get("https://localhost:8443/api/logs/", 
+                                     headers={"Host": "edge-terrarium.local"}, 
+                                     verify=False, timeout=5)
+                if response.status_code == 200:
+                    print(f"{Colors.success('NGINX ingress port forwarding verified - applications accessible via https://localhost:8443/api/*')}")
+                else:
+                    print(f"{Colors.warning(f'NGINX ingress returned status {response.status_code}')}")
+            except Exception as e:
+                print(f"{Colors.warning(f'Could not verify NGINX ingress: {e}')}")
+            
+            # Test Vault direct access
+            try:
+                import requests
+                response = requests.get("http://localhost:8200/v1/sys/health", timeout=5)
+                if response.status_code == 200:
+                    print(f"{Colors.success('Vault direct port forwarding verified on port 8200')}")
+                else:
+                    print(f"{Colors.warning(f'Vault direct access returned status {response.status_code}')}")
+            except Exception as e:
+                print(f"{Colors.warning(f'Could not verify Vault direct access: {e}')}")
+            
+            # Test direct application ports (if configured)
+            apps = self._get_app_loader().load_apps()
+            for app in apps:
+                if app.runtime.port_forward:
+                    try:
+                        import requests
+                        response = requests.get(f"http://localhost:{app.runtime.port_forward}/health", timeout=5)
+                        if response.status_code == 200:
+                            print(f"{Colors.success(f'{app.name} direct port forwarding verified on port {app.runtime.port_forward}')}")
+                        else:
+                            print(f"{Colors.warning(f'{app.name} direct port forwarding on port {app.runtime.port_forward} returned status {response.status_code}')}")
+                    except Exception as e:
+                        print(f"{Colors.warning(f'Could not verify {app.name} direct port forwarding on port {app.runtime.port_forward}: {e}')}")
+                        
+        except Exception as e:
+            print(f"{Colors.warning(f'Error verifying port forwarding: {e}')}")
     
     def _verify_docker_deployment(self) -> bool:
         """Verify Docker deployment."""

@@ -14,6 +14,7 @@ runtime:
   startup_timeout: 60
   command: ["vault"]
   args: ["server", "-dev", "-dev-root-token-id=root", "-dev-listen-address=0.0.0.0:8200"]
+  port_forward: 8200  # Host port for direct access
 
 # Environment Variables
 environment:
