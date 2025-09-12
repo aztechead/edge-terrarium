@@ -6,21 +6,21 @@ This guide explains how to test the Edge-Terrarium platform in both Docker and K
 
 The main test command is:
 ```bash
-python terrarium.py test
+uv run python terrarium.py test
 ```
 
 ### Test Options
 
 ```bash
 # Test with fail-fast (stops on first error)
-python terrarium.py test --fail-fast
+uv run python terrarium.py test --fail-fast
 
 # Test with verbose output
-python terrarium.py test --verbose
+uv run python terrarium.py test --verbose
 
 # Test specific environment
-python terrarium.py test --environment docker
-python terrarium.py test --environment k3s
+uv run python terrarium.py test --environment docker
+uv run python terrarium.py test --environment k3s
 ```
 
 ## Test Coverage
@@ -132,13 +132,13 @@ The test suite is designed to be run in CI/CD pipelines:
 # Example GitHub Actions workflow
 - name: Test Docker deployment
   run: |
-    python terrarium.py deploy docker
-    python terrarium.py test --environment docker
+    uv run python terrarium.py deploy docker
+    uv run python terrarium.py test --environment docker
 
 - name: Test K3s deployment
   run: |
-    python terrarium.py deploy k3s
-    python terrarium.py test --environment k3s
+    uv run python terrarium.py deploy k3s
+    uv run python terrarium.py test --environment k3s
 ```
 
 ## Performance Testing

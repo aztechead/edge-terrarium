@@ -28,29 +28,29 @@ git clone <repository-url>
 cd edge-terrarium
 
 # Install Python dependencies
-pip install -r requirements.txt
+uv sync
 
 # Deploy with Docker Compose
-python3 terrarium.py deploy docker
+uv run python terrarium.py deploy docker
 
 # Test the application
-python3 terrarium.py test
+uv run python terrarium.py test
 ```
 
 ### Option 2: K3s (Recommended if you're familiar with containers)
 ```bash
 # Deploy to K3s
-python3 terrarium.py deploy k3s
+uv run python terrarium.py deploy k3s
 
 # Test the application
-python3 terrarium.py test
+uv run python terrarium.py test
 ```
 
 ## Available CLI Commands
 
-### Main CLI Tool (`python3 terrarium.py`)
+### Main CLI Tool (`uv run python terrarium.py`)
 ```bash
-# Syntax: python3 terrarium.py [COMMAND] [OPTIONS]
+# Syntax: uv run python terrarium.py [COMMAND] [OPTIONS]
 
 # COMMAND options:
 deploy    # Deploy the application (Docker or K3s)
@@ -60,13 +60,13 @@ add-app   # Add a new application to the platform
 vault     # Vault management operations
 
 # Examples:
-python3 terrarium.py deploy docker    # Deploy to Docker Compose
-python3 terrarium.py deploy k3s       # Deploy to K3s (auto-creates k3d cluster if needed)
-python3 terrarium.py test             # Test current deployment
-python3 terrarium.py build            # Build all Docker images
-python3 terrarium.py add-app          # Interactive app creation wizard
-python3 terrarium.py vault init       # Initialize Vault with secrets
-python3 terrarium.py vault status     # Check Vault status
+uv run python terrarium.py deploy docker    # Deploy to Docker Compose
+uv run python terrarium.py deploy k3s       # Deploy to K3s (auto-creates k3d cluster if needed)
+uv run python terrarium.py test             # Test current deployment
+uv run python terrarium.py build            # Build all Docker images
+uv run python terrarium.py add-app          # Interactive app creation wizard
+uv run python terrarium.py vault init       # Initialize Vault with secrets
+uv run python terrarium.py vault status     # Check Vault status
 ```
 
 ### Command Options
@@ -78,11 +78,11 @@ python3 terrarium.py vault status     # Check Vault status
 --version         # Show version information
 
 # Deploy options:
-python3 terrarium.py deploy docker --verbose    # Deploy with detailed output
-python3 terrarium.py deploy k3s --quiet         # Deploy with minimal output
+uv run python terrarium.py deploy docker --verbose    # Deploy with detailed output
+uv run python terrarium.py deploy k3s --quiet         # Deploy with minimal output
 
 # Test options:
-python3 terrarium.py test --verbose             # Test with detailed output
+uv run python terrarium.py test --verbose             # Test with detailed output
 ```
 
 ## Dynamic Configuration System
@@ -98,16 +98,16 @@ The platform features a **dynamic configuration system** that automatically gene
 **Usage Examples**:
 ```bash
 # Deploy to Docker Compose (auto-generates configs)
-python3 terrarium.py deploy docker
+uv run python terrarium.py deploy docker
 
 # Deploy to K3s (auto-generates configs)
-python3 terrarium.py deploy k3s
+uv run python terrarium.py deploy k3s
 
 # Build images only
-python3 terrarium.py build
+uv run python terrarium.py build
 
 # Add a new application
-python3 terrarium.py add-app
+uv run python terrarium.py add-app
 ```
 
 **Goal**: Get the application running in 5 minutes, then explore each component.

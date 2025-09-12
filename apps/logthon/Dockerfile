@@ -15,7 +15,7 @@ RUN pip install uv
 # Copy project files
 COPY pyproject.toml ./
 
-# Install dependencies using uv (without editable install)
+# Install dependencies using uv
 RUN uv pip install --system fastapi uvicorn[standard] pydantic python-multipart websockets jinja2 python-dateutil httpx
 
 # Copy application code

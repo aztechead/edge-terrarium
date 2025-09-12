@@ -17,15 +17,11 @@ This guide explains how to contribute to and extend the Edge-Terrarium platform.
 git clone <repository-url>
 cd edge-terrarium
 
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install dependencies
-pip install -r requirements.txt
+# Install dependencies with uv
+uv sync
 
 # Verify setup
-python terrarium.py check-deps
+uv run python terrarium.py check-deps
 ```
 
 ## Project Structure
@@ -48,7 +44,7 @@ python terrarium.py check-deps
 ### Using the CLI Tool
 ```bash
 # Interactive service creation
-python terrarium.py add-app
+uv run python terrarium.py add-app
 
 # Follow the prompts to:
 # 1. Choose service type (C or Python)
@@ -88,16 +84,16 @@ environment:
 2. Test changes locally
 3. Rebuild and redeploy:
    ```bash
-   python terrarium.py build
-   python terrarium.py deploy <environment>
-   python terrarium.py test
+   uv run python terrarium.py build
+   uv run python terrarium.py deploy <environment>
+   uv run python terrarium.py test
    ```
 
 ### Configuration Changes
 1. Edit `app-config.yml` files
 2. Regenerate configurations:
    ```bash
-   python terrarium.py deploy <environment>
+   uv run python terrarium.py deploy <environment>
    ```
 
 ### Adding Dependencies
@@ -167,17 +163,17 @@ Common variables available in templates:
 ### Running Tests
 ```bash
 # Run all tests
-python terrarium.py test
+uv run python terrarium.py test
 
 # Test specific environment
-python terrarium.py test --environment docker
-python terrarium.py test --environment k3s
+uv run python terrarium.py test --environment docker
+uv run python terrarium.py test --environment k3s
 
 # Test with verbose output
-python terrarium.py test --verbose
+uv run python terrarium.py test --verbose
 
 # Test with fail-fast
-python terrarium.py test --fail-fast
+uv run python terrarium.py test --fail-fast
 ```
 
 ### Adding Tests
@@ -237,12 +233,12 @@ python terrarium.py test --fail-fast
 ### Local Development
 ```bash
 # Docker development
-python terrarium.py deploy docker
-python terrarium.py test
+uv run python terrarium.py deploy docker
+uv run python terrarium.py test
 
 # K3s development
-python terrarium.py deploy k3s
-python terrarium.py test
+uv run python terrarium.py deploy k3s
+uv run python terrarium.py test
 ```
 
 ### Production Considerations

@@ -1,9 +1,10 @@
 FROM python:3.13-slim
 
-# Install system dependencies
+# Install system dependencies and uv
 RUN apt-get update && apt-get install -y \
     curl \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && pip install uv
 
 # Create non-root user
 RUN groupadd -r appgroup && useradd -r -g appgroup appuser
@@ -13,7 +14,7 @@ WORKDIR /app
 
 # Copy requirements and install Python dependencies
 COPY pyproject.toml .
-RUN pip install --no-cache-dir -e .
+RUN uv pip install --system fastapi uvicorn[standard] pydantic requests
 
 # Copy application code
 COPY . .

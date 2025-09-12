@@ -172,16 +172,16 @@ Secrets are managed through the CLI:
 
 ```bash
 # Initialize Vault with secrets
-python terrarium.py vault init
+uv run python terrarium.py vault init
 
 # List all secrets
-python terrarium.py vault list
+uv run python terrarium.py vault list
 
 # Get specific secret
-python terrarium.py vault get custom-client/config
+uv run python terrarium.py vault get custom-client/config
 
 # Set new secret
-python terrarium.py vault set my-app/database host=db.example.com
+uv run python terrarium.py vault set my-app/database host=db.example.com
 ```
 
 ## Configuration Generation
@@ -302,10 +302,10 @@ Configuration errors are handled gracefully:
 
 ```bash
 # Validate configuration
-python terrarium.py check-deps
+uv run python terrarium.py check-deps
 
 # Test configuration generation
-python terrarium.py deploy --dry-run
+uv run python terrarium.py deploy --dry-run
 
 # Check generated files
 ls -la configs/docker/

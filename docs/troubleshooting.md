@@ -25,7 +25,7 @@ This guide helps you diagnose and resolve common issues with Edge-Terrarium.
    ```bash
    docker-compose down
    docker system prune -f
-   python terrarium.py deploy docker
+   uv run python terrarium.py deploy docker
    ```
 
 #### K3s Cluster Creation Fails
@@ -52,7 +52,7 @@ This guide helps you diagnose and resolve common issues with Edge-Terrarium.
 
 4. Retry deployment:
    ```bash
-   python terrarium.py deploy k3s
+   uv run python terrarium.py deploy k3s
    ```
 
 ### Service Issues
@@ -78,7 +78,7 @@ This guide helps you diagnose and resolve common issues with Edge-Terrarium.
 
 3. Check dependencies:
    ```bash
-   python terrarium.py check-deps
+   uv run python terrarium.py check-deps
    ```
 
 #### Services Not Accessible
@@ -159,7 +159,7 @@ This guide helps you diagnose and resolve common issues with Edge-Terrarium.
 
 3. Reinitialize Vault:
    ```bash
-   python terrarium.py vault init
+   uv run python terrarium.py vault init
    ```
 
 #### Secrets Not Found
@@ -168,12 +168,12 @@ This guide helps you diagnose and resolve common issues with Edge-Terrarium.
 **Solutions**:
 1. Check secrets in Vault:
    ```bash
-   python terrarium.py vault list
+   uv run python terrarium.py vault list
    ```
 
 2. Verify secret paths:
    ```bash
-   python terrarium.py vault get custom-client/config
+   uv run python terrarium.py vault get custom-client/config
    ```
 
 3. Check vault-secrets.yml:
@@ -295,11 +295,11 @@ kubectl port-forward -n edge-terrarium svc/nginx-service 8443:443
 # Docker
 docker-compose down
 docker system prune -f
-python terrarium.py deploy docker
+uv run python terrarium.py deploy docker
 
 # K3s
 k3d cluster delete edge-terrarium
-python terrarium.py deploy k3s
+uv run python terrarium.py deploy k3s
 ```
 
 ### Partial Reset

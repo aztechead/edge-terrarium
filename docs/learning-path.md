@@ -72,7 +72,7 @@ Docker is a containerization platform that packages applications and their depen
 #### Step 1: Build the Images
 ```bash
 # This creates Docker images for each service
-python3 terrarium.py build
+uv run python terrarium.py build
 ```
 
 **What happens**: The unified build script:
@@ -84,7 +84,7 @@ python3 terrarium.py build
 #### Step 2: Start the Services
 ```bash
 # This starts all services and connects them
-python3 terrarium.py deploy docker
+uv run python terrarium.py deploy docker
 ```
 
 **What happens**: Docker Compose reads the configuration and:
@@ -95,7 +95,7 @@ python3 terrarium.py deploy docker
 #### Step 3: Test the Application
 ```bash
 # This sends test requests to verify everything works
-python3 terrarium.py test
+uv run python terrarium.py test
 ```
 
 ### Understanding Docker Compose
@@ -149,7 +149,7 @@ K3s is a lightweight Kubernetes distribution designed for resource-constrained e
 #### Step 1: Create a K3s Cluster
 ```bash
 # This creates a local K3s cluster using k3d
-python3 terrarium.py deploy k3s
+uv run python terrarium.py deploy k3s
 ```
 
 **What happens**: 
@@ -165,7 +165,7 @@ The script automatically:
 #### Step 3: Test the Application
 ```bash
 # This tests the K3s deployment
-python3 terrarium.py test
+uv run python terrarium.py test
 ```
 
 #### Step 4: Access the Kubernetes Dashboard

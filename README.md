@@ -53,19 +53,19 @@ git clone <repository-url>
 cd c-edge-terrarium
 
 # Install dependencies
-pip install -r requirements.txt
+uv sync
 
 # Check system requirements
-python terrarium.py check-deps
+uv run python terrarium.py check-deps
 
 # Deploy to Docker
-python terrarium.py deploy docker
+uv run python terrarium.py deploy docker
 
 # Or deploy to K3s
-python terrarium.py deploy k3s
+uv run python terrarium.py deploy k3s
 
 # Run tests
-python terrarium.py test
+uv run python terrarium.py test
 ```
 
 ## Key Features
