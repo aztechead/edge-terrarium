@@ -19,15 +19,21 @@ logger = logging.getLogger(__name__)
 class BuildCommand(BaseCommand):
     """Command to build Docker images."""
     
+    def _check_dependencies(self, dependencies: list) -> bool:
+        """Check if required dependencies are available."""
+        dep_checker = DependencyChecker()
+        if not dep_checker.check_all_dependencies(dependencies):
+            print(f"\n{Colors.error('Please install the missing dependencies and try again.')}")
+            return False
+        return True
+    
     def run(self) -> int:
         """Run the build command."""
         try:
             print(f"{Colors.info('Building Docker images...')}")
             
             # Check dependencies
-            dep_checker = DependencyChecker()
-            if not dep_checker.check_all_dependencies(['docker', 'curl']):
-                print(f"\n{Colors.error('Please install the missing dependencies and try again.')}")
+            if not self._check_dependencies(['docker', 'curl']):
                 return 1
             
             # Load app configurations

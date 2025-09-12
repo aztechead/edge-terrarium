@@ -40,15 +40,38 @@ class AddAppCommand(BaseCommand):
             self.logger.warning(f"Failed to load template config: {e}")
             return {"templates": {"generic": {"dockerfile": "Dockerfile.j2", "app_config": "app-config.yml.j2", "readme": "README.md.j2"}}}
     
+    def _check_dependencies(self, dependencies: list) -> bool:
+        """Check if required dependencies are available."""
+        dep_checker = DependencyChecker()
+        if not dep_checker.check_all_dependencies(dependencies):
+            print(f"\n{Colors.error('Please install the missing dependencies and try again.')}")
+            return False
+        return True
+    
+    def _prepare_template_context(self, app_info: Dict[str, Any]) -> Dict[str, Any]:
+        """Prepare common template context."""
+        return {
+            "app_name": app_info["name"],
+            "app_description": app_info["description"],
+            "image_name": app_info["image_name"],
+            "port": app_info["port"],
+            "environment_vars": app_info["environment"],
+            "routes": app_info["routes"],
+            "volumes": app_info["volumes"]
+        }
+    
+    def _render_template(self, template_name: str, context: Dict[str, Any]) -> str:
+        """Render a template with the given context."""
+        template = self.jinja_env.get_template(template_name)
+        return template.render(**context)
+    
     def run(self) -> int:
         """Run the add-app command."""
         try:
             print(f"{Colors.info('Adding new application...')}")
             
             # Check dependencies
-            dep_checker = DependencyChecker()
-            if not dep_checker.check_all_dependencies(['python3', 'curl']):
-                print(f"\n{Colors.error('Please install the missing dependencies and try again.')}")
+            if not self._check_dependencies(['python3', 'curl']):
                 return 1
             
             # Get template selection
@@ -254,21 +277,9 @@ class AddAppCommand(BaseCommand):
         """Create app configuration file."""
         try:
             template_name = self.template_config["templates"][app_info["template"]]["app_config"]
-            template = self.jinja_env.get_template(template_name)
+            context = self._prepare_template_context(app_info)
             
-            # Prepare template context
-            context = {
-                "app_name": app_info["name"],
-                "app_description": app_info["description"],
-                "image_name": app_info["image_name"],
-                "port": app_info["port"],
-                "environment_vars": app_info["environment"],
-                "routes": app_info["routes"],
-                "volumes": app_info["volumes"]
-            }
-            
-            # Render template
-            config_content = template.render(**context)
+            config_content = self._render_template(template_name, context)
             
             config_file = Path(f"apps/{app_info['name']}/app-config.yml")
             with open(config_file, 'w') as f:
@@ -286,16 +297,12 @@ class AddAppCommand(BaseCommand):
         """Create Dockerfile."""
         try:
             template_name = self.template_config["templates"][app_info["template"]]["dockerfile"]
-            template = self.jinja_env.get_template(template_name)
-            
-            # Prepare template context
             context = {
                 "app_name": app_info["name"],
                 "port": app_info["port"]
             }
             
-            # Render template
-            dockerfile_content = template.render(**context)
+            dockerfile_content = self._render_template(template_name, context)
             
             dockerfile_path = Path(f"apps/{app_info['name']}/Dockerfile")
             with open(dockerfile_path, 'w') as f:
@@ -319,20 +326,9 @@ class AddAppCommand(BaseCommand):
             
             # Create README using template
             template_name = self.template_config["templates"][app_info["template"]]["readme"]
-            template = self.jinja_env.get_template(template_name)
+            context = self._prepare_template_context(app_info)
             
-            # Prepare template context
-            context = {
-                "app_name": app_info["name"],
-                "app_description": app_info["description"],
-                "port": app_info["port"],
-                "routes": app_info["routes"],
-                "environment_vars": app_info["environment"],
-                "volumes": app_info["volumes"]
-            }
-            
-            # Render template
-            readme_content = template.render(**context)
+            readme_content = self._render_template(template_name, context)
             
             readme_path = app_dir / "README.md"
             with open(readme_path, 'w') as f:

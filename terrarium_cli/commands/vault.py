@@ -69,10 +69,7 @@ class VaultCommand(BaseCommand):
                 return 1
             
             # Get Vault status
-            response = requests.get(
-                f"{self._get_vault_url()}/v1/sys/health",
-                timeout=10
-            )
+            response = self._make_vault_request("GET", "/v1/sys/health")
             
             if response.status_code == 200:
                 status = response.json()
@@ -99,11 +96,7 @@ class VaultCommand(BaseCommand):
                 return 1
             
             # List secrets
-            response = requests.get(
-                f"{self._get_vault_url()}/v1/secret/metadata?list=true",
-                headers={"X-Vault-Token": "root"},
-                timeout=10
-            )
+            response = self._make_vault_request("GET", "/v1/secret/metadata?list=true")
             
             if response.status_code == 200:
                 secrets = response.json()
@@ -137,11 +130,7 @@ class VaultCommand(BaseCommand):
                 return 1
             
             # Get secret
-            response = requests.get(
-                f"{self._get_vault_url()}/v1/secret/data/{secret_path}",
-                headers={"X-Vault-Token": "root"},
-                timeout=10
-            )
+            response = self._make_vault_request("GET", f"/v1/secret/data/{secret_path}")
             
             if response.status_code == 200:
                 secret = response.json()
@@ -184,15 +173,7 @@ class VaultCommand(BaseCommand):
                 return 1
             
             # Set secret
-            response = requests.post(
-                f"{self._get_vault_url()}/v1/secret/data/{secret_path}",
-                headers={
-                    "X-Vault-Token": "root",
-                    "Content-Type": "application/json"
-                },
-                json={"data": data},
-                timeout=10
-            )
+            response = self._make_vault_request("POST", f"/v1/secret/data/{secret_path}", {"data": data})
             
             if response.status_code == 200:
                 print(f"{Colors.success(f'Secret {secret_path} set successfully')}")
@@ -208,10 +189,7 @@ class VaultCommand(BaseCommand):
     def _check_vault_accessible(self) -> bool:
         """Check if Vault is accessible."""
         try:
-            response = requests.get(
-                f"{self._get_vault_url()}/v1/sys/health",
-                timeout=5
-            )
+            response = self._make_vault_request("GET", "/v1/sys/health", timeout=5)
             return response.status_code == 200
         except:
             return False
@@ -220,24 +198,31 @@ class VaultCommand(BaseCommand):
         """Get Vault URL."""
         return "http://localhost:8200"
     
+    def _make_vault_request(self, method: str, endpoint: str, data: dict = None, timeout: int = 10) -> requests.Response:
+        """Make a Vault API request with common headers."""
+        url = f"{self._get_vault_url()}{endpoint}"
+        headers = {
+            "X-Vault-Token": "root",
+            "Content-Type": "application/json"
+        }
+        
+        if method.upper() == "GET":
+            return requests.get(url, headers=headers, timeout=timeout)
+        elif method.upper() == "POST":
+            return requests.post(url, headers=headers, json=data, timeout=timeout)
+        else:
+            raise ValueError(f"Unsupported HTTP method: {method}")
+    
     def _enable_kv_secrets_engine(self) -> None:
         """Enable KV secrets engine."""
         print(f"{Colors.info('Enabling KV secrets engine...')}")
         
-        response = requests.post(
-            f"{self._get_vault_url()}/v1/sys/mounts/secret",
-            headers={
-                "X-Vault-Token": "root",
-                "Content-Type": "application/json"
-            },
-            json={
-                "type": "kv",
-                "options": {
-                    "version": "2"
-                }
-            },
-            timeout=10
-        )
+        response = self._make_vault_request("POST", "/v1/sys/mounts/secret", {
+            "type": "kv",
+            "options": {
+                "version": "2"
+            }
+        })
         
         if response.status_code == 204:
             print(f"{Colors.success('KV secrets engine enabled')}")
@@ -245,10 +230,54 @@ class VaultCommand(BaseCommand):
             print(f"{Colors.warning('KV secrets engine may already be enabled')}")
     
     def _store_secrets(self) -> None:
-        """Store default secrets."""
-        print(f"{Colors.info('Storing default secrets...')}")
+        """Store secrets from configuration file."""
+        print(f"{Colors.info('Storing secrets from configuration file...')}")
         
-        secrets = {
+        # Load secrets from configuration file
+        secrets = self._load_secrets_from_file()
+        
+        for path, data in secrets.items():
+            response = self._make_vault_request("POST", f"/v1/secret/data/{path}", {"data": data})
+            
+            if response.status_code == 200:
+                print(f"{Colors.success(f'Stored secret: {path}')}")
+            else:
+                print(f"{Colors.error(f'Failed to store secret {path}: {response.status_code}')}")
+        
+        # Store TLS certificates if they exist
+        self._store_tls_certificates()
+    
+    def _load_secrets_from_file(self) -> dict:
+        """Load secrets from the vault-secrets.yml configuration file."""
+        import yaml
+        from pathlib import Path
+        
+        secrets_file = Path("configs/vault-secrets.yml")
+        
+        if not secrets_file.exists():
+            print(f"{Colors.warning(f'Secrets file not found: {secrets_file}')}")
+            print(f"{Colors.info('Using default hardcoded secrets...')}")
+            return self._get_default_secrets()
+        
+        try:
+            with open(secrets_file, 'r') as f:
+                config = yaml.safe_load(f)
+            
+            if 'secrets' not in config:
+                print(f"{Colors.warning('No secrets section found in configuration file')}")
+                return self._get_default_secrets()
+            
+            print(f"{Colors.success(f'Loaded secrets from {secrets_file}')}")
+            return config['secrets']
+            
+        except Exception as e:
+            print(f"{Colors.warning(f'Failed to load secrets from file: {e}')}")
+            print(f"{Colors.info('Using default hardcoded secrets...')}")
+            return self._get_default_secrets()
+    
+    def _get_default_secrets(self) -> dict:
+        """Get default hardcoded secrets as fallback."""
+        return {
             "custom-client/config": {
                 "api_key": "mock-api-key-12345",
                 "database_url": "postgresql://user:pass@db:5432/app",
@@ -266,25 +295,6 @@ class VaultCommand(BaseCommand):
                 "key": "mock-tls-key"
             }
         }
-        
-        for path, data in secrets.items():
-            response = requests.post(
-                f"{self._get_vault_url()}/v1/secret/data/{path}",
-                headers={
-                    "X-Vault-Token": "root",
-                    "Content-Type": "application/json"
-                },
-                json={"data": data},
-                timeout=10
-            )
-            
-            if response.status_code == 200:
-                print(f"{Colors.success(f'Stored secret: {path}')}")
-            else:
-                print(f"{Colors.error(f'Failed to store secret {path}: {response.status_code}')}")
-        
-        # Store TLS certificates if they exist
-        self._store_tls_certificates()
     
     def _store_tls_certificates(self) -> None:
         """Store TLS certificates in Vault if they exist."""

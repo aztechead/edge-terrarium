@@ -22,6 +22,24 @@ logger = logging.getLogger(__name__)
 class DeployCommand(BaseCommand):
     """Command to deploy the application to Docker or K3s."""
     
+    def __init__(self, args):
+        super().__init__(args)
+        self._app_loader = None  # Cache for AppLoader instance
+    
+    def _get_app_loader(self) -> AppLoader:
+        """Get cached AppLoader instance."""
+        if self._app_loader is None:
+            self._app_loader = AppLoader()
+        return self._app_loader
+    
+    def _check_dependencies(self, dependencies: list) -> bool:
+        """Check if required dependencies are available."""
+        dep_checker = DependencyChecker()
+        if not dep_checker.check_all_dependencies(dependencies):
+            print(f"\n{Colors.error('Please install the missing dependencies and try again.')}")
+            return False
+        return True
+    
     def run(self) -> int:
         """Run the deploy command."""
         environment = self.args.environment
@@ -41,9 +59,7 @@ class DeployCommand(BaseCommand):
             print(f"{Colors.info('Deploying to Docker Compose...')}")
             
             # Check dependencies
-            dep_checker = DependencyChecker()
-            if not dep_checker.check_all_dependencies(['docker', 'docker_compose', 'curl']):
-                print(f"\n{Colors.error('Please install the missing dependencies and try again.')}")
+            if not self._check_dependencies(['docker', 'docker_compose', 'curl']):
                 return 1
             
             # Check prerequisites
@@ -96,9 +112,7 @@ class DeployCommand(BaseCommand):
             print(f"{Colors.info('Deploying to K3s...')}")
             
             # Check dependencies
-            dep_checker = DependencyChecker()
-            if not dep_checker.check_all_dependencies(['docker', 'k3d', 'kubectl', 'curl']):
-                print(f"\n{Colors.error('Please install the missing dependencies and try again.')}")
+            if not self._check_dependencies(['docker', 'k3d', 'kubectl', 'curl']):
                 return 1
             
             # Check prerequisites
@@ -221,6 +235,56 @@ class DeployCommand(BaseCommand):
         except ShellError:
             pass  # Ignore errors during cleanup
     
+    def _check_k3s_cluster_health(self) -> bool:
+        """Check if K3s cluster exists and is healthy."""
+        try:
+            # First check if cluster exists in k3d list
+            result = run_command("k3d cluster list", capture_output=True, check=False)
+            if "edge-terrarium" not in result.stdout:
+                return False
+            
+            # Check if kubectl can connect to the cluster (suppress error output)
+            try:
+                # Use subprocess directly to avoid logging the error
+                import subprocess
+                result = subprocess.run(
+                    ["kubectl", "cluster-info"],
+                    capture_output=True,
+                    text=True,
+                    check=True
+                )
+                return True
+            except subprocess.CalledProcessError:
+                # Cluster exists but kubectl can't connect - it's corrupted
+                print(f"{Colors.warning('K3s cluster exists but appears corrupted, cleaning up...')}")
+                self._cleanup_corrupted_k3s_cluster()
+                return False
+                
+        except ShellError:
+            return False
+    
+    def _cleanup_corrupted_k3s_cluster(self) -> None:
+        """Clean up a corrupted K3s cluster."""
+        try:
+            print(f"{Colors.info('Cleaning up corrupted K3s cluster...')}")
+            
+            # Try to delete the cluster
+            run_command("k3d cluster delete edge-terrarium", check=False)
+            
+            # Wait a moment for cleanup to complete
+            import time
+            time.sleep(2)
+            
+            # Verify cluster is gone
+            result = run_command("k3d cluster list", capture_output=True, check=False)
+            if "edge-terrarium" not in result.stdout:
+                print(f"{Colors.success('Corrupted cluster cleaned up successfully')}")
+            else:
+                print(f"{Colors.warning('Cluster cleanup may not have completed fully')}")
+                
+        except ShellError as e:
+            print(f"{Colors.warning(f'Error during cluster cleanup: {e}')}")
+    
     def _cleanup_docker(self) -> None:
         """Clean up Docker deployment."""
         try:
@@ -238,7 +302,7 @@ class DeployCommand(BaseCommand):
             print(f"{Colors.info('Generating Docker Compose configuration...')}")
             
             # Load app configurations
-            app_loader = AppLoader()
+            app_loader = self._get_app_loader()
             apps = app_loader.load_apps()
             
             # Generate configuration
@@ -257,7 +321,7 @@ class DeployCommand(BaseCommand):
             print(f"{Colors.info('Generating K3s configuration...')}")
             
             # Load app configurations
-            app_loader = AppLoader()
+            app_loader = self._get_app_loader()
             apps = app_loader.load_apps()
             
             # Generate configuration
@@ -276,7 +340,7 @@ class DeployCommand(BaseCommand):
             print(f"{Colors.info('Building Docker images...')}")
             
             # Load app configurations
-            app_loader = AppLoader()
+            app_loader = self._get_app_loader()
             apps = app_loader.load_apps()
             
             for app in apps:
@@ -308,7 +372,7 @@ class DeployCommand(BaseCommand):
             print(f"{Colors.info('Importing images into k3d cluster...')}")
             
             # Load app configurations
-            app_loader = AppLoader()
+            app_loader = self._get_app_loader()
             apps = app_loader.load_apps()
             
             for app in apps:
@@ -404,10 +468,11 @@ class DeployCommand(BaseCommand):
     def _setup_k3s_cluster(self) -> bool:
         """Setup K3s cluster."""
         try:
-            # Check if cluster already exists
-            result = run_command("k3d cluster list", capture_output=True, check=False)
-            if "edge-terrarium" in result.stdout:
-                print(f"{Colors.info('K3s cluster already exists')}")
+            # Check if cluster already exists and is healthy
+            cluster_exists = self._check_k3s_cluster_health()
+            
+            if cluster_exists:
+                print(f"{Colors.info('K3s cluster already exists and is healthy')}")
                 return True
             
             print(f"{Colors.info('Creating K3s cluster...')}")
@@ -423,8 +488,21 @@ class DeployCommand(BaseCommand):
                 "--wait"
             ]
             
-            run_command(create_cmd, check=True)
-            print(f"{Colors.success('K3s cluster created successfully')}")
+            try:
+                run_command(create_cmd, check=True)
+                print(f"{Colors.success('K3s cluster created successfully')}")
+            except ShellError as e:
+                # Check if the error is due to cluster already existing
+                if "already exists" in str(e):
+                    print(f"{Colors.warning('Cluster creation failed - cluster may exist but be corrupted')}")
+                    print(f"{Colors.info('Attempting to clean up and recreate...')}")
+                    self._cleanup_corrupted_k3s_cluster()
+                    
+                    # Try creating again
+                    run_command(create_cmd, check=True)
+                    print(f"{Colors.success('K3s cluster created successfully after cleanup')}")
+                else:
+                    raise e
             
             # Install NGINX ingress controller
             print(f"{Colors.info('Installing NGINX ingress controller...')}")
@@ -503,8 +581,7 @@ class DeployCommand(BaseCommand):
             )
             
             # Set up port forwarding for other apps
-            from terrarium_cli.config.app_loader import AppLoader
-            app_loader = AppLoader()
+            app_loader = self._get_app_loader()
             apps = app_loader.load_apps()
             
             for app in apps:
@@ -671,8 +748,6 @@ class DeployCommand(BaseCommand):
                 stderr=subprocess.DEVNULL
             )
             
-            # Wait a moment for port forwarding to establish
-            time.sleep(3)
             
             # Store the token for display in access info
             self.dashboard_token = dashboard_token
