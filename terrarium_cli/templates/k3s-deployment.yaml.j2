@@ -219,6 +219,10 @@ spec:
           httpGet:                                 # Use HTTP GET check
             path: {{ check.http_get.path }}        # Health check endpoint
             port: {{ check.http_get.port }}        # Port to check
+          {% elif check.path %}
+          httpGet:                                 # Use HTTP GET check (legacy format)
+            path: {{ check.path }}                 # Health check endpoint
+            port: {{ check.port }}                 # Port to check
           {% else %}
           exec:                                    # Default to file-based check
             command: ["test", "-f", "/tmp/running.stamp"]
@@ -240,6 +244,10 @@ spec:
           httpGet:                                 # Use HTTP GET check
             path: {{ check.http_get.path }}        # Health check endpoint
             port: {{ check.http_get.port }}        # Port to check
+          {% elif check.path %}
+          httpGet:                                 # Use HTTP GET check (legacy format)
+            path: {{ check.path }}                 # Health check endpoint
+            port: {{ check.port }}                 # Port to check
           {% else %}
           exec:                                    # Default to file-based check
             command: ["test", "-f", "/tmp/running.stamp"]
