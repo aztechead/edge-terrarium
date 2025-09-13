@@ -176,8 +176,15 @@ services:
     # =============================================================================
     # Monitor service health and restart if unhealthy
     # Health checks are essential for service reliability
+    # 
+    # By default, uses TCP socket check to avoid failures with apps that don't
+    # implement HTTP health endpoints. Uncomment the HTTP check below if your
+    # app implements proper health endpoints.
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:{{ app.runtime.port }}{{ app.runtime.health_check_path }}"]
+      # TCP socket check (default) - works with any app that opens a port
+      test: ["CMD", "nc", "-z", "localhost", "{{ app.runtime.port }}"]
+      # HTTP check (uncomment if your app has health endpoints):
+      # test: ["CMD", "curl", "-f", "http://localhost:{{ app.runtime.port }}{{ app.runtime.health_check_path }}"]
       interval: 30s                                 # Check every 30 seconds
       timeout: 10s                                  # Wait up to 10 seconds for response
       retries: 3                                    # Mark unhealthy after 3 failures

@@ -111,6 +111,10 @@ class AddAppCommand(BaseCommand):
             if not self._create_source_structure(app_info):
                 return 1
             
+            # Create test configuration
+            if not self._create_test_config(app_info):
+                return 1
+            
             print(f"{Colors.success(f'Application {app_info["name"]} created successfully!')}")
             print(f"\n{Colors.bold('Next steps:')}")
             print(f"  1. Add your source code to apps/{app_info['name']}/")
@@ -417,6 +421,26 @@ class AddAppCommand(BaseCommand):
             
         except Exception as e:
             print(f"{Colors.error(f'Failed to create Dockerfile: {e}')}")
+            return False
+    
+    def _create_test_config(self, app_info: Dict[str, Any]) -> bool:
+        """Create app test configuration file."""
+        try:
+            context = {
+                "app_name": app_info["name"]
+            }
+            
+            test_config_content = self._render_template("app-test-config.yml.j2", context)
+            
+            test_config_file = Path(f"apps/{app_info['name']}/app-test-config.yml")
+            with open(test_config_file, 'w') as f:
+                f.write(test_config_content)
+            
+            print(f"{Colors.success(f'Created test configuration: {test_config_file}')}")
+            return True
+            
+        except Exception as e:
+            print(f"{Colors.error(f'Failed to create test config: {e}')}")
             return False
     
     def _create_source_structure(self, app_info: Dict[str, Any]) -> bool:

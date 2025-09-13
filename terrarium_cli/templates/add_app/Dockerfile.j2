@@ -22,8 +22,9 @@ FROM alpine:3.18
 # Install runtime dependencies
 # ca-certificates: Required for HTTPS/TLS connections
 # curl: Used for health checks and general HTTP operations
+# netcat-openbsd: Used for TCP socket health checks (nc command)
 # --no-cache: Prevents package manager cache from being stored in image
-RUN apk add --no-cache ca-certificates curl
+RUN apk add --no-cache ca-certificates curl netcat-openbsd
 
 # Create non-root user for security
 # Running containers as root is a security risk
@@ -59,16 +60,16 @@ EXPOSE {{ port }}
 # timeout=3s: Wait up to 3 seconds for a response
 # start-period=5s: Wait 5 seconds before starting health checks
 # retries=3: Mark as unhealthy after 3 consecutive failures
-# The health check endpoint should return HTTP 200 for healthy status
+# Uses file-based health check - checks for running.stamp file
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:{{ port }}/health || exit 1
+    CMD test -f /tmp/running.stamp || exit 1
 
 # Default application command
-# This is a placeholder that prints hello messages every 5 seconds
+# This creates a simple application that reports its health via a file
 # Replace this with your actual application startup command
 # Examples:
 #   CMD ["python", "main.py"]                    # Python application
 #   CMD ["node", "index.js"]                     # Node.js application
 #   CMD ["./my-binary"]                          # Compiled binary
 #   CMD ["java", "-jar", "app.jar"]              # Java application
-CMD ["sh", "-c", "while true; do echo 'Hello from {{ app_name }}'; sleep 5; done"]
+CMD ["sh", "-c", "touch /tmp/running.stamp && while true; do echo 'Hello from {{ app_name }}' && sleep 30; done"]

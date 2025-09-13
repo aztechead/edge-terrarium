@@ -167,25 +167,58 @@ resources:
 # =============================================================================
 # Kubernetes health check configuration
 # These checks ensure the application is running properly
+# 
+# By default, only basic port checks are enabled to avoid deployment failures
+# with apps that don't implement health endpoints. Uncomment and customize
+# the health checks below if your app implements proper health endpoints.
 
+# Basic file-based health checks (enabled by default)
+# These check for a running.stamp file, which works for any app
 health_checks:
-  # Liveness probe - checks if the app is alive
+  # Liveness probe - checks if the app is alive using file check
   # If this fails, Kubernetes will restart the container
   liveness:
-    path: /health                     # Endpoint to check if app is alive
-    port: {{ port }}                  # Port to check
+    exec:                             # Use exec command check
+      command: ["test", "-f", "/tmp/running.stamp"]  # Check for running stamp file
     period_seconds: 30                # How often to check (every 30 seconds)
     timeout_seconds: 3                # How long to wait for response (3 seconds)
     failure_threshold: 3              # How many failures before restart (3 failures)
   
-  # Readiness probe - checks if the app is ready to serve traffic
+  # Readiness probe - checks if the app is ready using file check
   # If this fails, Kubernetes will remove the pod from service
   readiness:
-    path: /health                     # Endpoint to check if app is ready
-    port: {{ port }}                  # Port to check
+    exec:                             # Use exec command check
+      command: ["test", "-f", "/tmp/running.stamp"]  # Check for running stamp file
     period_seconds: 10                # How often to check (every 10 seconds)
     timeout_seconds: 3                # How long to wait for response (3 seconds)
     failure_threshold: 3              # How many failures before marking as not ready (3 failures)
+
+# =============================================================================
+# ADVANCED HEALTH CHECKS (COMMENTED OUT)
+# =============================================================================
+# Uncomment and use these if your app implements proper HTTP health endpoints
+# Replace the health_checks section above with this configuration:
+
+# health_checks:
+#   # Liveness probe - checks if the app is alive via HTTP endpoint
+#   # If this fails, Kubernetes will restart the container
+#   liveness:
+#     http_get:                       # Use HTTP GET request
+#       path: /health                 # Endpoint to check if app is alive
+#       port: {{ port }}              # Port to check
+#     period_seconds: 30              # How often to check (every 30 seconds)
+#     timeout_seconds: 3              # How long to wait for response (3 seconds)
+#     failure_threshold: 3            # How many failures before restart (3 failures)
+#   
+#   # Readiness probe - checks if the app is ready via HTTP endpoint
+#   # If this fails, Kubernetes will remove the pod from service
+#   readiness:
+#     http_get:                       # Use HTTP GET request
+#       path: /health                 # Endpoint to check if app is ready
+#       port: {{ port }}              # Port to check
+#     period_seconds: 10              # How often to check (every 10 seconds)
+#     timeout_seconds: 3              # How long to wait for response (3 seconds)
+#     failure_threshold: 3            # How many failures before marking as not ready (3 failures)
 
 # =============================================================================
 # PERSISTENT VOLUMES

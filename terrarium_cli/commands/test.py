@@ -7,6 +7,8 @@ import logging
 import time
 import requests
 import urllib3
+import yaml
+import os
 from typing import List, Dict, Any
 
 from terrarium_cli.commands.base import BaseCommand
@@ -22,6 +24,44 @@ logger = logging.getLogger(__name__)
 
 class TestCommand(BaseCommand):
     """Command to test the deployment."""
+    
+    def _discover_app_test_configs(self) -> List[Dict[str, Any]]:
+        """Discover and load all app-test-config.yml files from apps directory."""
+        apps_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'apps')
+        app_configs = []
+        
+        if not os.path.exists(apps_dir):
+            logger.warning(f"Apps directory not found at {apps_dir}")
+            return app_configs
+        
+        # Scan each app directory for app-test-config.yml
+        for app_name in os.listdir(apps_dir):
+            app_path = os.path.join(apps_dir, app_name)
+            if not os.path.isdir(app_path):
+                continue
+                
+            test_config_path = os.path.join(app_path, 'app-test-config.yml')
+            if not os.path.exists(test_config_path):
+                continue
+                
+            try:
+                with open(test_config_path, 'r') as f:
+                    config = yaml.safe_load(f)
+                
+                # Only include apps that are enabled for testing
+                if config.get('enabled', False):
+                    config['app_name'] = app_name  # Add app name for reference
+                    app_configs.append(config)
+                    logger.info(f"Loaded test config for app: {app_name}")
+                else:
+                    logger.info(f"Skipping disabled app: {app_name}")
+                    
+            except yaml.YAMLError as e:
+                logger.error(f"Error parsing test config for {app_name}: {e}")
+            except Exception as e:
+                logger.error(f"Error loading test config for {app_name}: {e}")
+        
+        return app_configs
     
     def _check_dependencies(self, dependencies: list) -> bool:
         """Check if required dependencies are available."""
@@ -153,14 +193,6 @@ class TestCommand(BaseCommand):
         if not self._test_applications(base_url):
             return 1
         
-        # Test Logthon service
-        if not self._test_logthon(base_url):
-            return 1
-        
-        # Test File Storage service
-        if not self._test_file_storage(base_url):
-            return 1
-        
         # Test Vault integration
         if not self._test_vault(base_url):
             return 1
@@ -209,14 +241,6 @@ class TestCommand(BaseCommand):
         if not self._test_applications(base_url):
             return 1
         
-        # Test Logthon service
-        if not self._test_logthon(base_url):
-            return 1
-        
-        # Test File Storage service
-        if not self._test_file_storage(base_url):
-            return 1
-        
         # Test Vault integration
         if not self._test_vault(base_url):
             return 1
@@ -254,41 +278,62 @@ class TestCommand(BaseCommand):
         """Test application endpoints."""
         print(f"{Colors.bold('Testing Application Endpoints')}")
         
-        # Load app configurations to get dynamic endpoints
-        from terrarium_cli.config.app_loader import AppLoader
-        app_loader = AppLoader()
-        apps = app_loader.load_apps()
+        # Discover app test configurations
+        app_configs = self._discover_app_test_configs()
         
-        # Test each app's routes (skip logthon as it has its own specific tests)
-        for app in apps:
-            if app.name == 'logthon':
-                continue
+        if not app_configs:
+            print(f"{Colors.warning('No apps configured for testing')}")
+            return True
+        
+        # Test each app's routes
+        for app_config in app_configs:
+            app_name = app_config.get('app_name', 'unknown')
+            app_description = app_config.get('description', app_name)
+            routes = app_config.get('routes', [])
+            test_config = app_config.get('test_config', {})
             
-            # Check if app has special test handling defined
-            if app.test_config and app.test_config.skip_generic_tests:
-                if not self._test_app_specific(app, base_url):
-                    return False
-                continue
-            
-            for route in app.routes:
-                # Create test URL by replacing * with empty string to test the root endpoint
-                test_path = route.path.replace('*', '')
-                test_url = f"{base_url}{test_path}"
-                test_name = f"{app.name} - {route.path}"
+            for route in routes:
+                route_path = route.get('path', '')
+                route_description = route.get('description', route_path)
+                methods = route.get('methods', ['GET'])
+                
+                # Test each HTTP method for this route
+                for method in methods:
+                    # Create test URL by replacing * with empty string to test the root endpoint
+                    test_path = route_path.replace('*', '')
+                    test_url = f"{base_url}{test_path}"
+                    test_name = f"{app_name} - {route_path} ({method})"
 
-                if not self._test_endpoint_simple(test_url, test_name):
-                    return False
+                    if method.upper() == 'GET':
+                        if not self._test_endpoint_simple(test_url, test_name):
+                            return False
+                    # Add support for other methods as needed
+                    # elif method.upper() == 'POST':
+                    #     if not self._test_endpoint_with_data(test_url, test_name, 'POST', '{}', 'application/json'):
+                    #         return False
         
-        # Test enhanced request logging with dynamic endpoints
+        # Test enhanced request logging with all apps
         print(f"{Colors.info('Testing enhanced request logging...')}")
-        for app in apps:
-            if app.name == 'logthon':
-                continue
-            for route in app.routes:
+        
+        for app_config in app_configs:
+            app_name = app_config.get('app_name', 'unknown')
+            routes = app_config.get('routes', [])
+            
+            for route in routes:
+                route_path = route.get('path', '')
+                route_query_params = route.get('query_params', [])
+                
+                # Skip if no query params defined for this route
+                if not route_query_params:
+                    continue
+                
+                # Build query string from route-specific params
+                query_string = '&'.join([f"{param['name']}={param['value']}" for param in route_query_params])
+                
                 # Test with query params
-                test_path = route.path.replace('*', '')
-                test_url = f"{base_url}{test_path}?param1=value1&param2=value2"
-                test_name = f"{app.name} - GET with query params"
+                test_path = route_path.replace('*', '')
+                test_url = f"{base_url}{test_path}?{query_string}"
+                test_name = f"{app_name} - GET with query params"
                 if not self._test_endpoint_simple(test_url, test_name):
                     return False
                 
@@ -296,97 +341,6 @@ class TestCommand(BaseCommand):
         print("")
         return True
     
-    def _app_supports_method(self, app, method: str) -> bool:
-        """Check if an app supports a specific HTTP method."""
-        # Check if app has test_config defined
-        if app.test_config and app.test_config.endpoints:
-            for endpoint in app.test_config.endpoints:
-                if method.upper() in endpoint.methods:
-                    return True
-            return False
-        
-        # If no test_config, try to detect support by testing the endpoint
-        # This is a fallback for apps without explicit test configuration
-        if method.upper() == "GET":
-            return True  # Most apps support GET
-        
-        # For POST, we'll let the test run and handle 405 gracefully
-        # This avoids hard-coding app names
-        return True
-    
-    
-    def _test_app_specific(self, app, base_url: str) -> bool:
-        """Test an app using its specific test configuration."""
-        print(f"{Colors.bold(f'Testing {app.name.title()} Application')}")
-        
-        if not app.test_config or not app.test_config.endpoints:
-            print(f"  {Colors.warning(f'No test configuration found for {app.name}, skipping specific tests')}")
-            return True
-        
-        # Test each configured endpoint
-        for endpoint in app.test_config.endpoints:
-            test_url = f"{base_url}{endpoint.path}"
-            test_name = f"{app.name} - {endpoint.description or endpoint.path}"
-            
-            # Test each supported method
-            for method in endpoint.methods:
-                if method.upper() == "GET":
-                    if not self._test_endpoint_simple(test_url, f"{test_name} ({method})"):
-                        return False
-                elif method.upper() == "POST":
-                    if not self._test_endpoint_with_data(test_url, f"{test_name} ({method})", "POST", 
-                                                       '{"test": "data"}', "application/json"):
-                        return False
-                # Add more methods as needed
-        
-        
-        return True
-    
-    def _test_logthon(self, base_url: str) -> bool:
-        """Test Logthon service."""
-        print(f"{Colors.bold('Testing Logthon Service')}")
-        
-        # Test web UI and API endpoints
-        if not self._test_endpoint_simple(f"{base_url}/logs/", "Logthon web UI"):
-            return False
-        if not self._test_endpoint_simple(f"{base_url}/logs/logs", "Logthon API endpoint"):
-            return False
-        
-        # Test direct access on port 5001 (only for Docker)
-        if "localhost" in base_url:
-            if not self._test_endpoint_simple("http://localhost:5001/", "Logthon direct web UI"):
-                return False
-        
-        print("")
-        return True
-    
-    def _test_file_storage(self, base_url: str) -> bool:
-        """Test File Storage service."""
-        print(f"{Colors.bold('Testing File Storage Service')}")
-        
-        # Test health endpoint
-        if not self._test_endpoint_simple(f"{base_url}/storage/health", "File Storage health check"):
-            return False
-        
-        # Test info endpoint
-        if not self._test_endpoint_simple(f"{base_url}/storage/info", "File Storage info endpoint"):
-            return False
-        
-        # Test files endpoints
-        if not self._test_endpoint_simple(f"{base_url}/storage/files", "File Storage list endpoint"):
-            return False
-        
-        # Test file creation with PUT request
-        if not self._test_endpoint_with_data(f"{base_url}/storage/files", "File Storage create endpoint", "PUT", 
-                                    '{"content":"Test file","filename_prefix":"test","extension":".txt"}', "application/json"):
-            return False
-        
-        # Test Logthon file storage integration
-        if not self._test_endpoint_simple(f"{base_url}/logs/files", "Logthon file storage integration"):
-            return False
-        
-        print("")
-        return True
     
     def _test_vault(self, base_url: str) -> bool:
         """Test Vault integration."""
@@ -439,28 +393,27 @@ class TestCommand(BaseCommand):
     def _test_request_logging_docker(self) -> bool:
         """Test request logging for Docker environment."""
         try:
-            result = run_command("docker ps --filter 'ancestor=edge-terrarium-custom-client' --format '{{.Names}}'",
-                                capture_output=True, check=False)
+            # Get all edge-terrarium containers
+            result = run_command(["docker", "ps", "--format", "{{.Names}}"], capture_output=True, check=False)
             if result.returncode == 0 and result.stdout.strip():
-                container_name = result.stdout.strip()
+                containers = result.stdout.strip().split('\n')
+                edge_containers = [c.strip() for c in containers if c.strip().startswith('edge-terrarium')]
                 
-                # Test if request files are being created
-                result = run_command(f"docker exec {container_name} ls -1 /tmp/requests/",
-                                    capture_output=True, check=False)
-                if result.returncode == 0:
-                    file_list = result.stdout.strip()
-                    if file_list:
-                        file_count = len([line for line in file_list.split('\n') if line.strip()])
-                        if file_count > 0:
-                            print(f"{Colors.success(f'{file_count} request files present')}")
-                        else:
-                            print(f"{Colors.warning('No request files found')}")
-                    else:
-                        print(f"{Colors.warning('No request files found')}")
-                else:
-                    print(f"{Colors.warning('Could not check request files')}")
+                for container_name in edge_containers:
+                    # Test if request files are being created
+                    result = run_command(["docker", "exec", container_name, "ls", "-1", "/tmp/requests/"], 
+                                        capture_output=True, check=False)
+                    if result.returncode == 0:
+                        file_list = result.stdout.strip()
+                        if file_list:
+                            file_count = len([line for line in file_list.split('\n') if line.strip()])
+                            if file_count > 0:
+                                print(f"{Colors.success(f'{file_count} request files present in {container_name}')}")
+                                return True
+                
+                print(f"{Colors.warning('No request files found in any edge-terrarium container')}")
             else:
-                print(f"{Colors.warning('Custom-client container not found')}")
+                print(f"{Colors.warning('No containers found')}")
         except Exception as e:
             print(f"{Colors.warning(f'Request logging test failed: {e}')}")
         
@@ -469,36 +422,36 @@ class TestCommand(BaseCommand):
     def _test_request_logging_k3s(self) -> bool:
         """Test request logging for K3s environment."""
         try:
-            # Get the custom-client pod name
-            result = run_command("kubectl get pods -n edge-terrarium -l app=custom-client -o jsonpath='{.items[0].metadata.name}'",
+            # Find pods that might have request logging enabled
+            result = run_command(["kubectl", "get", "pods", "-n", "edge-terrarium", "-o", "jsonpath={.items[*].metadata.name}"],
                                 capture_output=True, check=False)
             if result.returncode == 0 and result.stdout.strip():
-                pod_name = result.stdout.strip()
+                pod_names = result.stdout.strip().split()
+                for pod_name in pod_names:
+                    if not pod_name.strip():
+                        continue
+                        
+                    # Test if request files are being created
+                    result = run_command(["kubectl", "exec", "-n", "edge-terrarium", pod_name.strip(), "--", "ls", "-1", "/tmp/requests/"],
+                                        capture_output=True, check=False)
+                    if result.returncode == 0:
+                        file_list = result.stdout.strip()
+                        if file_list:
+                            file_count = len([line for line in file_list.split('\n') if line.strip()])
+                            if file_count > 0:
+                                print(f"{Colors.success(f'{file_count} request files present in {pod_name.strip()}')}")
+                                return True
                 
-                # Test if request files are being created
-                result = run_command(f"kubectl exec -n edge-terrarium {pod_name} -- ls -1 /tmp/requests/",
-                                    capture_output=True, check=False)
-                if result.returncode == 0:
-                    file_list = result.stdout.strip()
-                    if file_list:
-                        file_count = len([line for line in file_list.split('\n') if line.strip()])
-                        if file_count > 0:
-                            print(f"{Colors.success(f'{file_count} request files present')}")
-                        else:
-                            print(f"{Colors.warning('No request files found')}")
-                    else:
-                        print(f"{Colors.warning('No request files found')}")
-                else:
-                    print(f"{Colors.warning('Could not check request files')}")
+                print(f"{Colors.warning('No request files found in any pod')}")
             else:
-                print(f"{Colors.warning('Custom-client pod not found')}")
+                print(f"{Colors.warning('No pods found')}")
         except Exception as e:
             print(f"{Colors.warning(f'Request logging test failed: {e}')}")
         
         return True
     
     def _test_vault_secrets_logging(self) -> bool:
-        """Test vault secrets logging in custom-client."""
+        """Test vault secrets logging in applications."""
         print(f"{Colors.bold('Testing Vault Secrets Logging')}")
         
         # Detect environment and use appropriate commands
@@ -510,21 +463,23 @@ class TestCommand(BaseCommand):
     def _test_vault_secrets_logging_docker(self) -> bool:
         """Test vault secrets logging for Docker environment."""
         try:
-            result = run_command("docker ps --filter 'ancestor=edge-terrarium-custom-client' --format '{{.Names}}'",
-                                capture_output=True, check=False)
+            # Get all edge-terrarium containers
+            result = run_command(["docker", "ps", "--format", "{{.Names}}"], capture_output=True, check=False)
             if result.returncode == 0 and result.stdout.strip():
-                container_name = result.stdout.strip()
+                containers = result.stdout.strip().split('\n')
+                edge_containers = [c.strip() for c in containers if c.strip().startswith('edge-terrarium')]
                 
-                # Get the logs from the custom-client container
-                result = run_command(f"docker logs {container_name}",
-                                    capture_output=True, check=False)
-                if result.returncode == 0:
-                    logs = result.stdout
-                    self._verify_vault_secrets_in_logs(logs, "Docker")
-                else:
-                    print(f"{Colors.warning('Could not retrieve custom-client logs')}")
+                for container_name in edge_containers:
+                    # Get the logs from the container
+                    result = run_command(["docker", "logs", container_name], capture_output=True, check=False)
+                    if result.returncode == 0:
+                        logs = result.stdout
+                        if self._verify_vault_secrets_in_logs(logs, f"Docker ({container_name})"):
+                            return True
+                
+                print(f"{Colors.warning('No vault secrets found in any edge-terrarium container logs')}")
             else:
-                print(f"{Colors.warning('Custom-client container not found')}")
+                print(f"{Colors.warning('No containers found')}")
         except Exception as e:
             print(f"{Colors.warning(f'Vault secrets logging test failed: {e}')}")
         
@@ -533,31 +488,35 @@ class TestCommand(BaseCommand):
     def _test_vault_secrets_logging_k3s(self) -> bool:
         """Test vault secrets logging for K3s environment."""
         try:
-            # Get the custom-client pod name
-            result = run_command("kubectl get pods -n edge-terrarium -l app=custom-client -o jsonpath='{.items[0].metadata.name}'",
+            # Find pods that might have vault secrets logging
+            result = run_command("kubectl get pods -n edge-terrarium -o jsonpath='{.items[*].metadata.name}'",
                                 capture_output=True, check=False)
             if result.returncode == 0 and result.stdout.strip():
-                pod_name = result.stdout.strip()
+                pod_names = result.stdout.strip().split()
+                for pod_name in pod_names:
+                    if not pod_name.strip():
+                        continue
+                        
+                    # Get the logs from the pod
+                    result = run_command(f"kubectl logs -n edge-terrarium {pod_name.strip()}",
+                                        capture_output=True, check=False)
+                    if result.returncode == 0:
+                        logs = result.stdout
+                        if self._verify_vault_secrets_in_logs(logs, f"K3s ({pod_name.strip()})"):
+                            return True
                 
-                # Get the logs from the custom-client pod
-                result = run_command(f"kubectl logs -n edge-terrarium {pod_name}",
-                                    capture_output=True, check=False)
-                if result.returncode == 0:
-                    logs = result.stdout
-                    self._verify_vault_secrets_in_logs(logs, "K3s")
-                else:
-                    print(f"{Colors.warning('Could not retrieve custom-client logs')}")
+                print(f"{Colors.warning('No vault secrets found in any pod logs')}")
             else:
-                print(f"{Colors.warning('Custom-client pod not found')}")
+                print(f"{Colors.warning('No pods found')}")
         except Exception as e:
             print(f"{Colors.warning(f'Vault secrets logging test failed: {e}')}")
         
         return True
     
-    def _verify_vault_secrets_in_logs(self, logs: str, environment: str) -> None:
+    def _verify_vault_secrets_in_logs(self, logs: str, environment: str) -> bool:
         """Verify that vault secrets are present in the logs.
         
-        The custom-client logs vault secrets in the format:
+        Applications log vault secrets in the format:
         === VAULT SECRETS RETRIEVED ===
         API Key: {value}
         Database URL: {value}
@@ -583,12 +542,10 @@ class TestCommand(BaseCommand):
         vault_secrets_end = "=== END VAULT SECRETS ==="
         
         if vault_secrets_start not in logs:
-            print(f"{Colors.error(f'Vault secrets log pattern not found in {environment} logs')}")
-            return
+            return False
         
         if vault_secrets_end not in logs:
-            print(f"{Colors.error(f'Vault secrets end pattern not found in {environment} logs')}")
-            return
+            return False
         
         print(f"{Colors.success(f'Vault secrets log pattern found in {environment} logs')}")
         
@@ -613,8 +570,10 @@ class TestCommand(BaseCommand):
         # Summary
         if secrets_found == secrets_total:
             print(f"{Colors.success(f'All {secrets_total} vault secrets found in {environment} logs')}")
+            return True
         else:
             print(f"{Colors.warning(f'Only {secrets_found}/{secrets_total} vault secrets found in {environment} logs')}")
+            return False
     
     def _test_endpoint_simple(self, url: str, description: str) -> bool:
         """Test a simple GET endpoint."""

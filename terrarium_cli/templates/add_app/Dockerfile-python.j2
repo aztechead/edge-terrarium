@@ -28,11 +28,13 @@ WORKDIR /app
 
 # Install system dependencies
 # curl: Required for health checks and HTTP operations
+# netcat-openbsd: Used for TCP socket health checks (nc command)
 # apt-get update: Refresh package lists
 # apt-get install -y: Install packages without prompting
 # rm -rf /var/lib/apt/lists/*: Clean up package cache to reduce image size
 RUN apt-get update && apt-get install -y \
     curl \
+    netcat-openbsd \
     && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user for security
@@ -70,19 +72,20 @@ USER appuser
 EXPOSE {{ port }}
 
 # Health check configuration
-# Docker will periodically check if the FastAPI application is healthy
+# Docker will periodically check if the application is healthy
 # interval=30s: Check every 30 seconds
 # timeout=3s: Wait up to 3 seconds for a response
 # start-period=5s: Wait 5 seconds before starting health checks
 # retries=3: Mark as unhealthy after 3 consecutive failures
-# The health check endpoint should return HTTP 200 for healthy status
+# Uses TCP socket check for basic compatibility
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:{{ port }}/health || exit 1
+    CMD nc -z localhost {{ port }} || exit 1
 
-# Run the Python FastAPI application
-# This starts the FastAPI server using the main.py file
-# The main.py file should contain the FastAPI app and uvicorn server
-# Alternative commands:
-#   CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "{{ port }}"]
-#   CMD ["gunicorn", "main:app", "-w", "4", "-k", "uvicorn.workers.UvicornWorker"]
-CMD ["python", "main.py"]
+# Default application command
+# This creates a simple HTTP server that listens on the configured port
+# Replace this with your actual FastAPI application startup command
+# Examples:
+#   CMD ["python", "main.py"]                    # Custom Python application
+#   CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "{{ port }}"]  # FastAPI with uvicorn
+#   CMD ["gunicorn", "main:app", "-w", "4", "-k", "uvicorn.workers.UvicornWorker"]  # FastAPI with gunicorn
+CMD ["sh", "-c", "while true; do echo -e 'HTTP/1.1 200 OK\\nContent-Type: text/plain\\n\\nHello from {{ app_name }}' | nc -l -p {{ port }}; done"]

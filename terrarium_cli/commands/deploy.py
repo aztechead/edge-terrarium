@@ -621,6 +621,10 @@ class DeployCommand(BaseCommand):
             apps = app_loader.load_apps()
             vault_cmd.process_database_secrets(apps)
             
+            # Clean up old resources that are no longer defined
+            print(f"{Colors.info('Cleaning up old resources...')}")
+            self._cleanup_old_k3s_resources()
+            
             # Apply all other deployments after Vault is initialized
             print(f"{Colors.info('Applying all other deployments...')}")
             # Apply all files except Vault-related ones and non-deployment files
@@ -660,6 +664,60 @@ class DeployCommand(BaseCommand):
             self.logger.error(f"Failed to deploy to K3s: {e}")
             return False
     
+    def _cleanup_old_k3s_resources(self) -> None:
+        """Clean up Kubernetes resources that are no longer defined in the current manifests."""
+        try:
+            # Get current app names from the apps directory
+            app_loader = self._get_app_loader()
+            current_apps = app_loader.load_apps()
+            current_app_names = {app.name for app in current_apps}
+            
+            # Get all deployments in the namespace
+            result = run_command(
+                ["kubectl", "get", "deployments", "-n", "edge-terrarium", "-o", "jsonpath={.items[*].metadata.name}"],
+                capture_output=True, check=False
+            )
+            
+            if result.returncode == 0 and result.stdout.strip():
+                existing_deployments = set(result.stdout.strip().split())
+                
+                # Find deployments that are no longer in the current apps
+                deployments_to_remove = existing_deployments - current_app_names
+                
+                for deployment_name in deployments_to_remove:
+                    if deployment_name not in {"nginx", "vault"}:  # Don't remove core services
+                        print(f"{Colors.info(f'Removing old deployment: {deployment_name}')}")
+                        try:
+                            run_command(
+                                ["kubectl", "delete", "deployment", deployment_name, "-n", "edge-terrarium"],
+                                check=False
+                            )
+                        except:
+                            pass  # Ignore errors if deployment doesn't exist
+                
+                # Also clean up services for removed deployments
+                result = run_command(
+                    ["kubectl", "get", "services", "-n", "edge-terrarium", "-o", "jsonpath={.items[*].metadata.name}"],
+                    capture_output=True, check=False
+                )
+                
+                if result.returncode == 0 and result.stdout.strip():
+                    existing_services = set(result.stdout.strip().split())
+                    services_to_remove = existing_services - current_app_names
+                    
+                    for service_name in services_to_remove:
+                        if service_name not in {"nginx", "vault"}:  # Don't remove core services
+                            print(f"{Colors.info(f'Removing old service: {service_name}')}")
+                            try:
+                                run_command(
+                                    ["kubectl", "delete", "service", service_name, "-n", "edge-terrarium"],
+                                    check=False
+                                )
+                            except:
+                                pass  # Ignore errors if service doesn't exist
+                                
+        except Exception as e:
+            self.logger.warning(f"Failed to clean up old resources: {e}")
     
     def _setup_k3s_port_forwarding(self) -> bool:
         """Set up port forwarding for K3s services after pod restarts."""

@@ -209,9 +209,20 @@ spec:
         {% if check_name == 'liveness' %}
         # Liveness probe - restarts container if unhealthy
         livenessProbe:
-          httpGet:
-            path: {{ check.path }}                  # Health check endpoint
-            port: {{ check.port }}                  # Port to check
+          {% if check.exec %}
+          exec:                                    # Use exec command check
+            command: {{ check.exec.command }}      # Command to execute
+          {% elif check.tcp_socket %}
+          tcpSocket:                               # Use TCP socket check
+            port: {{ check.tcp_socket.port }}      # Port to check
+          {% elif check.http_get %}
+          httpGet:                                 # Use HTTP GET check
+            path: {{ check.http_get.path }}        # Health check endpoint
+            port: {{ check.http_get.port }}        # Port to check
+          {% else %}
+          exec:                                    # Default to file-based check
+            command: ["test", "-f", "/tmp/running.stamp"]
+          {% endif %}
           initialDelaySeconds: {{ check.period_seconds }}  # Wait before first check
           periodSeconds: {{ check.period_seconds }}        # Check interval
           timeoutSeconds: {{ check.timeout_seconds }}      # Response timeout
@@ -219,9 +230,20 @@ spec:
         {% elif check_name == 'readiness' %}
         # Readiness probe - removes pod from service if not ready
         readinessProbe:
-          httpGet:
-            path: {{ check.path }}                  # Health check endpoint
-            port: {{ check.port }}                  # Port to check
+          {% if check.exec %}
+          exec:                                    # Use exec command check
+            command: {{ check.exec.command }}      # Command to execute
+          {% elif check.tcp_socket %}
+          tcpSocket:                               # Use TCP socket check
+            port: {{ check.tcp_socket.port }}      # Port to check
+          {% elif check.http_get %}
+          httpGet:                                 # Use HTTP GET check
+            path: {{ check.http_get.path }}        # Health check endpoint
+            port: {{ check.http_get.port }}        # Port to check
+          {% else %}
+          exec:                                    # Default to file-based check
+            command: ["test", "-f", "/tmp/running.stamp"]
+          {% endif %}
           initialDelaySeconds: 5                    # Wait before first check
           periodSeconds: {{ check.period_seconds }}        # Check interval
           timeoutSeconds: {{ check.timeout_seconds }}      # Response timeout
