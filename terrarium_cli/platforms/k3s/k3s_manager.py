@@ -764,17 +764,37 @@ class K3sDeploymentManager(CommonDeploymentHelpers):
     
     def setup_dashboard_port_forwarding(self) -> None:
         """Set up Kubernetes Dashboard port forwarding."""
-        # Import here to avoid circular dependency
-        from terrarium_cli.cli.commands.deploy import DeployCommand
-        
-        # Create a temporary deploy command instance to access the method
-        temp_deploy = DeployCommand(None)
-        temp_deploy.port_forward_processes = self.port_forward_processes
-        temp_deploy.k8s_manager = self
-        # Find the method in deploy.py that sets up dashboard port forwarding
-        # For now, let's just print a message
-        print(f"{Colors.info('Setting up Kubernetes Dashboard port forwarding...')}")
-        print(f"{Colors.success('Kubernetes Dashboard port forwarding set up on port 9443')}")
+        try:
+            print(f"{Colors.info('Setting up Kubernetes Dashboard port forwarding...')}")
+            
+            # Check if the Kubernetes Dashboard is deployed
+            result = run_command(
+                "kubectl get svc -n kubernetes-dashboard kubernetes-dashboard",
+                capture_output=True,
+                check=False
+            )
+            
+            if result.returncode != 0:
+                print(f"{Colors.warning('Kubernetes Dashboard service not found - skipping port forwarding')}")
+                return
+            
+            # Start port forwarding for Dashboard
+            dashboard_port_forward = subprocess.Popen(
+                ["kubectl", "-n", "kubernetes-dashboard", "port-forward", "svc/kubernetes-dashboard", "9443:443"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+            
+            # Store the process for cleanup later
+            self.port_forward_processes.append(dashboard_port_forward)
+            
+            # Wait a moment for port forwarding to establish
+            time.sleep(2)
+            
+            print(f"{Colors.success('Kubernetes Dashboard port forwarding set up on port 9443')}")
+            
+        except Exception as e:
+            print(f"{Colors.warning(f'Dashboard port forwarding setup failed: {e}')}")
     
     def _cleanup_old_k3s_resources(self) -> None:
         """Clean up Kubernetes resources that are no longer defined in the current manifests."""
