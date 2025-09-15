@@ -1,0 +1,86 @@
+# Custom Client Application Configuration
+name: custom-client
+description: C application that handles special requests to /fake-provider/* and /example-provider/* paths
+
+# Docker Configuration
+docker:
+  build_context: .
+  dockerfile: Dockerfile
+  image_name: edge-terrarium-custom-client
+  tag: latest
+
+# Runtime Configuration
+runtime:
+  port: 1337
+  health_check_path: /health
+  startup_timeout: 60
+
+# Environment Variables
+environment:
+  - name: SERVICE_NAME
+    value: custom-client
+  - name: CONTAINER_NAME
+    value: edge-terrarium-custom-client
+  - name: VAULT_ADDR
+    value: http://vault:8200
+  - name: VAULT_TOKEN
+    value: root
+  - name: FILE_STORAGE_URL
+    value: http://file-storage:9000
+  - name: LOGTHON_HOST
+    value: logthon
+  - name: LOGTHON_PORT
+    value: "5000"
+
+# Routing Configuration
+routes:
+  - path: /custom-client/*
+    target: /
+    strip_prefix: true
+  - path: /fake-provider/*
+    target: /
+    strip_prefix: false
+  - path: /example-provider/*
+    target: /
+    strip_prefix: false
+
+# Dependencies
+dependencies:
+  - vault
+  - logthon
+  - file-storage
+
+# Resource Requirements
+resources:
+  cpu:
+    request: 100m
+    limit: 200m
+  memory:
+    request: 128Mi
+    limit: 256Mi
+
+# Health Checks
+health_checks:
+  liveness:
+    path: /health
+    port: 1337
+    period_seconds: 30
+    timeout_seconds: 3
+    failure_threshold: 3
+  readiness:
+    path: /health
+    port: 1337
+    period_seconds: 10
+    timeout_seconds: 3
+    failure_threshold: 3
+
+# Volumes (if needed)
+volumes: []
+
+# Security Context
+security:
+  run_as_non_root: true
+  run_as_user: 1001
+  run_as_group: 1001
+  allow_privilege_escalation: false
+  read_only_root_filesystem: false

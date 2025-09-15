@@ -1,0 +1,91 @@
+# =============================================================================
+# Dockerfile for {{ app_name }} (Python FastAPI)
+# =============================================================================
+# This is a specialized Dockerfile template for Python FastAPI applications.
+# It uses Python 3.13-slim as the base image and includes FastAPI-specific
+# optimizations like multi-stage dependency installation.
+#
+# Template Variables:
+#   {{ app_name }} - The name of the application
+#   {{ port }} - The port the application listens on
+#
+# Customization Guide:
+#   1. Modify the Python version in the FROM instruction if needed
+#   2. Add additional system dependencies in the apt-get install command
+#   3. Add build dependencies if you need to compile Python packages
+#   4. Modify the CMD instruction if your main file has a different name
+#   5. Add environment variables if your app needs them
+# =============================================================================
+
+# Base image - Python 3.13 slim for Python applications
+# slim variant reduces image size by removing unnecessary packages
+# Python 3.13 is the latest stable version with good performance
+FROM python:3.13-slim
+
+# Set working directory inside the container
+# This is where the Python application will be located
+WORKDIR /app
+
+# Install system dependencies
+# curl: Required for health checks and HTTP operations
+# netcat-openbsd: Used for TCP socket health checks (nc command)
+# apt-get update: Refresh package lists
+# apt-get install -y: Install packages without prompting
+# rm -rf /var/lib/apt/lists/*: Clean up package cache to reduce image size
+RUN apt-get update && apt-get install -y \
+    curl \
+    netcat-openbsd \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user for security
+# Running containers as root is a security risk
+# We create a dedicated user and group with specific UIDs
+RUN groupadd -r appgroup && useradd -r -g appgroup appuser
+
+# Copy requirements file first for better Docker layer caching
+# This allows Docker to cache the pip install step separately from code changes
+# Only reinstall dependencies when requirements.txt changes
+COPY requirements.txt .
+
+# Install Python dependencies
+# --no-cache-dir: Prevents pip from storing cache files
+# -r requirements.txt: Install from the requirements file
+# This step is cached unless requirements.txt changes
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy application code into the container
+# This is done after dependency installation for better caching
+# The .dockerignore file should be used to exclude unnecessary files
+COPY . .
+
+# Change ownership of all files to the non-root user
+# This ensures the Python application can read/write its own files
+RUN chown -R appuser:appgroup /app
+
+# Switch to the non-root user
+# All subsequent commands will run as this user
+USER appuser
+
+# Expose the port the application listens on
+# This is informational and helps with documentation
+# The actual port mapping happens at runtime with -p flag or docker-compose
+EXPOSE {{ port }}
+
+# Health check configuration
+# Docker will periodically check if the application is healthy
+# interval=30s: Check every 30 seconds
+# timeout=3s: Wait up to 3 seconds for a response
+# start-period=5s: Wait 5 seconds before starting health checks
+# retries=3: Mark as unhealthy after 3 consecutive failures
+# Uses TCP socket check for basic compatibility
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD nc -z localhost {{ port }} || exit 1
+
+# Default application command
+# This creates a simple HTTP server that listens on the configured port
+# Replace this with your actual FastAPI application startup command
+# Examples:
+#   CMD ["python", "main.py"]                    # Custom Python application
+#   CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "{{ port }}"]  # FastAPI with uvicorn
+#   CMD ["gunicorn", "main:app", "-w", "4", "-k", "uvicorn.workers.UvicornWorker"]  # FastAPI with gunicorn
+CMD ["sh", "-c", "while true; do echo -e 'HTTP/1.1 200 OK\\nContent-Type: text/plain\\n\\nHello from {{ app_name }}' | nc -l -p {{ port }}; done"]

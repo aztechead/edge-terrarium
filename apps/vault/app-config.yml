@@ -1,0 +1,76 @@
+# Vault Application Configuration
+name: vault
+description: HashiCorp Vault for secrets management
+
+# Docker Configuration
+docker:
+  image_name: hashicorp/vault
+  tag: latest
+
+# Runtime Configuration
+runtime:
+  port: 8200
+  health_check_path: /v1/sys/health
+  startup_timeout: 60
+  command: ["vault"]
+  args: ["server", "-dev", "-dev-root-token-id=root", "-dev-listen-address=0.0.0.0:8200"]
+  port_forward: 8200  # Host port for direct access
+
+# Environment Variables
+environment:
+  - name: VAULT_ADDR
+    value: "http://0.0.0.0:8200"
+  - name: VAULT_API_ADDR
+    value: "http://vault.edge-terrarium.svc.cluster.local:8200"
+  - name: VAULT_LOG_LEVEL
+    value: "INFO"
+  - name: VAULT_LOG_FORMAT
+    value: "json"
+
+# Routing Configuration
+routes:
+  - path: /vault/*
+    target: /
+    strip_prefix: true
+
+# Dependencies
+dependencies: []
+
+# Resource Requirements
+resources:
+  cpu:
+    request: 100m
+    limit: 200m
+  memory:
+    request: 128Mi
+    limit: 256Mi
+
+# Health Checks
+health_checks:
+  liveness:
+    path: /v1/sys/health
+    port: 8200
+    period_seconds: 30
+    timeout_seconds: 10
+    failure_threshold: 3
+  readiness:
+    path: /v1/sys/health
+    port: 8200
+    period_seconds: 10
+    timeout_seconds: 10
+    failure_threshold: 3
+
+# Volumes
+volumes:
+  - name: vault-data
+    mount_path: /vault/data
+    size: 1Gi
+    access_mode: ReadWriteOnce
+
+# Security Context
+security:
+  run_as_non_root: false
+  run_as_user: 100
+  run_as_group: 1000
+  allow_privilege_escalation: false
+  read_only_root_filesystem: false

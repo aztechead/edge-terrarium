@@ -1,0 +1,38 @@
+# =============================================================================
+# Service Sink Application Test Configuration
+# =============================================================================
+# This file defines how the service-sink application should be tested.
+# Only applications with this file will be included in test runs.
+#
+# Format:
+#   enabled: true/false - Whether to include this app in tests
+#   description: Human-readable description for test output
+#   routes: List of routes to test
+#     - path: Route path pattern (e.g., "/app-name/*")
+#       description: Optional description for the test
+#       methods: List of HTTP methods to test (default: ["GET"])
+#       query_params: List of query parameters to test (optional)
+#   test_config: App-specific test settings
+# =============================================================================
+
+enabled: true
+description: Service Sink (Default Route)
+
+routes:
+  - path: /*
+    description: Service Sink catch-all endpoint
+    methods: ["GET"]
+    query_params:
+      - name: param1
+        value: value1
+      - name: param2
+        value: value2
+
+test_config:
+  # App-specific retry configuration (optional)
+  # If not specified, uses global defaults
+  retries: 3
+  
+  # App-specific timeout (optional)
+  # If not specified, uses global defaults
+  timeout: 10

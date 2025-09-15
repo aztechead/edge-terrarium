@@ -1,0 +1,33 @@
+# Add App Templates Configuration
+# This file defines different templates for different application types
+
+templates:
+  generic:
+    dockerfile: Dockerfile.j2
+    app_config: app-config.yml.j2
+    readme: README.md.j2
+    description: "Generic application template"
+    
+  python:
+    dockerfile: Dockerfile-python.j2
+    app_config: app-config.yml.j2
+    readme: README-python.md.j2
+    description: "Python FastAPI application template"
+    
+  node:
+    dockerfile: Dockerfile-node.j2
+    app_config: app-config.yml.j2
+    readme: README-node.md.j2
+    description: "Node.js Express application template"
+    
+  go:
+    dockerfile: Dockerfile-go.j2
+    app_config: app-config.yml.j2
+    readme: README-go.md.j2
+    description: "Go application template"
+    
+  rust:
+    dockerfile: Dockerfile-rust.j2
+    app_config: app-config.yml.j2
+    readme: README-rust.md.j2
+    description: "Rust application template"
