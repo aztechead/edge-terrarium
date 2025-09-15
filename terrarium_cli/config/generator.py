@@ -79,6 +79,7 @@ class ConfigGenerator:
             "*-configmap.yaml",
             "*-secret.yaml",
             "ingress.yaml",
+            "nginx-ingress-controller.yaml",
             "kustomization.yaml",
             "namespace.yaml"
         ]
@@ -724,6 +725,11 @@ class ConfigGenerator:
         resources.extend([
             "ingress.yaml"
         ])
+        
+        # Add NGINX ingress controller if it exists
+        nginx_ingress_file = config_dir / "nginx-ingress-controller.yaml"
+        if nginx_ingress_file.exists():
+            resources.append("nginx-ingress-controller.yaml")
         
         # Note: Logthon-specific ingress resources are handled by the main ingress.yaml
         

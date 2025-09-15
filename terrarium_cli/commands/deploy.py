@@ -157,6 +157,24 @@ class DeployCommand(BaseCommand):
             if not self._setup_k3s_cluster():
                 return 1
             
+            # Ensure NGINX ingress controller is deployed
+            print(f"{Colors.info('Ensuring NGINX ingress controller is deployed...')}")
+            if not self._deploy_nginx_ingress_controller():
+                print(f"{Colors.error('Failed to deploy NGINX ingress controller')}")
+                return 1
+            
+            # Wait for NGINX ingress controller to be ready
+            print(f"{Colors.info('Waiting for NGINX ingress controller to be ready...')}")
+            try:
+                run_command(
+                    "kubectl wait --namespace ingress-nginx --for=condition=ready pod --selector=app.kubernetes.io/component=controller --timeout=120s",
+                    check=True
+                )
+                print(f"{Colors.success('NGINX ingress controller is ready')}")
+            except ShellError as e:
+                print(f"{Colors.error('NGINX ingress controller failed to become ready: {e}')}")
+                return 1
+            
             # Generate configuration
             if not self._generate_k3s_config():
                 return 1
@@ -564,21 +582,7 @@ class DeployCommand(BaseCommand):
                 else:
                     raise e
             
-            # Install NGINX ingress controller
-            print(f"{Colors.info('Installing NGINX ingress controller...')}")
-            run_command(
-                "kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.8.2/deploy/static/provider/cloud/deploy.yaml",
-                check=True
-            )
-            
-            # Wait for NGINX ingress controller to be ready
-            print(f"{Colors.info('Waiting for NGINX ingress controller to be ready...')}")
-            run_command(
-                "kubectl wait --namespace ingress-nginx --for=condition=ready pod --selector=app.kubernetes.io/component=controller --timeout=120s",
-                check=True
-            )
-            
-            print(f"{Colors.success('NGINX ingress controller installed successfully')}")
+            # NGINX ingress controller will be deployed separately after cluster setup
             
             # Install Kubernetes Dashboard
             print(f"{Colors.info('Installing Kubernetes Dashboard...')}")
@@ -598,6 +602,37 @@ class DeployCommand(BaseCommand):
             return True
         except ShellError as e:
             self.logger.error(f"Failed to setup K3s cluster: {e}")
+            return False
+    
+    def _deploy_nginx_ingress_controller(self) -> bool:
+        """Deploy NGINX ingress controller using local template."""
+        try:
+            from terrarium_cli.config.generator import ConfigGenerator
+            
+            # Generate the NGINX ingress controller manifest
+            generator = ConfigGenerator()
+            
+            # Create temporary directory for nginx ingress manifest
+            import tempfile
+            with tempfile.TemporaryDirectory() as temp_dir:
+                temp_path = Path(temp_dir)
+                
+                # Generate the NGINX ingress controller manifest
+                nginx_ingress_file = temp_path / "nginx-ingress-controller.yaml"
+                generator._write_template_file(
+                    nginx_ingress_file, 
+                    'k3s-nginx-ingress-controller.yaml.j2',
+                    global_config=generator.global_config
+                )
+                
+                # Apply the manifest
+                print(f"{Colors.info('Applying NGINX ingress controller manifest...')}")
+                run_command(f"kubectl apply -f {nginx_ingress_file}", check=True)
+                
+                return True
+                
+        except Exception as e:
+            self.logger.error(f"Failed to deploy NGINX ingress controller: {e}")
             return False
     
     def _deploy_to_k3s(self) -> bool:
