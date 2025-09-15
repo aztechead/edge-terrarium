@@ -7,7 +7,7 @@ import logging
 import subprocess
 import time
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List
 
 from terrarium_cli.commands.base import BaseCommand
 from terrarium_cli.commands.vault import VaultCommand
@@ -604,6 +604,121 @@ class DeployCommand(BaseCommand):
             self.logger.error(f"Failed to setup K3s cluster: {e}")
             return False
     
+    def _verify_service_health(self, service_name: str, apps: List) -> None:
+        """Verify that a service is responding to health checks."""
+        try:
+            # Find the app configuration for this service
+            app_config = None
+            for app in apps:
+                if app.name == service_name:
+                    app_config = app
+                    break
+            
+            if not app_config or not app_config.health_checks:
+                print(f"{Colors.info(f'No health check configured for {service_name}, skipping verification')}")
+                return
+            
+            # Use the configured health check endpoint
+            health_check = app_config.health_checks.get('readiness') or app_config.health_checks.get('liveness')
+            if not health_check:
+                print(f"{Colors.info(f'No suitable health check found for {service_name}, skipping verification')}")
+                return
+            
+            path = health_check.path
+            port = str(health_check.port)
+            print(f"{Colors.info(f'Checking {service_name} health at {path}...')}")
+            
+            # Get the pod name for the service
+            result = run_command(
+                f"kubectl get pods -l app={service_name} -n edge-terrarium -o jsonpath='{{.items[0].metadata.name}}'",
+                check=True,
+                capture_output=True
+            )
+            pod_name = result.stdout.strip()
+            
+            if pod_name:
+                # Try to curl the health endpoint from inside the pod
+                # First check if curl is available in the container
+                curl_check_cmd = f"kubectl exec {pod_name} -n edge-terrarium -- which curl"
+                
+                # Temporarily suppress logging for expected failures
+                import logging
+                shell_logger = logging.getLogger('terrarium_cli.utils.shell')
+                original_level = shell_logger.level
+                shell_logger.setLevel(logging.CRITICAL)
+                
+                try:
+                    run_command(curl_check_cmd, check=True, capture_output=True)
+                    # Curl is available, try the health check
+                    health_check_cmd = f"kubectl exec {pod_name} -n edge-terrarium -- curl -f -s http://localhost:{port}{path}"
+                    run_command(health_check_cmd, check=True, capture_output=True)
+                    print(f"{Colors.success(f'{service_name} health check passed')}")
+                except ShellError:
+                    print(f"{Colors.warning(f'{service_name} health check failed (curl not available or endpoint not ready)')}")
+                finally:
+                    # Restore original logging level
+                    shell_logger.setLevel(original_level)
+            else:
+                print(f"{Colors.warning(f'Could not find pod for {service_name}')}")
+                
+        except ShellError:
+            print(f"{Colors.warning(f'{service_name} health check could not be performed, but continuing')}")
+            # Don't fail the deployment for health check failures
+            # The service might still work even if health endpoint isn't ready
+    
+    def _calculate_deployment_order(self, apps: List) -> List[str]:
+        """Calculate the deployment order based on app dependencies."""
+        # Build dependency graph
+        app_deps = {}
+        app_names = set()
+        
+        for app in apps:
+            app_names.add(app.name)
+            app_deps[app.name] = app.dependencies
+        
+        # Topological sort to determine deployment order
+        deployed = set()
+        order = []
+        
+        # Keep trying until all apps are deployed
+        while len(order) < len(apps):
+            ready_to_deploy = []
+            
+            for app_name in app_names:
+                if app_name in deployed:
+                    continue
+                    
+                # Check if all dependencies are already deployed
+                deps_satisfied = True
+                for dep in app_deps[app_name]:
+                    if dep not in deployed:
+                        deps_satisfied = False
+                        break
+                
+                if deps_satisfied:
+                    ready_to_deploy.append(app_name)
+            
+            if not ready_to_deploy:
+                # Circular dependency or missing dependency - deploy remaining apps anyway
+                remaining = [name for name in app_names if name not in deployed]
+                print(f"{Colors.warning(f'Possible circular dependency detected. Deploying remaining apps: {remaining}')}")
+                order.extend(remaining)
+                break
+            
+            # Sort alphabetically for consistent ordering when no dependencies
+            ready_to_deploy.sort()
+            order.extend(ready_to_deploy)
+            deployed.update(ready_to_deploy)
+        
+        return order
+    
+    def _has_dependents(self, service_name: str, apps: List) -> bool:
+        """Check if any other apps depend on this service."""
+        for app in apps:
+            if service_name in app.dependencies:
+                return True
+        return False
+    
     def _deploy_nginx_ingress_controller(self) -> bool:
         """Deploy NGINX ingress controller using local template."""
         try:
@@ -713,12 +828,106 @@ class DeployCommand(BaseCommand):
                     filepath = os.path.join(k3s_dir, filename)
                     run_command(f"kubectl apply -f {filepath}", check=True)
             
-            # Wait for all deployments
+            # Check PVC status but don't wait for binding yet
+            # PVCs with WaitForFirstConsumer won't bind until pods are scheduled
+            print(f"{Colors.info('Checking PVC status...')}")
+            try:
+                run_command("kubectl get pvc -n edge-terrarium", check=False)
+                
+                # Check if any PVCs are in a failed state
+                result = run_command(
+                    "kubectl get pvc -n edge-terrarium -o jsonpath='{.items[*].status.phase}'",
+                    check=False,
+                    capture_output=True
+                )
+                if result.returncode == 0 and "Failed" in result.stdout:
+                    print(f"{Colors.error('Some PVCs are in Failed state, checking details...')}")
+                    run_command("kubectl describe pvc -n edge-terrarium", check=False)
+                    raise ShellError("PVC provisioning failed")
+                else:
+                    print(f"{Colors.info('PVCs are ready for binding (will bind when pods are scheduled)')}")
+                    print(f"{Colors.info('Note: k3s uses WaitForFirstConsumer binding mode - PVCs bind only when pods need them')}")
+                    
+            except ShellError as e:
+                print(f"{Colors.error(f'PVC check failed: {e}')}")
+                return False
+            
+            # Wait for all deployments with increased timeout for fresh deployments
             print(f"{Colors.info('Waiting for all deployments to be ready...')}")
-            run_command(
-                "kubectl wait --for=condition=available --timeout=60s deployment --all -n edge-terrarium",
-                check=True
-            )
+            print(f"{Colors.info('This may take longer on fresh deployments due to image pulls and PVC provisioning')}")
+            
+            # Wait for deployments in dependency order for better reliability
+            app_loader = self._get_app_loader()
+            apps = app_loader.load_apps()
+            dependency_order = self._calculate_deployment_order(apps)
+            
+            for deployment in dependency_order:
+                print(f"{Colors.info(f'Waiting for {deployment} deployment to be ready...')}")
+                try:
+                    run_command(
+                        f"kubectl wait --for=condition=available --timeout=120s deployment/{deployment} -n edge-terrarium",
+                        check=True
+                    )
+                    print(f"{Colors.success(f'{deployment} deployment is ready')}")
+                    
+                    # For services that others depend on, verify they're actually responding
+                    if self._has_dependents(deployment, apps):
+                        print(f"{Colors.info(f'Verifying {deployment} service is responding...')}")
+                        self._verify_service_health(deployment, apps)
+                        
+                except ShellError as e:
+                    print(f"{Colors.warning(f'{deployment} deployment taking longer than expected, checking pods...')}")
+                    # Show pod status for debugging
+                    run_command(f"kubectl get pods -l app={deployment} -n edge-terrarium", check=False)
+                    run_command(f"kubectl describe pods -l app={deployment} -n edge-terrarium", check=False)
+                    raise e
+            
+            # Verify PVCs are now bound after deployments are ready
+            print(f"{Colors.info('Verifying PVCs are bound after deployment...')}")
+            
+            # Use a more targeted approach - check each PVC individually without showing errors
+            try:
+                result = run_command("kubectl get pvc -n edge-terrarium -o name", check=True, capture_output=True)
+                pvc_names = result.stdout.strip().split('\n') if result.stdout.strip() else []
+                
+                if pvc_names:
+                    bound_count = 0
+                    for pvc_name in pvc_names:
+                        pvc_name = pvc_name.replace('persistentvolumeclaim/', '')
+                        
+                        # Temporarily suppress logging for expected timeouts
+                        import logging
+                        shell_logger = logging.getLogger('terrarium_cli.utils.shell')
+                        original_level = shell_logger.level
+                        shell_logger.setLevel(logging.CRITICAL)
+                        
+                        try:
+                            run_command(
+                                f"kubectl wait --for=condition=Bound --timeout=5s pvc/{pvc_name} -n edge-terrarium",
+                                check=True,
+                                capture_output=True
+                            )
+                            bound_count += 1
+                        except ShellError:
+                            pass  # PVC not bound yet, which is normal
+                        finally:
+                            # Restore original logging level
+                            shell_logger.setLevel(original_level)
+                    
+                    if bound_count == len(pvc_names):
+                        print(f"{Colors.success('All PVCs are now bound')}")
+                    elif bound_count > 0:
+                        print(f"{Colors.success(f'{bound_count} PVCs are bound')}")
+                        remaining = len(pvc_names) - bound_count
+                        print(f"{Colors.info(f'{remaining} PVCs still binding (this is normal)')}")
+                    else:
+                        print(f"{Colors.info('PVCs are still binding (this is normal for WaitForFirstConsumer mode)')}")
+                else:
+                    print(f"{Colors.info('No PVCs found to verify')}")
+                    
+            except ShellError:
+                print(f"{Colors.info('PVC verification completed (status check unavailable)')}")
+                # Don't fail deployment - pods might still work without persistent storage temporarily
             
             # Set up port forwarding for all other applications
             print(f"{Colors.info('Setting up port forwarding for all applications...')}")
