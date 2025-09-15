@@ -137,21 +137,20 @@ spec:
         # Pass environment variables to the container
         {% if app.environment or app.databases %}
         env:
-          {% for env in app.environment %}
+          {%- for env in app.environment %}
           # Environment variable: {{ env.name }}
           - name: {{ env.name }}
-            {% if env.value %}
+            {%- if env.value %}
             # Static value
             value: "{{ env.value }}"
-            {% elif env.value_from %}
+            {%- elif env.value_from %}
             # Reference to Kubernetes field or secret
             valueFrom:
               fieldRef:
                 fieldPath: {{ env.value_from }}
-            {% endif %}
-          {% endfor %}
-          {% for db_config in app.databases %}
-          {% if db_config.enabled %}
+            {%- endif %}
+          {%- endfor %}{% for db_config in app.databases %}
+          {%- if db_config.enabled %}
           # Database environment variables for {{ db_config.name }}
           - name: {{ db_config.type.upper() }}_DB_HOST
             value: "{{ app.name }}-db"
@@ -171,8 +170,8 @@ spec:
               secretKeyRef:
                 name: "{{ app.name }}-db-secrets"
                 key: "url"
-          {% endif %}
-          {% endfor %}
+          {%- endif %}
+          {%- endfor %}
         {% endif %}
 
         # =============================================================================

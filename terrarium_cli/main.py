@@ -21,6 +21,7 @@ from terrarium_cli.commands.add_app import AddAppCommand
 from terrarium_cli.commands.vault import VaultCommand
 from terrarium_cli.commands.check_deps import CheckDepsCommand
 from terrarium_cli.commands.validate import ValidateCommand
+from terrarium_cli.commands.cert import CertCommand
 from terrarium_cli.utils.logging import setup_logging
 from terrarium_cli.utils.colors import Colors
 
@@ -40,6 +41,7 @@ Examples:
   terrarium.py vault init            # Initialize Vault
   terrarium.py check-deps            # Check system dependencies
   terrarium.py validate              # Validate app-config.yml files
+  terrarium.py cert                  # Generate TLS certificates
         """
     )
     
@@ -117,6 +119,13 @@ Examples:
     )
     ValidateCommand.add_arguments(validate_parser)
     
+    # Cert command
+    cert_parser = subparsers.add_parser(
+        "cert",
+        help="Generate TLS certificates"
+    )
+    CertCommand.add_arguments(cert_parser)
+    
     return parser
 
 
@@ -151,6 +160,8 @@ def main():
             command = CheckDepsCommand(args)
         elif args.command == "validate":
             command = ValidateCommand(args)
+        elif args.command == "cert":
+            command = CertCommand(args)
         else:
             parser.print_help()
             return 1

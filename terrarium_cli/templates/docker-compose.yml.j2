@@ -94,16 +94,15 @@ services:
     # Variables can be static values or references to Vault secrets
     {% if app.environment or app.databases %}
     environment:
-      {% for env in app.environment %}
+      {%- for env in app.environment %}
       # Environment variable: {{ env.name }}
-      {% if env.value %}
+      {%- if env.value %}
       - {{ env.name }}={{ env.value }}              # Static value
-      {% elif env.value_from %}
+      {%- elif env.value_from %}
       - {{ env.name }}={{ env.value_from }}         # Vault secret reference
-      {% endif %}
-      {% endfor %}
-      {% for db_config in app.databases %}
-      {% if db_config.enabled %}
+      {%- endif %}
+      {%- endfor %}{% for db_config in app.databases %}
+      {%- if db_config.enabled %}
       # Database environment variables for {{ db_config.name }}
       - {{ db_config.type.upper() }}_DB_HOST={{ app.name }}-db
       - {{ db_config.type.upper() }}_DB_PORT=5432
@@ -111,8 +110,8 @@ services:
       - {{ db_config.type.upper() }}_DB_PASSWORD=generated_password_placeholder
       - {{ db_config.type.upper() }}_DB_NAME={{ db_config.name }}
       - {{ db_config.type.upper() }}_DB_URL=postgresql://{{ app.name }}_user:generated_password_placeholder@{{ app.name }}-db:5432/{{ db_config.name }}
-      {% endif %}
-      {% endfor %}
+      {%- endif %}
+      {%- endfor %}
     {% endif %}
 
     # =============================================================================
@@ -123,13 +122,12 @@ services:
     # Special volumes are mounted for nginx configuration and SSL certificates
     {% if app.volumes or app.name == 'nginx' %}
     volumes:
-      {% if app.volumes %}
+      {%- if app.volumes %}
       # Application-specific volumes from app-config.yml
-      {% for volume in app.volumes %}
+      {%- for volume in app.volumes %}
       - {{ volume.name }}:{{ volume.mount_path }}   # Volume: {{ volume.name }}
-      {% endfor %}
-      {% endif %}
-      {% if app.name == 'nginx' %}
+      {%- endfor %}
+      {%- endif %}{% if app.name == 'nginx' %}
       # NGINX configuration files (read-only)
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./nginx/server.conf:/etc/nginx/conf.d/server.conf:ro
@@ -145,17 +143,17 @@ services:
     # Define startup order and dependencies between services
     # Vault starts first, then all other services depend on Vault
     # Custom dependencies can be defined in app-config.yml
-    {% if app.dependencies %}
+    {%- if app.dependencies %}
     # Custom dependencies from app-config.yml
     depends_on:
-      {% for dep in app.dependencies %}
+      {%- for dep in app.dependencies %}
       - {{ dep }}                                   # Dependency: {{ dep }}
-      {% endfor %}
-    {% elif app.name != 'vault' %}
+      {%- endfor %}
+    {%- elif app.name != 'vault' %}
     # Default dependency on Vault for all services except Vault itself
     depends_on:
       - vault
-    {% endif %}
+    {%- endif %}
 
     # =============================================================================
     # NETWORK CONFIGURATION

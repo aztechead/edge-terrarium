@@ -90,6 +90,10 @@ class DeployCommand(BaseCommand):
             if not self._check_docker_prerequisites():
                 return 1
             
+            # Generate TLS certificates
+            if not self._generate_certificates():
+                return 1
+            
             # Clean up K3s if running
             self._cleanup_k3s()
             
@@ -140,6 +144,10 @@ class DeployCommand(BaseCommand):
             
             # Check prerequisites
             if not self._check_k3s_prerequisites():
+                return 1
+            
+            # Generate TLS certificates
+            if not self._generate_certificates():
                 return 1
             
             # Clean up Docker if running
@@ -218,6 +226,36 @@ class DeployCommand(BaseCommand):
         
         print(f"{Colors.success('K3s prerequisites satisfied')}")
         return True
+    
+    def _generate_certificates(self) -> bool:
+        """Generate TLS certificates for the deployment."""
+        try:
+            print(f"{Colors.info('Generating TLS certificates...')}")
+            
+            # Import CertCommand to generate certificates
+            from terrarium_cli.commands.cert import CertCommand
+            
+            # Create a mock args object for CertCommand
+            class MockArgs:
+                def __init__(self):
+                    self.force = False
+                    self.days = 365
+                    self.output_dir = None
+            
+            cert_command = CertCommand(MockArgs())
+            result = cert_command.run()
+            
+            if result == 0:
+                print(f"{Colors.success('TLS certificates generated successfully')}")
+                return True
+            else:
+                print(f"{Colors.error('Failed to generate TLS certificates')}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Certificate generation failed: {e}")
+            print(f"{Colors.error(f'Certificate generation failed: {e}')}")
+            return False
     
     def _install_k3d(self) -> bool:
         """Install k3d."""

@@ -107,19 +107,18 @@ spec:
       # DYNAMIC ROUTE GENERATION
       # =============================================================================
       # Collect all routes from all applications and sort by specificity
-      {% set all_routes = [] %}
-      {% for app in apps %}
-      {% for route in app.routes %}
-      {% set specificity = route.path.count('*') + route.path.count('/') %}
-      {% set _ = all_routes.append({'path': route.path, 'app': app.name, 'port': app.runtime.port, 'specificity': specificity, 'is_catch_all': false}) %}
-      {% endfor %}
-      {% endfor %}
-      
+      {%- set all_routes = [] -%}
+      {%- for app in apps -%}
+      {%- for route in app.routes -%}
+      {%- set specificity = route.path.count('*') + route.path.count('/') -%}
+      {%- set _ = all_routes.append({'path': route.path, 'app': app.name, 'port': app.runtime.port, 'specificity': specificity, 'is_catch_all': false}) -%}
+      {%- endfor -%}
+      {%- endfor -%}
       # =============================================================================
       # APPLICATION ROUTES
       # =============================================================================
       # Routes are sorted by specificity (most specific first) for proper matching
-      {% for route in all_routes | sort(attribute='is_catch_all') | sort(attribute='specificity', reverse=true) %}
+      {%- for route in all_routes | sort(attribute='is_catch_all') | sort(attribute='specificity', reverse=true) %}
       # Route: {{ route.path }} -> {{ route.app }}:{{ route.port }}
       - path: /api{{ route.path | replace('*', '(.*)') }}  # Add /api/ prefix and convert * to regex
         pathType: ImplementationSpecific                   # Use NGINX-specific path matching
@@ -128,8 +127,7 @@ spec:
             name: {{ route.app }}                          # Target service name
             port:
               number: {{ route.port }}                     # Target service port
-      {% endfor %}
-      
+      {%- endfor %}
       # =============================================================================
       # CATCH-ALL ROUTES
       # =============================================================================
