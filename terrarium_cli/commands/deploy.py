@@ -813,20 +813,46 @@ class DeployCommand(BaseCommand):
             print(f"{Colors.info('Cleaning up old resources...')}")
             self._cleanup_old_k3s_resources()
             
-            # Apply all other deployments after Vault is initialized
+            # Apply all other resources after Vault is initialized
+            # Apply in correct order: PVCs first, then deployments, then services
             print(f"{Colors.info('Applying all other deployments...')}")
-            # Apply all files except Vault-related ones and non-deployment files
             import os
             k3s_dir = "configs/k3s"
             vault_files = {"vault-deployment.yaml", "vault-service.yaml", "vault-pvc.yaml"}
             exclude_files = {"kustomization.yaml", "namespace.yaml"}
             
+            # Get all yaml files except excluded ones
+            all_files = []
             for filename in os.listdir(k3s_dir):
                 if (filename.endswith('.yaml') and 
                     filename not in vault_files and 
                     filename not in exclude_files):
-                    filepath = os.path.join(k3s_dir, filename)
-                    run_command(f"kubectl apply -f {filepath}", check=True)
+                    all_files.append(filename)
+            
+            # Sort files by type to ensure correct application order
+            # 1. PVCs first (storage must exist before pods are scheduled)
+            # 2. ConfigMaps and Secrets
+            # 3. Deployments 
+            # 4. Services last
+            pvc_files = [f for f in all_files if 'pvc' in f]
+            configmap_files = [f for f in all_files if 'configmap' in f or 'secret' in f]
+            deployment_files = [f for f in all_files if 'deployment' in f]
+            service_files = [f for f in all_files if 'service' in f]
+            other_files = [f for f in all_files if f not in pvc_files + configmap_files + deployment_files + service_files]
+            
+            # Apply in order
+            for file_group, group_name in [
+                (pvc_files, "PVCs"),
+                (configmap_files, "ConfigMaps and Secrets"), 
+                (deployment_files, "Deployments"),
+                (service_files, "Services"),
+                (other_files, "Other resources")
+            ]:
+                if file_group:
+                    print(f"{Colors.info(f'Applying {group_name}...')}")
+                    for filename in sorted(file_group):
+                        filepath = os.path.join(k3s_dir, filename)
+                        run_command(f"kubectl apply -f {filepath}", check=True)
             
             # Check PVC status but don't wait for binding yet
             # PVCs with WaitForFirstConsumer won't bind until pods are scheduled
