@@ -9,13 +9,15 @@ import time
 from pathlib import Path
 from typing import Optional, List
 
-from terrarium_cli.commands.base import BaseCommand
-from terrarium_cli.commands.vault import VaultCommand
-from terrarium_cli.utils.shell import run_command, check_command_exists, ShellError
+from terrarium_cli.cli.commands.base import BaseCommand
+from terrarium_cli.cli.commands.vault import VaultCommand
+from terrarium_cli.utils.system.shell import run_command, check_command_exists, ShellError
 from terrarium_cli.utils.colors import Colors
-from terrarium_cli.utils.dependencies import DependencyChecker, DependencyError
-from terrarium_cli.config.app_loader import AppLoader
-from terrarium_cli.config.generator import ConfigGenerator
+from terrarium_cli.utils.system.dependencies import DependencyChecker, DependencyError
+from terrarium_cli.config.loaders.app_loader import AppLoader
+from terrarium_cli.config.generators.generator import ConfigGenerator
+from terrarium_cli.platforms.docker.docker_manager import DockerDeploymentManager
+from terrarium_cli.platforms.k3s.k3s_manager import K3sDeploymentManager
 
 logger = logging.getLogger(__name__)
 
@@ -27,12 +29,78 @@ class DeployCommand(BaseCommand):
         super().__init__(args)
         self._app_loader = None  # Cache for AppLoader instance
         self.port_forward_processes = []  # Store port forwarding process references
+        
+        # Initialize deployment managers
+        self.docker_manager = DockerDeploymentManager()
+        self.k3s_manager = K3sDeploymentManager()
     
     def _get_app_loader(self) -> AppLoader:
         """Get cached AppLoader instance."""
         if self._app_loader is None:
             self._app_loader = AppLoader()
         return self._app_loader
+    
+    def _load_apps(self) -> List:
+        """Load all application configurations."""
+        app_loader = self._get_app_loader()
+        return app_loader.load_apps()
+    
+    def _apply_k8s_manifest(self, filepath: str, description: str = None) -> None:
+        """Apply a Kubernetes manifest file."""
+        if description:
+            print(f"{Colors.info(f'Applying {description}...')}")
+        run_command(f"kubectl apply -f {filepath}", check=True)
+    
+    def _apply_k8s_manifests(self, filepaths: List[str], description: str = None) -> None:
+        """Apply multiple Kubernetes manifest files."""
+        if description:
+            print(f"{Colors.info(f'Applying {description}...')}")
+        for filepath in filepaths:
+            run_command(f"kubectl apply -f {filepath}", check=True)
+    
+    def _wait_for_deployment(self, deployment_name: str, timeout: int = 120) -> None:
+        """Wait for a deployment to be ready."""
+        print(f"{Colors.info(f'Waiting for {deployment_name} to be ready...')}")
+        run_command(
+            f"kubectl wait --for=condition=available --timeout={timeout}s deployment/{deployment_name} -n edge-terrarium",
+            check=True
+        )
+    
+    def _generate_config(self, config_type: str) -> bool:
+        """Generate configuration files."""
+        try:
+            print(f"{Colors.info(f'Generating {config_type} configuration...')}")
+            apps = self._load_apps()
+            generator = ConfigGenerator()
+            generator.generate_all_configs(apps)
+            print(f"{Colors.success(f'{config_type} configuration generated')}")
+            return True
+        except Exception as e:
+            self.logger.error(f"Failed to generate {config_type} configuration: {e}")
+            return False
+    
+    def _build_app_images(self, apps: List) -> bool:
+        """Build Docker images for all applications."""
+        try:
+            print(f"{Colors.info('Building Docker images...')}")
+            for app in apps:
+                print(f"{Colors.info(f'Building {app.name} image...')}")
+                
+                # Build the image
+                build_cmd = [
+                    "docker", "build",
+                    "-t", f"{app.docker.image_name}:{app.docker.tag}",
+                    "-f", f"apps/{app.name}/Dockerfile",
+                    f"apps/{app.name}"
+                ]
+                
+                run_command(build_cmd, check=True)
+                print(f"{Colors.success(f'{app.name} image built successfully')}")
+            
+            return True
+        except ShellError as e:
+            self.logger.error(f"Failed to build images: {e}")
+            return False
     
     def _check_dependencies(self, dependencies: list) -> bool:
         """Check if required dependencies are available."""
@@ -46,7 +114,7 @@ class DeployCommand(BaseCommand):
         """Validate all app-config.yml files before deployment."""
         print(f"{Colors.info('Validating app-config.yml files...')}")
         
-        from terrarium_cli.utils.yaml_validator import validate_all_app_configs, print_validation_results
+        from terrarium_cli.utils.validation.yaml_validator import validate_all_app_configs, print_validation_results
         from pathlib import Path
         
         apps_dir = Path("apps")
@@ -79,147 +147,23 @@ class DeployCommand(BaseCommand):
     
     def _deploy_docker(self) -> int:
         """Deploy to Docker Compose."""
-        try:
-            print(f"{Colors.info('Deploying to Docker Compose...')}")
-            
-            # Check dependencies
-            if not self._check_dependencies(['docker', 'docker_compose', 'curl']):
-                return 1
-            
-            # Check prerequisites
-            if not self._check_docker_prerequisites():
-                return 1
-            
-            # Generate TLS certificates
-            if not self._generate_certificates():
-                return 1
-            
-            # Clean up K3s if running
-            self._cleanup_k3s()
-            
-            # Generate configuration
-            if not self._generate_docker_config():
-                return 1
-            
-            # Build images
-            if not self._build_images():
-                return 1
-            
-            # Start services
-            if not self._start_docker_services():
-                return 1
-            
-            
-            # Initialize Vault
-            print(f"{Colors.info('Initializing Vault...')}")
-            vault_cmd = VaultCommand(None)
-            vault_cmd._init_vault()
-            
-            # Process database secrets
-            print(f"{Colors.info('Processing database secrets...')}")
-            app_loader = self._get_app_loader()
-            apps = app_loader.load_apps()
-            vault_cmd.process_database_secrets(apps)
-            
-            # Verify deployment
-            if not self._verify_docker_deployment():
-                return 1
-            
-            print(f"{Colors.success('Docker Compose deployment completed!')}")
-            self._print_docker_access_info()
-            return 0
-            
-        except Exception as e:
-            self.logger.error(f"Failed to deploy to Docker: {e}")
-            return 1
+        return self.docker_manager.deploy(
+            self._check_dependencies,
+            self._cleanup_k3s
+        )
     
     def _deploy_k3s(self) -> int:
         """Deploy to K3s."""
-        try:
-            print(f"{Colors.info('Deploying to K3s...')}")
-            
-            # Check dependencies
-            if not self._check_dependencies(['docker', 'k3d', 'kubectl', 'curl']):
-                return 1
-            
-            # Check prerequisites
-            if not self._check_k3s_prerequisites():
-                return 1
-            
-            # Generate TLS certificates
-            if not self._generate_certificates():
-                return 1
-            
-            # Clean up Docker if running
-            self._cleanup_docker()
-            
-            # Setup K3s cluster
-            if not self._setup_k3s_cluster():
-                return 1
-            
-            # Ensure NGINX ingress controller is deployed
-            print(f"{Colors.info('Ensuring NGINX ingress controller is deployed...')}")
-            if not self._deploy_nginx_ingress_controller():
-                print(f"{Colors.error('Failed to deploy NGINX ingress controller')}")
-                return 1
-            
-            # Wait for NGINX ingress controller to be ready
-            print(f"{Colors.info('Waiting for NGINX ingress controller to be ready...')}")
-            try:
-                run_command(
-                    "kubectl wait --namespace ingress-nginx --for=condition=ready pod --selector=app.kubernetes.io/component=controller --timeout=120s",
-                    check=True
-                )
-                print(f"{Colors.success('NGINX ingress controller is ready')}")
-            except ShellError as e:
-                print(f"{Colors.error('NGINX ingress controller failed to become ready: {e}')}")
-                return 1
-            
-            # Generate configuration
-            if not self._generate_k3s_config():
-                return 1
-            
-            # Build and import images
-            if not self._build_and_import_images():
-                return 1
-            
-            # Deploy to K3s
-            if not self._deploy_to_k3s():
-                return 1
-            
-            # Verify deployment
-            if not self._verify_k3s_deployment():
-                return 1
-            
-            print(f"{Colors.success('K3s deployment completed!')}")
-            self._print_k3s_access_info()
-            return 0
-            
-        except Exception as e:
-            self.logger.error(f"Failed to deploy to K3s: {e}")
-            return 1
+        return self.k3s_manager.deploy(
+            self._check_dependencies,
+            self._cleanup_docker,
+            self._generate_certificates,
+            self._build_and_import_images
+        )
     
     def _check_docker_prerequisites(self) -> bool:
         """Check Docker prerequisites."""
-        print(f"{Colors.info('Checking Docker prerequisites...')}")
-        
-        if not check_command_exists("docker"):
-            print(f"{Colors.error('Docker is not installed')}")
-            return False
-        
-        if not check_command_exists("docker-compose"):
-            print(f"{Colors.error('Docker Compose is not installed')}")
-            return False
-        
-        # Check if Docker daemon is running
-        try:
-            run_command("docker info", check=True)
-        except ShellError:
-            print(f"{Colors.error('Docker daemon is not running')}")
-            return False
-        
-        print(f"{Colors.success('Docker prerequisites satisfied')}")
-        return True
+        return self.docker_manager.check_docker_prerequisites()
     
     def _check_k3s_prerequisites(self) -> bool:
         """Check K3s prerequisites."""
@@ -247,33 +191,7 @@ class DeployCommand(BaseCommand):
     
     def _generate_certificates(self) -> bool:
         """Generate TLS certificates for the deployment."""
-        try:
-            print(f"{Colors.info('Generating TLS certificates...')}")
-            
-            # Import CertCommand to generate certificates
-            from terrarium_cli.commands.cert import CertCommand
-            
-            # Create a mock args object for CertCommand
-            class MockArgs:
-                def __init__(self):
-                    self.force = False
-                    self.days = 365
-                    self.output_dir = None
-            
-            cert_command = CertCommand(MockArgs())
-            result = cert_command.run()
-            
-            if result == 0:
-                print(f"{Colors.success('TLS certificates generated successfully')}")
-                return True
-            else:
-                print(f"{Colors.error('Failed to generate TLS certificates')}")
-                return False
-                
-        except Exception as e:
-            logger.error(f"Certificate generation failed: {e}")
-            print(f"{Colors.error(f'Certificate generation failed: {e}')}")
-            return False
+        return self.docker_manager.generate_certificates()
     
     def _install_k3d(self) -> bool:
         """Install k3d."""
@@ -305,14 +223,7 @@ class DeployCommand(BaseCommand):
     
     def _cleanup_k3s(self) -> None:
         """Clean up K3s deployment."""
-        try:
-            if check_command_exists("k3d"):
-                result = run_command("k3d cluster list", capture_output=True, check=False)
-                if "edge-terrarium" in result.stdout:
-                    print(f"{Colors.warning('Cleaning up existing K3s cluster...')}")
-                    run_command("k3d cluster delete edge-terrarium", check=False)
-        except ShellError:
-            pass  # Ignore errors during cleanup
+        self.k3s_manager.cleanup_k3s()
     
     def _check_k3s_cluster_health(self) -> bool:
         """Check if K3s cluster exists and is healthy."""
@@ -366,80 +277,20 @@ class DeployCommand(BaseCommand):
     
     def _cleanup_docker(self) -> None:
         """Clean up Docker deployment."""
-        try:
-            print(f"{Colors.warning('Cleaning up existing Docker deployment...')}")
-            run_command(
-                "docker-compose -f configs/docker/docker-compose.yml -p edge-terrarium down -v",
-                check=False
-            )
-        except ShellError:
-            pass  # Ignore errors during cleanup
+        self.docker_manager.cleanup_docker()
     
     def _generate_docker_config(self) -> bool:
         """Generate Docker Compose configuration."""
-        try:
-            print(f"{Colors.info('Generating Docker Compose configuration...')}")
-            
-            # Load app configurations
-            app_loader = self._get_app_loader()
-            apps = app_loader.load_apps()
-            
-            # Generate configuration
-            generator = ConfigGenerator()
-            generator.generate_all_configs(apps)
-            
-            print(f"{Colors.success('Docker Compose configuration generated')}")
-            return True
-        except Exception as e:
-            self.logger.error(f"Failed to generate Docker configuration: {e}")
-            return False
+        return self._generate_config("Docker Compose")
     
     def _generate_k3s_config(self) -> bool:
         """Generate K3s configuration."""
-        try:
-            print(f"{Colors.info('Generating K3s configuration...')}")
-            
-            # Load app configurations
-            app_loader = self._get_app_loader()
-            apps = app_loader.load_apps()
-            
-            # Generate configuration
-            generator = ConfigGenerator()
-            generator.generate_all_configs(apps)
-            
-            print(f"{Colors.success('K3s configuration generated')}")
-            return True
-        except Exception as e:
-            self.logger.error(f"Failed to generate K3s configuration: {e}")
-            return False
+        return self._generate_config("K3s")
     
     def _build_images(self) -> bool:
         """Build Docker images."""
-        try:
-            print(f"{Colors.info('Building Docker images...')}")
-            
-            # Load app configurations
-            app_loader = self._get_app_loader()
-            apps = app_loader.load_apps()
-            
-            for app in apps:
-                print(f"{Colors.info(f'Building {app.name} image...')}")
-                
-                # Build the image
-                build_cmd = [
-                    "docker", "build",
-                    "-t", f"{app.docker.image_name}:{app.docker.tag}",
-                    "-f", f"apps/{app.name}/Dockerfile",
-                    f"apps/{app.name}"
-                ]
-                
-                run_command(build_cmd, check=True)
-                print(f"{Colors.success(f'{app.name} image built successfully')}")
-            
-            return True
-        except ShellError as e:
-            self.logger.error(f"Failed to build images: {e}")
-            return False
+        apps = self._load_apps()
+        return self._build_app_images(apps)
     
     def _build_and_import_images(self) -> bool:
         """Build and import images for K3s."""
@@ -451,8 +302,7 @@ class DeployCommand(BaseCommand):
             print(f"{Colors.info('Importing images into k3d cluster...')}")
             
             # Load app configurations
-            app_loader = self._get_app_loader()
-            apps = app_loader.load_apps()
+            apps = self._load_apps()
             
             for app in apps:
                 # Skip importing official images (they'll be pulled by k3d)
@@ -526,8 +376,7 @@ class DeployCommand(BaseCommand):
             
             # Process database secrets
             print(f"{Colors.info('Processing database secrets...')}")
-            app_loader = self._get_app_loader()
-            apps = app_loader.load_apps()
+            apps = self._load_apps()
             vault_cmd.process_database_secrets(apps)
             
             # Start all other services
@@ -643,7 +492,7 @@ class DeployCommand(BaseCommand):
                 
                 # Temporarily suppress logging for expected failures
                 import logging
-                shell_logger = logging.getLogger('terrarium_cli.utils.shell')
+                shell_logger = logging.getLogger('terrarium_cli.utils.system.shell')
                 original_level = shell_logger.level
                 shell_logger.setLevel(logging.CRITICAL)
                 
@@ -722,7 +571,7 @@ class DeployCommand(BaseCommand):
     def _deploy_nginx_ingress_controller(self) -> bool:
         """Deploy NGINX ingress controller using local template."""
         try:
-            from terrarium_cli.config.generator import ConfigGenerator
+            from terrarium_cli.config.generators.generator import ConfigGenerator
             
             # Generate the NGINX ingress controller manifest
             generator = ConfigGenerator()
@@ -750,234 +599,12 @@ class DeployCommand(BaseCommand):
             self.logger.error(f"Failed to deploy NGINX ingress controller: {e}")
             return False
     
-    def _deploy_to_k3s(self) -> bool:
-        """Deploy to K3s."""
-        try:
-            print(f"{Colors.info('Deploying to K3s...')}")
-            
-            # Create namespace
-            try:
-                run_command("kubectl create namespace edge-terrarium", check=False)
-            except:
-                pass  # Namespace might already exist
-            
-            # Create TLS secret for NGINX
-            print(f"{Colors.info('Creating TLS secret for NGINX...')}")
-            run_command(
-                "kubectl create secret tls nginx-ssl --cert=certs/edge-terrarium.crt --key=certs/edge-terrarium.key -n edge-terrarium",
-                check=False
-            )
-            
-            # Apply NGINX ConfigMap first
-            print(f"{Colors.info('Applying NGINX ConfigMap...')}")
-            run_command("kubectl apply -f configs/k3s/nginx-configmap.yaml", check=True)
-            
-            # Apply Vault deployment first
-            print(f"{Colors.info('Applying Vault deployment...')}")
-            run_command("kubectl apply -f configs/k3s/vault-deployment.yaml", check=True)
-            run_command("kubectl apply -f configs/k3s/vault-service.yaml", check=True)
-            run_command("kubectl apply -f configs/k3s/vault-pvc.yaml", check=True)
-            
-            # Wait for Vault to be ready first
-            print(f"{Colors.info('Waiting for Vault to be ready...')}")
-            run_command(
-                "kubectl wait --for=condition=available --timeout=120s deployment/vault -n edge-terrarium",
-                check=True
-            )
-            
-            # Set up Vault port forwarding first (needed for initialization)
-            print(f"{Colors.info('Setting up Vault port forwarding for initialization...')}")
-            vault_process = subprocess.Popen(
-                ["kubectl", "port-forward", "-n", "edge-terrarium", "svc/vault", "8200:8200"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL
-            )
-            self.port_forward_processes.append(vault_process)
-            print(f"{Colors.success('Vault port forwarding started')}")
-            
-            # Wait a moment for port forwarding to establish
-            time.sleep(3)
-            
-            # Initialize Vault
-            print(f"{Colors.info('Initializing Vault...')}")
-            vault_cmd = VaultCommand(None)
-            vault_cmd._init_vault()
-            
-            # Process database secrets
-            print(f"{Colors.info('Processing database secrets...')}")
-            app_loader = self._get_app_loader()
-            apps = app_loader.load_apps()
-            vault_cmd.process_database_secrets(apps)
-            
-            # Clean up old resources that are no longer defined
-            print(f"{Colors.info('Cleaning up old resources...')}")
-            self._cleanup_old_k3s_resources()
-            
-            # Apply all other resources after Vault is initialized
-            # Apply in correct order: PVCs first, then deployments, then services
-            print(f"{Colors.info('Applying all other deployments...')}")
-            import os
-            k3s_dir = "configs/k3s"
-            vault_files = {"vault-deployment.yaml", "vault-service.yaml", "vault-pvc.yaml"}
-            exclude_files = {"kustomization.yaml", "namespace.yaml"}
-            
-            # Get all yaml files except excluded ones
-            all_files = []
-            for filename in os.listdir(k3s_dir):
-                if (filename.endswith('.yaml') and 
-                    filename not in vault_files and 
-                    filename not in exclude_files):
-                    all_files.append(filename)
-            
-            # Sort files by type to ensure correct application order
-            # 1. PVCs first (storage must exist before pods are scheduled)
-            # 2. ConfigMaps and Secrets
-            # 3. Deployments 
-            # 4. Services last
-            pvc_files = [f for f in all_files if 'pvc' in f]
-            configmap_files = [f for f in all_files if 'configmap' in f or 'secret' in f]
-            deployment_files = [f for f in all_files if 'deployment' in f]
-            service_files = [f for f in all_files if 'service' in f]
-            other_files = [f for f in all_files if f not in pvc_files + configmap_files + deployment_files + service_files]
-            
-            # Apply in order
-            for file_group, group_name in [
-                (pvc_files, "PVCs"),
-                (configmap_files, "ConfigMaps and Secrets"), 
-                (deployment_files, "Deployments"),
-                (service_files, "Services"),
-                (other_files, "Other resources")
-            ]:
-                if file_group:
-                    print(f"{Colors.info(f'Applying {group_name}...')}")
-                    for filename in sorted(file_group):
-                        filepath = os.path.join(k3s_dir, filename)
-                        run_command(f"kubectl apply -f {filepath}", check=True)
-            
-            # Check PVC status but don't wait for binding yet
-            # PVCs with WaitForFirstConsumer won't bind until pods are scheduled
-            print(f"{Colors.info('Checking PVC status...')}")
-            try:
-                run_command("kubectl get pvc -n edge-terrarium", check=False)
-                
-                # Check if any PVCs are in a failed state
-                result = run_command(
-                    "kubectl get pvc -n edge-terrarium -o jsonpath='{.items[*].status.phase}'",
-                    check=False,
-                    capture_output=True
-                )
-                if result.returncode == 0 and "Failed" in result.stdout:
-                    print(f"{Colors.error('Some PVCs are in Failed state, checking details...')}")
-                    run_command("kubectl describe pvc -n edge-terrarium", check=False)
-                    raise ShellError("PVC provisioning failed")
-                else:
-                    print(f"{Colors.info('PVCs are ready for binding (will bind when pods are scheduled)')}")
-                    print(f"{Colors.info('Note: k3s uses WaitForFirstConsumer binding mode - PVCs bind only when pods need them')}")
-                    
-            except ShellError as e:
-                print(f"{Colors.error(f'PVC check failed: {e}')}")
-                return False
-            
-            # Wait for all deployments with increased timeout for fresh deployments
-            print(f"{Colors.info('Waiting for all deployments to be ready...')}")
-            print(f"{Colors.info('This may take longer on fresh deployments due to image pulls and PVC provisioning')}")
-            
-            # Wait for deployments in dependency order for better reliability
-            app_loader = self._get_app_loader()
-            apps = app_loader.load_apps()
-            dependency_order = self._calculate_deployment_order(apps)
-            
-            for deployment in dependency_order:
-                print(f"{Colors.info(f'Waiting for {deployment} deployment to be ready...')}")
-                try:
-                    run_command(
-                        f"kubectl wait --for=condition=available --timeout=120s deployment/{deployment} -n edge-terrarium",
-                        check=True
-                    )
-                    print(f"{Colors.success(f'{deployment} deployment is ready')}")
-                    
-                    # For services that others depend on, verify they're actually responding
-                    if self._has_dependents(deployment, apps):
-                        print(f"{Colors.info(f'Verifying {deployment} service is responding...')}")
-                        self._verify_service_health(deployment, apps)
-                        
-                except ShellError as e:
-                    print(f"{Colors.warning(f'{deployment} deployment taking longer than expected, checking pods...')}")
-                    # Show pod status for debugging
-                    run_command(f"kubectl get pods -l app={deployment} -n edge-terrarium", check=False)
-                    run_command(f"kubectl describe pods -l app={deployment} -n edge-terrarium", check=False)
-                    raise e
-            
-            # Verify PVCs are now bound after deployments are ready
-            print(f"{Colors.info('Verifying PVCs are bound after deployment...')}")
-            
-            # Use a more targeted approach - check each PVC individually without showing errors
-            try:
-                result = run_command("kubectl get pvc -n edge-terrarium -o name", check=True, capture_output=True)
-                pvc_names = result.stdout.strip().split('\n') if result.stdout.strip() else []
-                
-                if pvc_names:
-                    bound_count = 0
-                    for pvc_name in pvc_names:
-                        pvc_name = pvc_name.replace('persistentvolumeclaim/', '')
-                        
-                        # Temporarily suppress logging for expected timeouts
-                        import logging
-                        shell_logger = logging.getLogger('terrarium_cli.utils.shell')
-                        original_level = shell_logger.level
-                        shell_logger.setLevel(logging.CRITICAL)
-                        
-                        try:
-                            run_command(
-                                f"kubectl wait --for=condition=Bound --timeout=5s pvc/{pvc_name} -n edge-terrarium",
-                                check=True,
-                                capture_output=True
-                            )
-                            bound_count += 1
-                        except ShellError:
-                            pass  # PVC not bound yet, which is normal
-                        finally:
-                            # Restore original logging level
-                            shell_logger.setLevel(original_level)
-                    
-                    if bound_count == len(pvc_names):
-                        print(f"{Colors.success('All PVCs are now bound')}")
-                    elif bound_count > 0:
-                        print(f"{Colors.success(f'{bound_count} PVCs are bound')}")
-                        remaining = len(pvc_names) - bound_count
-                        print(f"{Colors.info(f'{remaining} PVCs still binding (this is normal)')}")
-                    else:
-                        print(f"{Colors.info('PVCs are still binding (this is normal for WaitForFirstConsumer mode)')}")
-                else:
-                    print(f"{Colors.info('No PVCs found to verify')}")
-                    
-            except ShellError:
-                print(f"{Colors.info('PVC verification completed (status check unavailable)')}")
-                # Don't fail deployment - pods might still work without persistent storage temporarily
-            
-            # Set up port forwarding for all other applications
-            print(f"{Colors.info('Setting up port forwarding for all applications...')}")
-            self._setup_k3s_port_forwarding()
-            
-            # Wait a moment for port forwarding to establish
-            time.sleep(3)
-            
-            # Set up Kubernetes Dashboard authentication
-            print(f"{Colors.info('Setting up Kubernetes Dashboard authentication...')}")
-            self._setup_dashboard_auth()
-            
-            print(f"{Colors.success('K3s deployment completed')}")
-            return True
-        except ShellError as e:
-            self.logger.error(f"Failed to deploy to K3s: {e}")
-            return False
     
     def _cleanup_old_k3s_resources(self) -> None:
         """Clean up Kubernetes resources that are no longer defined in the current manifests."""
         try:
             # Get current app names from the apps directory
-            app_loader = self._get_app_loader()
-            current_apps = app_loader.load_apps()
+            current_apps = self._load_apps()
             current_app_names = {app.name for app in current_apps}
             
             # Get all deployments in the namespace

@@ -8,8 +8,8 @@ from pathlib import Path
 from typing import List, Dict, Any
 from jinja2 import Environment, FileSystemLoader
 
-from terrarium_cli.config.app_loader import AppConfig
-from terrarium_cli.config.nginx_generator import NginxConfigGenerator
+from terrarium_cli.config.loaders.app_loader import AppConfig
+from terrarium_cli.config.generators.nginx_generator import NginxConfigGenerator
 from terrarium_cli.config.global_config import load_global_config
 
 logger = logging.getLogger(__name__)
@@ -22,7 +22,7 @@ AUTO_GENERATED_WARNING = """# ==================================================
 # Any manual changes will be overwritten on the next deployment.
 # 
 # To modify the configuration, edit the app-config.yml files in the apps/ directory
-# or update the templates in terrarium_cli/templates/
+# or update the templates in terrarium_cli/config/templates/
 # =============================================================================
 
 """
@@ -39,7 +39,7 @@ class ConfigGenerator:
     
     def __init__(self):
         """Initialize the configuration generator."""
-        self.templates_dir = Path("terrarium_cli/templates")
+        self.templates_dir = Path("terrarium_cli/config/templates")
         self.configs_dir = Path("configs")
         self.jinja_env = Environment(loader=FileSystemLoader(self.templates_dir))
         
@@ -338,7 +338,7 @@ class ConfigGenerator:
                     env_vars.append(f"{env.name}={env.value_from}")
         
         # Add database environment variables
-        from terrarium_cli.utils.database import get_database_environment_variables
+        from terrarium_cli.core.infrastructure.database import get_database_environment_variables
         for db_config in app.databases:
             if db_config.enabled:
                 # Generate mock credentials for Docker Compose
@@ -506,7 +506,7 @@ class ConfigGenerator:
         }
         
         # Load template
-        template_file = Path("terrarium_cli/templates/nginx.conf.template")
+        template_file = Path("terrarium_cli/config/templates/nginx.conf.template")
         if template_file.exists():
             with open(template_file, 'r') as f:
                 from jinja2 import Template
@@ -581,7 +581,7 @@ class ConfigGenerator:
                     })
         
         # Add database environment variables
-        from terrarium_cli.utils.database import get_database_environment_variables
+        from terrarium_cli.core.infrastructure.database import get_database_environment_variables
         for db_config in app.databases:
             if db_config.enabled:
                 # Generate mock credentials for K3s
@@ -786,7 +786,7 @@ class ConfigGenerator:
     
     def _generate_database_secret(self, config_dir: Path, app: AppConfig, db_config) -> None:
         """Generate database Secret manifest for credentials."""
-        from terrarium_cli.utils.database import DatabaseManager
+        from terrarium_cli.core.infrastructure.database import DatabaseManager
         
         # Generate database credentials
         db_manager = DatabaseManager()

@@ -10,9 +10,9 @@ from typing import Dict, Any
 
 from jinja2 import Environment, FileSystemLoader
 
-from terrarium_cli.commands.base import BaseCommand
+from terrarium_cli.cli.commands.base import BaseCommand
 from terrarium_cli.utils.colors import Colors
-from terrarium_cli.utils.dependencies import DependencyChecker
+from terrarium_cli.utils.system.dependencies import DependencyChecker
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +22,7 @@ class AddAppCommand(BaseCommand):
     
     def __init__(self, args):
         super().__init__(args)
-        self.templates_dir = Path(__file__).parent.parent / "templates" / "add_app"
+        self.templates_dir = Path(__file__).parent.parent.parent / "config" / "templates" / "add_app"
         self.jinja_env = Environment(
             loader=FileSystemLoader(str(self.templates_dir)),
             trim_blocks=True,

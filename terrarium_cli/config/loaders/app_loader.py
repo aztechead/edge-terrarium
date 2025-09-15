@@ -58,8 +58,20 @@ class ResourceConfig:
 @dataclass
 class HealthCheckConfig:
     """Health check configuration."""
-    path: str
-    port: int
+    # HTTP-based health check
+    path: Optional[str] = None
+    port: Optional[int] = None
+    
+    # Exec-based health check
+    exec: Optional[Dict[str, Any]] = None
+    
+    # TCP socket health check
+    tcp_socket: Optional[Dict[str, Any]] = None
+    
+    # HTTP GET health check (structured format)
+    http_get: Optional[Dict[str, Any]] = None
+    
+    # Common settings
     period_seconds: int = 30
     timeout_seconds: int = 3
     failure_threshold: int = 3
@@ -159,7 +171,7 @@ class AppLoader:
                 if app_config:
                     apps.append(app_config)
         
-        logger.info(f"Loaded {len(apps)} application configurations")
+        logger.debug(f"Loaded {len(apps)} application configurations")
         return apps
     
     def _load_app_config(self, app_dir: Path) -> Optional[AppConfig]:
@@ -179,7 +191,7 @@ class AppLoader:
             return None
         
         # Validate YAML before parsing
-        from terrarium_cli.utils.yaml_validator import YAMLValidator
+        from terrarium_cli.utils.validation.yaml_validator import YAMLValidator
         validator = YAMLValidator()
         is_valid, errors, warnings = validator.validate_app_config(config_file)
         
@@ -274,8 +286,20 @@ class AppLoader:
         health_checks_data = data.get("health_checks", {})
         for check_name, check_data in health_checks_data.items():
             health_check = HealthCheckConfig(
-                path=check_data.get("path", "/health"),
-                port=check_data.get("port", runtime_config.port),
+                # HTTP-based health check (legacy format)
+                path=check_data.get("path"),
+                port=check_data.get("port"),
+                
+                # Exec-based health check
+                exec=check_data.get("exec"),
+                
+                # TCP socket health check
+                tcp_socket=check_data.get("tcp_socket"),
+                
+                # HTTP GET health check (structured format)
+                http_get=check_data.get("http_get"),
+                
+                # Common settings
                 period_seconds=check_data.get("period_seconds", 30),
                 timeout_seconds=check_data.get("timeout_seconds", 3),
                 failure_threshold=check_data.get("failure_threshold", 3)

@@ -4,15 +4,14 @@
 *.out
 
 # Certificates and keys - NEVER commit these!
-certs/terrarium.key
-certs/terrarium.crt
-certs/terrarium.p12
-certs/terrarium-tls-secret.yaml
-certs/terrarium-tls-configmap.yaml
+certs/
+terrarium_cli/certs/
 *.key
 *.crt
 *.p12
 *.pem
+*-tls-secret.yaml
+*-tls-configmap.yaml
 
 # Docker volumes
 docker-data/
@@ -191,15 +190,42 @@ cython_debug/
 # be tracked in Git. They will be regenerated on every deployment.
 # =============================================================================
 
-# Docker Compose files
-configs/docker/docker-compose.*
+# Docker Compose files (all variations)
+configs/docker/docker-compose*.yml
 
-# Docker NGINX configuration
+# Docker NGINX configuration files
 configs/docker/nginx/
+configs/docker/nginx/*.conf
+configs/docker/nginx/*.template
 
-# K3s Kubernetes manifests
-configs/k3s/*.yaml
-configs/k3s/*.yml
+# K3s Kubernetes manifests (all generated files)
+configs/k3s/*-deployment.yaml
+configs/k3s/*-service.yaml
+configs/k3s/*-pvc.yaml
+configs/k3s/*-configmap.yaml
+configs/k3s/*-secret.yaml
+configs/k3s/ingress.yaml
+configs/k3s/nginx-ingress-controller.yaml
+configs/k3s/kustomization.yaml
+configs/k3s/namespace.yaml
 
 # Keep the configs directory structure but ignore all generated files
 # Note: .gitkeep files are tracked to maintain directory structure
+!configs/**/.gitkeep
+
+# =============================================================================
+# ADDITIONAL GENERATED FILES
+# =============================================================================
+
+# Any backup or temporary configuration files
+configs/**/*.bak
+configs/**/*.tmp
+configs/**/*.backup
+
+# Generated database configuration files (if any)
+configs/**/*database*.yaml
+configs/**/*database*.yml
+
+# Any other auto-generated manifests
+configs/**/*-generated.yaml
+configs/**/*-generated.yml

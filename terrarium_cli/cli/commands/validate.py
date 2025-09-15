@@ -4,8 +4,8 @@ Validate command for checking app-config.yml files.
 
 import argparse
 from pathlib import Path
-from terrarium_cli.commands.base import BaseCommand
-from terrarium_cli.utils.yaml_validator import validate_all_app_configs, print_validation_results
+from terrarium_cli.cli.commands.base import BaseCommand
+from terrarium_cli.utils.validation.yaml_validator import validate_all_app_configs, print_validation_results
 from terrarium_cli.utils.colors import Colors
 
 

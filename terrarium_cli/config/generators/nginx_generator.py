@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 from jinja2 import Environment, FileSystemLoader
 from typing import List
-from ..config.app_loader import AppLoader, AppConfig
+from terrarium_cli.config.loaders.app_loader import AppLoader, AppConfig
 
 
 class NginxConfigGenerator:
@@ -15,7 +15,7 @@ class NginxConfigGenerator:
     
     def __init__(self):
         self.app_loader = AppLoader()
-        self.template_dir = Path(__file__).parent.parent.parent / "apps" / "nginx"
+        self.template_dir = Path(__file__).parent.parent.parent.parent / "apps" / "nginx"
         self.output_dir = Path("configs") / "docker" / "nginx"
         
         # Create output directory if it doesn't exist

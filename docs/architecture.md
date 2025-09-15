@@ -336,4 +336,208 @@ sequenceDiagram
 - **Environment Variables**: Runtime configuration via environment variables
 - **Secrets Integration**: Secure secret injection from Vault
 
-This architecture provides a solid foundation for understanding modern microservices patterns, containerization, and orchestration technologies.
+## CLI Architecture (New Modular Design)
+
+The Edge-Terrarium CLI has been completely redesigned with a modern, modular architecture that provides better separation of concerns and maintainability.
+
+### CLI Architecture Overview
+
+```mermaid
+%%{init: {'themeVariables': {'darkMode': true}}}%%
+flowchart TD
+    subgraph "User Interface"
+        USER[User Commands<br/>uv run terrarium.py]
+    end
+    
+    subgraph "CLI Layer"
+        MAIN[main.py<br/>CLI Entry Point]
+        COMMANDS[commands/<br/>Command Implementations]
+        DEPLOY[deploy.py<br/>914 lines ↓29.4%]
+        BUILD[build.py]
+        TEST[test.py]
+        VAULT[vault.py]
+        OTHER[Other Commands...]
+    end
+    
+    subgraph "Core Layer"
+        CORE_DEPLOY[deployment/<br/>Common Helpers]
+        CORE_INFRA[infrastructure/<br/>Database & Vault]
+    end
+    
+    subgraph "Platform Layer"
+        DOCKER_MGR[docker/<br/>DockerDeploymentManager]
+        K3S_MGR[k3s/<br/>K3sDeploymentManager]
+    end
+    
+    subgraph "Config Layer"
+        LOADERS[loaders/<br/>Configuration Loading]
+        GENERATORS[generators/<br/>Config Generation]
+        TEMPLATES[templates/<br/>Jinja2 Templates]
+    end
+    
+    subgraph "Utils Layer"
+        SYSTEM[system/<br/>Shell & Dependencies]
+        VALIDATION[validation/<br/>YAML Validation]
+        COLORS[colors.py]
+        LOGGING[logging.py]
+    end
+    
+    USER --> MAIN
+    MAIN --> COMMANDS
+    COMMANDS --> DEPLOY
+    COMMANDS --> BUILD
+    COMMANDS --> TEST
+    COMMANDS --> VAULT
+    COMMANDS --> OTHER
+    
+    DEPLOY --> DOCKER_MGR
+    DEPLOY --> K3S_MGR
+    
+    DOCKER_MGR --> CORE_DEPLOY
+    K3S_MGR --> CORE_DEPLOY
+    
+    DOCKER_MGR --> CORE_INFRA
+    K3S_MGR --> CORE_INFRA
+    
+    COMMANDS --> LOADERS
+    COMMANDS --> GENERATORS
+    GENERATORS --> TEMPLATES
+    
+    COMMANDS --> SYSTEM
+    COMMANDS --> VALIDATION
+    COMMANDS --> COLORS
+    COMMANDS --> LOGGING
+    
+    classDef user fill:#fff3e0,stroke:#f57c00,stroke-width:2px,color:#000
+    classDef cli fill:#e3f2fd,stroke:#1976d2,stroke-width:2px,color:#000
+    classDef core fill:#e8f5e8,stroke:#388e3c,stroke-width:2px,color:#000
+    classDef platform fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#000
+    classDef config fill:#fff8e1,stroke:#fbc02d,stroke-width:2px,color:#000
+    classDef utils fill:#fce4ec,stroke:#c2185b,stroke-width:2px,color:#000
+    
+    class USER user
+    class MAIN,COMMANDS,DEPLOY,BUILD,TEST,VAULT,OTHER cli
+    class CORE_DEPLOY,CORE_INFRA core
+    class DOCKER_MGR,K3S_MGR platform
+    class LOADERS,GENERATORS,TEMPLATES config
+    class SYSTEM,VALIDATION,COLORS,LOGGING utils
+```
+
+### Layer Responsibilities
+
+#### 🎯 CLI Layer (`terrarium_cli/cli/`)
+**Purpose**: User interface and command handling
+- **Entry Point**: `main.py` - CLI argument parsing and command routing
+- **Commands**: Individual command implementations with clear responsibilities
+- **Optimization**: Main deploy.py reduced from 1,294 to 914 lines (29.4% reduction)
+
+#### 🧠 Core Layer (`terrarium_cli/core/`)
+**Purpose**: Core business logic and shared functionality
+- **Deployment**: Common deployment helpers used by all platforms
+- **Infrastructure**: Database, Vault, and infrastructure service utilities
+
+#### 🚀 Platform Layer (`terrarium_cli/platforms/`)
+**Purpose**: Platform-specific deployment implementations
+- **Docker Manager**: Complete Docker Compose orchestration
+- **K3s Manager**: Complete Kubernetes/K3s orchestration
+- **Isolation**: Platform-specific logic cleanly separated
+
+#### ⚙️ Config Layer (`terrarium_cli/config/`)
+**Purpose**: Configuration management and generation
+- **Loaders**: Application configuration parsing and loading
+- **Generators**: Dynamic configuration file generation
+- **Templates**: Jinja2 templates for all generated configurations
+
+#### 🔧 Utils Layer (`terrarium_cli/utils/`)
+**Purpose**: Shared utilities and helpers
+- **System**: Shell command execution and dependency checking
+- **Validation**: YAML configuration validation
+- **Common**: Colors, logging, and other shared utilities
+
+### Key Architectural Benefits
+
+#### **Separation of Concerns**
+Each layer has a single, well-defined responsibility:
+- CLI handles user interaction
+- Core provides business logic
+- Platform handles deployment specifics
+- Config manages configuration
+- Utils provides shared functionality
+
+#### **Platform Abstraction**
+Deployment logic is cleanly separated by platform:
+```python
+# Docker deployment
+docker_manager = DockerDeploymentManager()
+docker_manager.deploy(dependencies, cleanup_k3s)
+
+# K3s deployment  
+k3s_manager = K3sDeploymentManager()
+k3s_manager.deploy(dependencies, cleanup_docker, certificates, images)
+```
+
+#### **Modular Import Structure**
+Clear, logical import paths:
+```python
+# CLI commands
+from terrarium_cli.cli.commands.deploy import DeployCommand
+
+# Platform managers
+from terrarium_cli.platforms.docker.docker_manager import DockerDeploymentManager
+from terrarium_cli.platforms.k3s.k3s_manager import K3sDeploymentManager
+
+# Core functionality
+from terrarium_cli.core.deployment.common import CommonDeploymentHelpers
+
+# Configuration management
+from terrarium_cli.config.loaders.app_loader import AppLoader
+from terrarium_cli.config.generators.generator import ConfigGenerator
+
+# System utilities
+from terrarium_cli.utils.system.shell import run_command
+from terrarium_cli.utils.validation.yaml_validator import validate_all_app_configs
+```
+
+#### **Extensibility**
+The modular design makes it easy to:
+- Add new deployment platforms (e.g., `platforms/aws/`, `platforms/gcp/`)
+- Add new commands (e.g., `cli/commands/monitor.py`)
+- Add new configuration generators (e.g., `config/generators/helm_generator.py`)
+- Add new utilities (e.g., `utils/monitoring/`)
+
+#### **Maintainability**
+- **29.4% code reduction** in main deployment file
+- **Clear ownership**: Each module has a specific purpose
+- **Reduced coupling**: Modules interact through well-defined interfaces
+- **Easy testing**: Each layer can be tested independently
+
+### Deployment Flow
+
+```mermaid
+%%{init: {'themeVariables': {'darkMode': true}}}%%
+sequenceDiagram
+    participant User
+    participant CLI as CLI Layer
+    participant Platform as Platform Layer
+    participant Core as Core Layer
+    participant Config as Config Layer
+    participant Utils as Utils Layer
+    
+    User->>CLI: uv run terrarium.py deploy docker
+    CLI->>Utils: Validate dependencies
+    CLI->>Config: Load app configurations
+    Config->>Config: Generate Docker Compose files
+    CLI->>Platform: DockerDeploymentManager.deploy()
+    Platform->>Core: Generate certificates
+    Platform->>Utils: Execute shell commands
+    Platform->>Core: Build and start services
+    Platform->>Core: Verify deployment
+    Platform->>CLI: Return success/failure
+    CLI->>User: Display results
+```
+
+This modular CLI architecture provides a solid foundation for managing complex deployment orchestration while maintaining clean separation of concerns and enabling easy extension and maintenance.
+
+## Summary
+
+This architecture provides a solid foundation for understanding modern microservices patterns, containerization, orchestration technologies, and clean software architecture principles.

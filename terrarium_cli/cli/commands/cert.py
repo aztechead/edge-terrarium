@@ -9,8 +9,8 @@ import tempfile
 from pathlib import Path
 from typing import Optional, Tuple
 
-from terrarium_cli.commands.base import BaseCommand
-from terrarium_cli.utils.shell import run_command, check_command_exists, ShellError
+from terrarium_cli.cli.commands.base import BaseCommand
+from terrarium_cli.utils.system.shell import run_command, check_command_exists, ShellError
 from terrarium_cli.utils.colors import Colors
 
 logger = logging.getLogger(__name__)
@@ -21,8 +21,8 @@ class CertCommand(BaseCommand):
     
     def __init__(self, args):
         super().__init__(args)
-        self.project_root = Path(__file__).parent.parent.parent
-        self.certs_dir = self.project_root / "certs"
+        self.project_root = Path(__file__).parent.parent.parent.parent
+        self.certs_dir = self.project_root / "terrarium_cli" / "certs"
         
         # Certificate configuration
         self.cert_name = "edge-terrarium"

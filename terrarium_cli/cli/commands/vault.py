@@ -8,8 +8,8 @@ import requests
 import json
 from typing import Dict, Any
 
-from terrarium_cli.commands.base import BaseCommand
-from terrarium_cli.utils.shell import run_command, ShellError
+from terrarium_cli.cli.commands.base import BaseCommand
+from terrarium_cli.utils.system.shell import run_command, ShellError
 from terrarium_cli.utils.colors import Colors
 
 logger = logging.getLogger(__name__)
@@ -301,8 +301,8 @@ class VaultCommand(BaseCommand):
         import base64
         from pathlib import Path
         
-        cert_file = Path("certs/edge-terrarium.crt")
-        key_file = Path("certs/edge-terrarium.key")
+        cert_file = Path("terrarium_cli/certs/edge-terrarium.crt")
+        key_file = Path("terrarium_cli/certs/edge-terrarium.key")
         
         if cert_file.exists() and key_file.exists():
             try:
@@ -394,7 +394,7 @@ class VaultCommand(BaseCommand):
     
     def process_database_secrets(self, apps: list) -> None:
         """Process and store database secrets for all apps."""
-        from terrarium_cli.utils.database import DatabaseManager
+        from terrarium_cli.core.infrastructure.database import DatabaseManager
         
         print(f"{Colors.info('Processing database secrets...')}")
         

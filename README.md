@@ -2,6 +2,21 @@
 
 A modern, dynamic microservices platform that demonstrates Docker containerization and K3s orchestration through a real-world application. Features a unified Python CLI, dynamic configuration generation, and automatic service discovery. Start with simple Docker containers and progress to full K3s deployment with NGINX ingress routing, secrets management, and monitoring.
 
+## 🚀 Recent Improvements
+
+### **Modular CLI Architecture (v2.0)**
+- **29.4% code reduction** in main deployment file (1,294 → 914 lines)
+- **Clean layered architecture**: CLI → Core → Platforms → Config → Utils
+- **Platform separation**: Docker and K3s logic cleanly isolated
+- **Intelligent error handling**: Expected failures suppressed with user-friendly messages
+- **Enhanced console output**: Technical errors replaced with clear, informative messages
+
+### **Key Benefits**
+- ✅ **Cleaner deployments**: No more confusing error messages for expected behaviors
+- ✅ **Better maintainability**: Modular structure makes code easier to understand and extend
+- ✅ **Improved developer experience**: Clear separation of concerns and logical import paths
+- ✅ **Future-ready**: Easy to add new platforms (AWS, GCP) and commands
+
 ## Quick Navigation
 
 ### Getting Started

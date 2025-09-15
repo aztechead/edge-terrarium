@@ -14,7 +14,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent / "terrarium_cli"))
 
 # Import and run the main CLI
-from terrarium_cli.main import main
+from terrarium_cli.cli.main import main
 
 if __name__ == "__main__":
     sys.exit(main())

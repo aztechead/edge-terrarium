@@ -7,7 +7,7 @@ import string
 import logging
 import requests
 from typing import Dict, Any, List
-from terrarium_cli.config.app_loader import AppConfig, DatabaseConfig
+from terrarium_cli.config.loaders.app_loader import AppConfig, DatabaseConfig
 
 logger = logging.getLogger(__name__)
 

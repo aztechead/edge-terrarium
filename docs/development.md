@@ -26,18 +26,63 @@ uv run python terrarium.py check-deps
 
 ## Project Structure
 
+### New Modular CLI Architecture
+
+The CLI has been completely redesigned with a clean, modular architecture:
+
+```
+terrarium_cli/
+├── cli/                          # 🎯 CLI interface layer
+│   ├── commands/                 # All CLI command implementations  
+│   └── main.py                   # CLI entry point
+├── core/                         # 🧠 Core business logic
+│   ├── deployment/               # Common deployment helpers
+│   └── infrastructure/           # Infrastructure services (database, vault)
+├── platforms/                    # 🚀 Platform-specific implementations
+│   ├── docker/                   # Docker deployment manager
+│   └── k3s/                      # K3s deployment manager  
+├── config/                       # ⚙️ Configuration management
+│   ├── loaders/                  # Configuration loaders
+│   ├── generators/               # Configuration generators  
+│   └── templates/                # Jinja2 templates (moved from root)
+└── utils/                        # 🔧 Shared utilities
+    ├── system/                   # System utilities (shell, dependencies)
+    └── validation/               # Validation utilities
+```
+
 ### Key Directories
 - `/apps/` - Application services
-- `/terrarium_cli/` - CLI tool source code
+- `/terrarium_cli/` - Modular CLI tool source code (new architecture)
 - `/configs/` - Generated configuration files
 - `/docs/` - Documentation
-- `/templates/` - Jinja2 templates
 
 ### Important Files
 - `terrarium.py` - Main CLI entry point
-- `requirements.txt` - Python dependencies
+- `pyproject.toml` - Python project configuration (replaces requirements.txt)
+- `uv.lock` - uv lock file for reproducible dependencies
 - `apps/*/app-config.yml` - Service configurations
 - `configs/vault-secrets.yml` - Vault secrets
+
+### CLI Layer Structure
+
+#### **Commands** (`terrarium_cli/cli/commands/`)
+Each command is a self-contained module:
+- `deploy.py` - Main deployment orchestrator (reduced from 1,294 to 914 lines)
+- `build.py` - Image building
+- `test.py` - Testing functionality
+- `vault.py` - Vault management
+- `cert.py` - Certificate management
+- `add_app.py` - Application scaffolding
+
+#### **Platform Managers** (`terrarium_cli/platforms/`)
+Platform-specific deployment logic:
+- `docker/docker_manager.py` - Complete Docker Compose orchestration
+- `k3s/k3s_manager.py` - Complete K3s/Kubernetes orchestration
+
+#### **Configuration System** (`terrarium_cli/config/`)
+- `loaders/app_loader.py` - Loads and parses app-config.yml files
+- `generators/generator.py` - Generates Docker Compose and K3s manifests
+- `templates/` - All Jinja2 templates for configuration generation
 
 ## Adding New Services
 
@@ -211,6 +256,188 @@ uv run python terrarium.py test --fail-fast
 - Update documentation as needed
 - Verify both Docker and K3s deployments
 - Check for security issues
+
+## Extending the CLI Architecture
+
+The new modular architecture makes it easy to extend the CLI with new functionality:
+
+### Adding a New Command
+
+1. **Create the command file** in `terrarium_cli/cli/commands/`:
+```python
+# terrarium_cli/cli/commands/monitor.py
+from terrarium_cli.cli.commands.base import BaseCommand
+from terrarium_cli.utils.colors import Colors
+
+class MonitorCommand(BaseCommand):
+    def run(self, args):
+        """Monitor deployment health."""
+        print(f"{Colors.info('Monitoring deployment...')}")
+        # Implementation here
+```
+
+2. **Register the command** in `terrarium_cli/cli/main.py`:
+```python
+from terrarium_cli.cli.commands.monitor import MonitorCommand
+
+# In create_parser()
+monitor_parser = subparsers.add_parser('monitor', help='Monitor deployment health')
+monitor_parser.set_defaults(command_class=MonitorCommand)
+```
+
+### Adding a New Platform
+
+1. **Create platform manager** in `terrarium_cli/platforms/aws/`:
+```python
+# terrarium_cli/platforms/aws/aws_manager.py
+from terrarium_cli.core.deployment.common import CommonDeploymentHelpers
+
+class AwsDeploymentManager(CommonDeploymentHelpers):
+    def deploy(self, dependencies_check, cleanup_other, certificates, images):
+        """Deploy to AWS ECS/EKS."""
+        # AWS-specific deployment logic
+```
+
+2. **Update deploy command** to use the new platform:
+```python
+# In terrarium_cli/cli/commands/deploy.py
+from terrarium_cli.platforms.aws.aws_manager import AwsDeploymentManager
+
+def _deploy_aws(self):
+    """Deploy to AWS."""
+    return self.aws_manager.deploy(
+        self._check_dependencies,
+        self._cleanup_other_platforms,
+        self._generate_certificates,
+        self._build_and_push_images
+    )
+```
+
+### Adding a New Configuration Generator
+
+1. **Create generator** in `terrarium_cli/config/generators/`:
+```python
+# terrarium_cli/config/generators/helm_generator.py
+from terrarium_cli.config.loaders.app_loader import AppConfig
+from jinja2 import Environment, FileSystemLoader
+
+class HelmConfigGenerator:
+    def generate_helm_chart(self, apps):
+        """Generate Helm charts from app configurations."""
+        # Helm chart generation logic
+```
+
+2. **Add templates** in `terrarium_cli/config/templates/`:
+```yaml
+# terrarium_cli/config/templates/helm-chart.yaml.j2
+apiVersion: v2
+name: {{ app.name }}
+# Helm chart template
+```
+
+### Adding New Utilities
+
+1. **System utilities** in `terrarium_cli/utils/system/`:
+```python
+# terrarium_cli/utils/system/network.py
+def check_port_availability(port: int) -> bool:
+    """Check if a port is available."""
+    # Port checking logic
+```
+
+2. **Validation utilities** in `terrarium_cli/utils/validation/`:
+```python
+# terrarium_cli/utils/validation/security_validator.py
+def validate_security_config(config: dict) -> bool:
+    """Validate security configuration."""
+    # Security validation logic
+```
+
+### Best Practices for Extensions
+
+#### **Follow Layer Responsibilities**
+- **CLI Layer**: Only handle user interaction and command routing
+- **Core Layer**: Implement shared business logic
+- **Platform Layer**: Keep platform-specific logic isolated
+- **Config Layer**: Focus on configuration loading and generation
+- **Utils Layer**: Provide reusable, stateless utilities
+
+#### **Import Structure**
+Use the logical import paths:
+```python
+# Good - clear layer separation
+from terrarium_cli.cli.commands.base import BaseCommand
+from terrarium_cli.platforms.docker.docker_manager import DockerDeploymentManager
+from terrarium_cli.core.deployment.common import CommonDeploymentHelpers
+from terrarium_cli.utils.system.shell import run_command
+
+# Avoid - crossing layer boundaries inappropriately
+from terrarium_cli.platforms.docker.docker_manager import some_utility_function
+```
+
+#### **Error Handling**
+Implement consistent error handling across layers with intelligent error suppression:
+```python
+from terrarium_cli.utils.system.shell import ShellError
+from terrarium_cli.utils.colors import Colors
+import logging
+
+# Standard error handling
+try:
+    result = self.platform_manager.deploy()
+    print(f"{Colors.success('Deployment completed successfully')}")
+except ShellError as e:
+    print(f"{Colors.error(f'Deployment failed: {e}')}")
+    return 1
+
+# For expected failures, suppress error logs
+def suppress_expected_shell_errors():
+    """Context manager to suppress shell error logs for expected failures."""
+    shell_logger = logging.getLogger('terrarium_cli.utils.system.shell')
+    original_level = shell_logger.level
+    shell_logger.setLevel(logging.CRITICAL)
+    
+    try:
+        yield
+    finally:
+        shell_logger.setLevel(original_level)
+
+# Usage example
+with suppress_expected_shell_errors():
+    try:
+        run_command("kubectl exec pod -- which curl", check=True)
+        # Curl is available, proceed with health check
+    except ShellError:
+        # Curl not available, use alternative method
+        print(f"{Colors.warning('Health check failed (curl not available)')}")
+```
+
+#### **Testing New Components**
+Each layer should be testable independently:
+```python
+# Test platform managers
+def test_docker_deployment():
+    manager = DockerDeploymentManager()
+    result = manager.check_docker_prerequisites()
+    assert result is True
+
+# Test configuration generators
+def test_config_generation():
+    generator = ConfigGenerator()
+    apps = load_test_apps()
+    configs = generator.generate_all_configs(apps)
+    assert configs is not None
+```
+
+### Migration Guide
+
+When extending existing functionality:
+
+1. **Identify the appropriate layer** for your changes
+2. **Follow existing patterns** in that layer
+3. **Update imports** to use the new modular structure
+4. **Test both Docker and K3s** deployments
+5. **Update documentation** to reflect changes
 
 ## Documentation
 

@@ -7,7 +7,7 @@ import platform
 import subprocess
 from typing import Dict, List, Tuple, Optional
 from terrarium_cli.utils.colors import Colors
-from terrarium_cli.utils.shell import check_command_exists, run_command
+from terrarium_cli.utils.system.shell import check_command_exists, run_command
 
 
 class DependencyError(Exception):

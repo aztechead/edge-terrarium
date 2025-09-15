@@ -64,7 +64,7 @@ services:
     {% else %}
     # Build image from source using Dockerfile in app directory
     build:
-      context: ./apps/{{ app.name }}              # Build context (app directory)
+      context: ../../apps/{{ app.name }}              # Build context (app directory)
       dockerfile: {{ app.docker.dockerfile }}     # Dockerfile to use for building
     {% endif %}
 
@@ -132,8 +132,8 @@ services:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./nginx/server.conf:/etc/nginx/conf.d/server.conf:ro
       # SSL certificates for HTTPS (read-only)
-      - ../../certs/edge-terrarium.crt:/etc/nginx/ssl/tls.crt:ro
-      - ../../certs/edge-terrarium.key:/etc/nginx/ssl/tls.key:ro
+      - ../../terrarium_cli/certs/edge-terrarium.crt:/etc/nginx/ssl/tls.crt:ro
+      - ../../terrarium_cli/certs/edge-terrarium.key:/etc/nginx/ssl/tls.key:ro
       {% endif %}
     {% endif %}
 

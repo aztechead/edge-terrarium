@@ -11,10 +11,10 @@ import yaml
 import os
 from typing import List, Dict, Any
 
-from terrarium_cli.commands.base import BaseCommand
-from terrarium_cli.utils.shell import run_command, ShellError
+from terrarium_cli.cli.commands.base import BaseCommand
+from terrarium_cli.utils.system.shell import run_command, ShellError
 from terrarium_cli.utils.colors import Colors
-from terrarium_cli.utils.dependencies import DependencyChecker
+from terrarium_cli.utils.system.dependencies import DependencyChecker
 
 # Suppress SSL warnings for self-signed certificates
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -27,7 +27,7 @@ class TestCommand(BaseCommand):
     
     def _discover_app_test_configs(self) -> List[Dict[str, Any]]:
         """Discover and load all app-test-config.yml files from apps directory."""
-        apps_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'apps')
+        apps_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), 'apps')
         app_configs = []
         
         if not os.path.exists(apps_dir):

@@ -7,11 +7,11 @@ import logging
 import time
 from pathlib import Path
 
-from terrarium_cli.commands.base import BaseCommand
-from terrarium_cli.utils.shell import run_command, ShellError
+from terrarium_cli.cli.commands.base import BaseCommand
+from terrarium_cli.utils.system.shell import run_command, ShellError
 from terrarium_cli.utils.colors import Colors
-from terrarium_cli.config.app_loader import AppLoader
-from terrarium_cli.utils.dependencies import DependencyChecker
+from terrarium_cli.config.loaders.app_loader import AppLoader
+from terrarium_cli.utils.system.dependencies import DependencyChecker
 
 logger = logging.getLogger(__name__)
 

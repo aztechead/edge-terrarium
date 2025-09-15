@@ -2,6 +2,41 @@
 
 This guide helps you diagnose and resolve common issues with Edge-Terrarium.
 
+## Understanding Console Output
+
+### Expected vs. Actual Errors
+
+The Edge-Terrarium CLI uses intelligent error handling to suppress expected failures and show clean, informative messages:
+
+#### **Clean Output Messages (Normal Behavior)**
+These messages indicate expected behavior and are **not errors**:
+
+```
+vault health check failed (curl not available or endpoint not ready)
+PVCs are still binding (this is normal for WaitForFirstConsumer mode)
+No port forwarding processes found
+```
+
+#### **What These Mean**:
+- **Vault curl check**: Some containers don't have `curl` installed, which is normal. The system falls back to other health check methods.
+- **PVC binding delays**: K3s uses `WaitForFirstConsumer` mode, so PVCs only bind when pods actually need them.
+- **Port forwarding**: The system cleans up old port forwarding processes before setting up new ones.
+
+#### **Actual Error Indicators**
+Real errors that need attention will be clearly marked with:
+- ❌ **Red error messages** with specific failure reasons
+- **Non-zero exit codes** from the CLI
+- **Stack traces** for unexpected failures
+- **Deployment verification failures**
+
+### Console Output Improvements
+
+The CLI has been enhanced with:
+- **Intelligent error suppression** for expected failures
+- **User-friendly messages** instead of technical error logs
+- **Clear success indicators** with ✓ checkmarks
+- **Informative warnings** that explain expected behaviors
+
 ## Common Issues
 
 ### Deployment Issues

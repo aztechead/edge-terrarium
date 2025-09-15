@@ -1,6 +1,6 @@
 # Project Structure
 
-This document explains the organization and structure of the Edge-Terrarium project.
+This document explains the organization and structure of the Edge-Terrarium project, including the recent architectural improvements that provide better separation of concerns and maintainability.
 
 ## Directory Overview
 
@@ -22,14 +22,16 @@ flowchart TD
         CONFIG[configs/]
         DOCKER[configs/docker/]
         K3S[configs/k3s/]
-        NGINX[configs/docker/nginx/]
+        NGINX_CONF[configs/docker/nginx/]
     end
     
-    subgraph "CLI and Automation"
+    subgraph "CLI Architecture (New)"
         CLI[terrarium_cli/]
-        PYTHON[terrarium.py]
-        COMMANDS[commands/]
-        TEMPLATES[templates/]
+        CLI_LAYER[cli/]
+        CORE_LAYER[core/]
+        PLATFORMS_LAYER[platforms/]
+        CONFIG_LAYER[config/]
+        UTILS_LAYER[utils/]
     end
     
     subgraph "Security"
@@ -50,10 +52,13 @@ flowchart TD
     
     CONFIG --> DOCKER
     CONFIG --> K3S
-    DOCKER --> NGINX
+    DOCKER --> NGINX_CONF
     
-    CLI --> COMMANDS
-    CLI --> TEMPLATES
+    CLI --> CLI_LAYER
+    CLI --> CORE_LAYER
+    CLI --> PLATFORMS_LAYER
+    CLI --> CONFIG_LAYER
+    CLI --> UTILS_LAYER
     
     classDef app fill:#e8f5e8,stroke:#388e3c,stroke-width:2px,color:#000
     classDef config fill:#e3f2fd,stroke:#1976d2,stroke-width:2px,color:#000
@@ -62,10 +67,81 @@ flowchart TD
     classDef root fill:#fce4ec,stroke:#c2185b,stroke-width:3px,color:#000
     
     class CC,SS,FS,LT,V,N app
-    class CONFIG,DOCKER,K3S,NGINX config
-    class CLI,COMMANDS,TEMPLATES,PYTHON cli
+    class CONFIG,DOCKER,K3S,NGINX_CONF config
+    class CLI,CLI_LAYER,CORE_LAYER,PLATFORMS_LAYER,CONFIG_LAYER,UTILS_LAYER cli
     class CERTS,VAULT_SECRETS security
     class ROOT root
+```
+
+## New CLI Architecture (Major Improvement)
+
+The CLI has been completely reorganized into a clean, modular architecture that provides better separation of concerns and maintainability:
+
+### 🎯 CLI Layer (`terrarium_cli/cli/`)
+**Purpose**: User interface and command handling
+```
+cli/
+├── commands/          # All CLI command implementations
+│   ├── base.py       # Base command class
+│   ├── deploy.py     # Main deployment orchestrator (914 lines, reduced from 1,294)
+│   ├── build.py      # Build command
+│   ├── test.py       # Test command
+│   ├── add_app.py    # Add application command
+│   ├── vault.py      # Vault management command
+│   ├── cert.py       # Certificate management command
+│   ├── check_deps.py # Dependency checking command
+│   └── validate.py   # Configuration validation command
+└── main.py           # CLI entry point
+```
+
+### 🧠 Core Layer (`terrarium_cli/core/`)
+**Purpose**: Core business logic and shared functionality
+```
+core/
+├── deployment/       # Common deployment helpers
+│   └── common.py    # Shared deployment functionality
+└── infrastructure/  # Infrastructure services
+    └── database.py  # Database and Vault integration utilities
+```
+
+### 🚀 Platforms Layer (`terrarium_cli/platforms/`)
+**Purpose**: Platform-specific deployment implementations
+```
+platforms/
+├── docker/          # Docker-specific deployment logic
+│   └── docker_manager.py  # Complete Docker deployment orchestration
+└── k3s/             # K3s-specific deployment logic
+    └── k3s_manager.py     # Complete K3s deployment orchestration
+```
+
+### ⚙️ Config Layer (`terrarium_cli/config/`)
+**Purpose**: Configuration management and generation
+```
+config/
+├── loaders/         # Configuration loaders
+│   └── app_loader.py  # Application configuration loader
+├── generators/      # Configuration generators
+│   ├── generator.py     # Main configuration generator
+│   └── nginx_generator.py  # NGINX-specific configuration generator
+├── templates/       # Jinja2 templates (moved from root)
+│   ├── add_app/     # Application scaffolding templates
+│   ├── docker-compose.yml.j2
+│   ├── k3s-*.yaml.j2  # Kubernetes manifest templates
+│   └── ...
+└── global_config.py # Global configuration management
+```
+
+### 🔧 Utils Layer (`terrarium_cli/utils/`)
+**Purpose**: Shared utilities and helpers
+```
+utils/
+├── system/          # System-level utilities
+│   ├── shell.py     # Shell command execution
+│   └── dependencies.py  # System dependency checking
+├── validation/      # Validation utilities
+│   └── yaml_validator.py  # YAML configuration validation
+├── colors.py        # Terminal color output
+└── logging.py       # Logging configuration
 ```
 
 ## Detailed Directory Structure
@@ -158,6 +234,7 @@ edge-terrarium/
 │   │   ├── ingress.yaml       # Ingress configuration
 │   │   ├── kustomization.yaml # Kustomize configuration
 │   │   ├── nginx-configmap.yaml # NGINX ConfigMap
+│   │   ├── nginx-ingress-controller.yaml # NGINX Ingress Controller (local template)
 │   │   ├── vault-deployment.yaml # Vault deployment
 │   │   ├── vault-service.yaml # Vault service
 │   │   ├── vault-pvc.yaml     # Vault persistent volume claim
@@ -171,44 +248,75 @@ edge-terrarium/
 │   │   ├── logthon-deployment.yaml # Logthon deployment
 │   │   └── logthon-service.yaml # Logthon service
 │   └── vault-secrets.yml      # Vault secrets configuration
-├── terrarium_cli/             # CLI tool source code
+├── terrarium_cli/             # CLI tool source code (NEW ARCHITECTURE)
 │   ├── __init__.py
-│   ├── main.py                # CLI entry point
-│   ├── commands/              # Command implementations
+│   ├── cli/                   # 🎯 CLI interface layer
 │   │   ├── __init__.py
-│   │   ├── base.py            # Base command class
-│   │   ├── build.py           # Build command
-│   │   ├── check_deps.py      # Dependency check command
-│   │   ├── deploy.py          # Deploy command
-│   │   ├── test.py            # Test command
-│   │   ├── vault.py           # Vault command
-│   │   └── add_app.py         # Add app command
-│   ├── config/                # Configuration management
+│   │   ├── main.py            # CLI entry point
+│   │   └── commands/          # Command implementations
+│   │       ├── __init__.py
+│   │       ├── base.py        # Base command class
+│   │       ├── deploy.py      # Deploy command (914 lines, optimized)
+│   │       ├── build.py       # Build command
+│   │       ├── test.py        # Test command
+│   │       ├── add_app.py     # Add app command
+│   │       ├── vault.py       # Vault command
+│   │       ├── cert.py        # Certificate command
+│   │       ├── check_deps.py  # Dependency check command
+│   │       └── validate.py    # Validation command
+│   ├── core/                  # 🧠 Core business logic
 │   │   ├── __init__.py
-│   │   ├── app_loader.py      # Application configuration loader
-│   │   ├── generator.py       # Configuration generator
-│   │   ├── global_config.py   # Global configuration
-│   │   └── nginx_generator.py # NGINX configuration generator
-│   ├── templates/             # Jinja2 templates
-│   │   ├── add_app/           # Add app templates
-│   │   │   ├── app-config.yml.j2
-│   │   │   ├── Dockerfile-python.j2
-│   │   │   ├── Dockerfile.j2
-│   │   │   ├── README-python.md.j2
-│   │   │   ├── README.md.j2
-│   │   │   └── templates.yml
-│   │   ├── docker-compose.yml.j2
-│   │   ├── k3s-configmap-nginx.yaml.j2
-│   │   ├── k3s-deployment.yaml.j2
-│   │   ├── k3s-ingress.yaml.j2
-│   │   ├── k3s-pvc.yaml.j2
-│   │   └── k3s-service.yaml.j2
-│   └── utils/                 # Utility modules
+│   │   ├── deployment/        # Common deployment helpers
+│   │   │   ├── __init__.py
+│   │   │   └── common.py      # Shared deployment functionality
+│   │   └── infrastructure/    # Infrastructure services
+│   │       ├── __init__.py
+│   │       └── database.py    # Database/Vault integration utilities
+│   ├── platforms/             # 🚀 Platform-specific implementations
+│   │   ├── __init__.py
+│   │   ├── docker/            # Docker deployment logic
+│   │   │   ├── __init__.py
+│   │   │   └── docker_manager.py # Complete Docker orchestration
+│   │   └── k3s/               # K3s deployment logic
+│   │       ├── __init__.py
+│   │       └── k3s_manager.py # Complete K3s orchestration
+│   ├── config/                # ⚙️ Configuration management
+│   │   ├── __init__.py
+│   │   ├── loaders/           # Configuration loaders
+│   │   │   ├── __init__.py
+│   │   │   └── app_loader.py  # Application configuration loader
+│   │   ├── generators/        # Configuration generators
+│   │   │   ├── __init__.py
+│   │   │   ├── generator.py   # Main configuration generator
+│   │   │   └── nginx_generator.py # NGINX configuration generator
+│   │   ├── templates/         # Jinja2 templates
+│   │   │   ├── __init__.py
+│   │   │   ├── add_app/       # Add app templates
+│   │   │   │   ├── app-config.yml.j2
+│   │   │   │   ├── Dockerfile-python.j2
+│   │   │   │   ├── Dockerfile.j2
+│   │   │   │   ├── README-python.md.j2
+│   │   │   │   ├── README.md.j2
+│   │   │   │   └── templates.yml
+│   │   │   ├── docker-compose.yml.j2
+│   │   │   ├── k3s-configmap-nginx.yaml.j2
+│   │   │   ├── k3s-deployment.yaml.j2
+│   │   │   ├── k3s-ingress.yaml.j2
+│   │   │   ├── k3s-nginx-ingress-controller.yaml.j2
+│   │   │   ├── k3s-pvc.yaml.j2
+│   │   │   └── k3s-service.yaml.j2
+│   │   └── global_config.py   # Global configuration
+│   └── utils/                 # 🔧 Shared utilities
 │       ├── __init__.py
+│       ├── system/            # System utilities
+│       │   ├── __init__.py
+│       │   ├── shell.py       # Shell command execution
+│       │   └── dependencies.py # System dependency checking
+│       ├── validation/        # Validation utilities
+│       │   ├── __init__.py
+│       │   └── yaml_validator.py # YAML validation
 │       ├── colors.py          # Color output utilities
-│       ├── dependencies.py    # Dependency checking
-│       ├── logging.py         # Logging utilities
-│       └── shell.py           # Shell command utilities
+│       └── logging.py         # Logging utilities
 ├── docs/                      # Documentation directory
 │   ├── getting-started.md     # Getting started guide
 │   ├── learning-path.md       # Learning path guide
@@ -221,10 +329,48 @@ edge-terrarium/
 │   └── development.md         # Development guide
 ├── certs/                     # TLS certificates directory
 ├── terrarium.py               # Main CLI entry point
-├── requirements.txt           # Python dependencies
+├── pyproject.toml             # Python project configuration
+├── uv.lock                    # uv lock file
 ├── README.md                  # Main project documentation
 └── LICENSE                    # License file
 ```
+
+## Key Architectural Improvements
+
+### 1. **Modular CLI Architecture**
+The CLI has been completely reorganized from a monolithic structure into clean, purpose-driven layers:
+
+- **29.4% file size reduction**: Main deploy.py reduced from 1,294 to 914 lines
+- **Clear separation of concerns**: Each layer has a specific responsibility
+- **Platform abstraction**: Docker and K3s logic cleanly separated
+- **Improved maintainability**: Easier to modify and extend
+
+### 2. **Import Path Optimization**
+All import paths have been updated to reflect the logical structure:
+
+```python
+# Old (confusing)
+from terrarium_cli.commands.deploy import DeployCommand
+from terrarium_cli.utils.shell import run_command
+from terrarium_cli.config.app_loader import AppLoader
+
+# New (clear and logical)
+from terrarium_cli.cli.commands.deploy import DeployCommand
+from terrarium_cli.utils.system.shell import run_command
+from terrarium_cli.config.loaders.app_loader import AppLoader
+```
+
+### 3. **Platform-Specific Managers**
+Deployment logic is now cleanly separated:
+
+- **DockerDeploymentManager**: Handles all Docker Compose operations
+- **K3sDeploymentManager**: Handles all K3s/Kubernetes operations
+- **CommonDeploymentHelpers**: Shared functionality between platforms
+
+### 4. **Template Organization**
+All Jinja2 templates moved from root to logical location:
+- `terrarium_cli/templates/` → `terrarium_cli/config/templates/`
+- Better organization alongside generators that use them
 
 ## Key Directories Explained
 
@@ -249,12 +395,43 @@ Contains all generated configuration files:
 - **k3s/**: Kubernetes YAML manifests
 - **vault-secrets.yml**: Vault secrets configuration
 
-### `/terrarium_cli/` - CLI Tool
-The Python CLI tool that manages the platform:
-- **commands/**: Individual command implementations
-- **config/**: Configuration management and generation
-- **templates/**: Jinja2 templates for configuration generation
-- **utils/**: Utility functions and helpers
+### `/terrarium_cli/` - Modular CLI Tool
+The completely reorganized Python CLI tool:
+
+#### **CLI Layer** (`/cli/`)
+- **Purpose**: User interface and command handling
+- **Contains**: Command implementations and CLI entry point
+- **Key File**: `deploy.py` - Main deployment orchestrator (29.4% smaller)
+
+#### **Core Layer** (`/core/`)
+- **Purpose**: Core business logic and shared functionality
+- **Contains**: Common deployment helpers and infrastructure services
+- **Key Files**: 
+  - `deployment/common.py` - Shared deployment functionality
+  - `infrastructure/database.py` - Database and Vault utilities
+
+#### **Platforms Layer** (`/platforms/`)
+- **Purpose**: Platform-specific deployment implementations
+- **Contains**: Docker and K3s managers with complete orchestration logic
+- **Key Files**:
+  - `docker/docker_manager.py` - Complete Docker deployment orchestration
+  - `k3s/k3s_manager.py` - Complete K3s deployment orchestration
+
+#### **Config Layer** (`/config/`)
+- **Purpose**: Configuration management and generation
+- **Contains**: Loaders, generators, and templates
+- **Key Files**:
+  - `loaders/app_loader.py` - Application configuration loading
+  - `generators/generator.py` - Main configuration generation
+  - `templates/` - All Jinja2 templates (moved from root)
+
+#### **Utils Layer** (`/utils/`)
+- **Purpose**: Shared utilities and helpers
+- **Contains**: System utilities and validation tools
+- **Key Files**:
+  - `system/shell.py` - Shell command execution
+  - `system/dependencies.py` - System dependency checking
+  - `validation/yaml_validator.py` - YAML validation
 
 ### `/docs/` - Documentation
 Comprehensive documentation split by topic:
@@ -297,8 +474,36 @@ These files include warning comments indicating they are auto-generated.
 
 1. **Modify Application Code**: Edit files in `/apps/[service-name]/`
 2. **Update Configuration**: Modify `app-config.yml` files
-3. **Regenerate Configs**: Run `python terrarium.py deploy [environment]`
-4. **Test Changes**: Run `python terrarium.py test`
+3. **Regenerate Configs**: Run `uv run terrarium.py deploy [environment]`
+4. **Test Changes**: Run `uv run terrarium.py test`
 5. **Deploy**: Configuration files are automatically regenerated
 
-This structure provides a clear separation of concerns and makes the project easy to navigate and maintain.
+## Benefits of the New Structure
+
+### 🎯 **Clear Purpose**
+Each directory has a single, well-defined purpose that's immediately obvious.
+
+### 🧠 **Logical Grouping**
+Related functionality is grouped together, making it easy to find and modify components.
+
+### 🚀 **Platform Separation**
+Docker and K3s deployment logic are cleanly separated, making it easy to add new platforms.
+
+### ⚙️ **Config Organization**
+Configuration loaders, generators, and templates are properly organized together.
+
+### 🔧 **Utility Structure**
+System utilities and validation tools are clearly separated and easy to locate.
+
+### 📈 **Future-Ready**
+The modular structure supports easy addition of new platforms, commands, and features.
+
+### 🔧 **Maintainability**
+The 29.4% reduction in the main deploy file and clear separation of concerns makes the codebase much easier to maintain and extend. Additional improvements include:
+
+- **Intelligent error handling**: Expected failures are suppressed with clean user messages
+- **Console output optimization**: Technical error logs replaced with user-friendly information
+- **Robust deployment flow**: Graceful handling of K3s PVC binding and container health checks
+- **Path resolution fixes**: All import paths updated to work with the new modular structure
+
+This structure provides a clear separation of concerns and makes the project easy to navigate, understand, and maintain while supporting future growth and enhancements.

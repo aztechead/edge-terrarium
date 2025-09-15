@@ -5,8 +5,8 @@ Check dependencies command for the CLI tool.
 import argparse
 import logging
 
-from terrarium_cli.commands.base import BaseCommand
-from terrarium_cli.utils.dependencies import DependencyChecker
+from terrarium_cli.cli.commands.base import BaseCommand
+from terrarium_cli.utils.system.dependencies import DependencyChecker
 from terrarium_cli.utils.colors import Colors
 
 logger = logging.getLogger(__name__)

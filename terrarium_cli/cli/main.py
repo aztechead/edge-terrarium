@@ -14,14 +14,14 @@ from pathlib import Path
 # Add the current directory to Python path for imports
 sys.path.insert(0, str(Path(__file__).parent))
 
-from terrarium_cli.commands.deploy import DeployCommand
-from terrarium_cli.commands.build import BuildCommand
-from terrarium_cli.commands.test import TestCommand
-from terrarium_cli.commands.add_app import AddAppCommand
-from terrarium_cli.commands.vault import VaultCommand
-from terrarium_cli.commands.check_deps import CheckDepsCommand
-from terrarium_cli.commands.validate import ValidateCommand
-from terrarium_cli.commands.cert import CertCommand
+from terrarium_cli.cli.commands.deploy import DeployCommand
+from terrarium_cli.cli.commands.build import BuildCommand
+from terrarium_cli.cli.commands.test import TestCommand
+from terrarium_cli.cli.commands.add_app import AddAppCommand
+from terrarium_cli.cli.commands.vault import VaultCommand
+from terrarium_cli.cli.commands.check_deps import CheckDepsCommand
+from terrarium_cli.cli.commands.validate import ValidateCommand
+from terrarium_cli.cli.commands.cert import CertCommand
 from terrarium_cli.utils.logging import setup_logging
 from terrarium_cli.utils.colors import Colors
 
