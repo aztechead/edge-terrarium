@@ -154,8 +154,6 @@ class K3sDeploymentManager(CommonDeploymentHelpers):
                 "k3d", "cluster", "create", "edge-terrarium",
                 "--port", "80:80@loadbalancer",
                 "--port", "443:443@loadbalancer",
-                "--port", "8200:8200@loadbalancer",
-                "--port", "5001:5001@loadbalancer",
                 "--api-port", "6443",
                 "--k3s-arg", "--disable=traefik@server:0",
                 "--wait"
@@ -410,9 +408,6 @@ class K3sDeploymentManager(CommonDeploymentHelpers):
             # Wait a moment for port forwarding to establish
             time.sleep(3)
             
-            # Verify port forwarding
-            self.verify_port_forwarding()
-            
             # Setup dashboard authentication and port forwarding
             dashboard_token = self.setup_dashboard_auth()
             self.setup_dashboard_port_forwarding()
@@ -638,12 +633,6 @@ class K3sDeploymentManager(CommonDeploymentHelpers):
                 print(f"{Colors.info('PVC verification completed (status check unavailable)')}")
                 # Don't fail deployment - pods might still work without persistent storage temporarily
             
-            # Set up port forwarding for all other applications
-            print(f"{Colors.info('Setting up port forwarding for all applications...')}")
-            self.setup_k3s_port_forwarding()
-            
-            # Wait a moment for port forwarding to establish
-            time.sleep(3)
             
             # Set up Kubernetes Dashboard authentication
             print(f"{Colors.info('Setting up Kubernetes Dashboard authentication...')}")

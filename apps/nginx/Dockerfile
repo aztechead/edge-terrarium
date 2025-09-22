@@ -1,5 +1,5 @@
 # NGINX Gateway Dockerfile
-FROM nginx:1.25-alpine
+FROM nginx:1.26-alpine
 
 # Install curl for health checks
 RUN apk add --no-cache curl
