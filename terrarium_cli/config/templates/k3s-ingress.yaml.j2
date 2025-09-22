@@ -80,6 +80,22 @@ metadata:
     nginx.ingress.kubernetes.io/use-regex: "true"
     # Rewrite target - strips /api/ prefix and captures the rest
     nginx.ingress.kubernetes.io/rewrite-target: /$1
+    
+    # =============================================================================
+    # SECURITY AND PERFORMANCE ANNOTATIONS (Industry Best Practices)
+    # =============================================================================
+    # Force HTTPS redirect (security best practice)
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    # Enable HTTP/2 (performance best practice)
+    nginx.ingress.kubernetes.io/http2-push-preload: "true"
+    # Set secure headers (security best practice)
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      more_set_headers "X-Frame-Options: DENY";
+      more_set_headers "X-Content-Type-Options: nosniff";
+      more_set_headers "X-XSS-Protection: 1; mode=block";
+      more_set_headers "Strict-Transport-Security: max-age=31536000; includeSubDomains";
+    # Enable CORS for API endpoints (common requirement)
+    nginx.ingress.kubernetes.io/enable-cors: "true"
 
 # =============================================================================
 # INGRESS SPECIFICATION
@@ -89,10 +105,20 @@ spec:
   # =============================================================================
   # TLS CONFIGURATION
   # =============================================================================
-  # HTTPS termination with SSL certificates
+  # HTTPS termination with SSL certificates for all hosts
   tls:
+  {%- set all_hosts = [global_config.host_name] -%}
+  {%- for app in apps -%}
+  {%- for route in app.routes -%}
+  {%- if route.host and route.host not in all_hosts -%}
+  {%- set _ = all_hosts.append(route.host) -%}
+  {%- endif -%}
+  {%- endfor -%}
+  {%- endfor %}
   - hosts:
-    - {{ global_config.host_name }}                 # Hostname for TLS
+  {%- for host in all_hosts %}
+    - {{ host }}                                    # Hostname for TLS
+  {%- endfor %}
     secretName: {{ global_config.tls_secret_name }} # TLS secret containing certificates
 
   # =============================================================================
@@ -100,27 +126,49 @@ spec:
   # =============================================================================
   # Define how external traffic is routed to internal services
   rules:
-  - host: {{ global_config.host_name }}             # Hostname for routing
+  # =============================================================================
+  # HOST-BASED ROUTING
+  # =============================================================================
+  # Group routes by host and generate rules for each host
+  {%- set hosts_routes = {} -%}
+  {%- set default_host = global_config.host_name -%}
+  
+  {%- for app in apps -%}
+  {%- for route in app.routes -%}
+  {%- set route_host = route.host if route.host else default_host -%}
+  {%- if route_host not in hosts_routes -%}
+  {%- set _ = hosts_routes.update({route_host: []}) -%}
+  {%- endif -%}
+  {%- set specificity = route.path.count('*') + route.path.count('/') -%}
+  {%- set _ = hosts_routes[route_host].append({
+    'path': route.path, 
+    'app': app.name, 
+    'port': app.runtime.port, 
+    'specificity': specificity, 
+    'priority': route.priority,
+    'strip_prefix': route.strip_prefix,
+    'target': route.target,
+    'is_catch_all': false
+  }) -%}
+  {%- endfor -%}
+  {%- endfor -%}
+  
+  {%- for host, routes in hosts_routes.items() %}
+  - host: {{ host }}                                # Hostname for routing
     http:
       paths:
       # =============================================================================
-      # DYNAMIC ROUTE GENERATION
+      # DYNAMIC ROUTE GENERATION FOR {{ host }}
       # =============================================================================
-      # Collect all routes from all applications and sort by specificity
-      {%- set all_routes = [] -%}
-      {%- for app in apps -%}
-      {%- for route in app.routes -%}
-      {%- set specificity = route.path.count('*') + route.path.count('/') -%}
-      {%- set _ = all_routes.append({'path': route.path, 'app': app.name, 'port': app.runtime.port, 'specificity': specificity, 'is_catch_all': false}) -%}
-      {%- endfor -%}
-      {%- endfor -%}
-      # =============================================================================
-      # APPLICATION ROUTES
-      # =============================================================================
-      # Routes are sorted by specificity (most specific first) for proper matching
-      {%- for route in all_routes | sort(attribute='is_catch_all') | sort(attribute='specificity', reverse=true) %}
-      # Route: {{ route.path }} -> {{ route.app }}:{{ route.port }}
+      # Routes for this specific host, sorted by priority and specificity
+      # Routes for {{ host }}, sorted by priority (desc) then specificity (desc)
+      {%- for route in routes | sort(attribute='is_catch_all') | sort(attribute='specificity', reverse=true) | sort(attribute='priority', reverse=true) %}
+      # Route: {{ route.path }} -> {{ route.app }}:{{ route.port }} (priority: {{ route.priority }})
+      {%- if route.strip_prefix %}
       - path: /api{{ route.path | replace('*', '(.*)') }}  # Add /api/ prefix and convert * to regex
+      {%- else %}
+      - path: {{ route.path | replace('*', '(.*)') }}      # Use path as-is and convert * to regex
+      {%- endif %}
         pathType: ImplementationSpecific                   # Use NGINX-specific path matching
         backend:
           service:
@@ -128,9 +176,12 @@ spec:
             port:
               number: {{ route.port }}                     # Target service port
       {%- endfor %}
+      
+      {%- if host == default_host %}
       # =============================================================================
-      # CATCH-ALL ROUTES
+      # DEFAULT HOST CATCH-ALL ROUTES
       # =============================================================================
+      # Only add catch-all routes for the default host
       # Catch-all for unmatched /api/* requests (routes to service-sink)
       - path: /api/(.*)                            # Match any /api/* path
         pathType: ImplementationSpecific            # Use NGINX-specific path matching
@@ -148,3 +199,5 @@ spec:
             name: service-sink                      # Default service for root requests
             port:
               number: 8080                          # Service-sink port
+      {%- endif %}
+  {%- endfor %}

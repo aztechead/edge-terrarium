@@ -1,5 +1,5 @@
 # Multi-stage build for Service Sink
-FROM --platform=$BUILDPLATFORM alpine:3.18 AS builder
+FROM --platform=$BUILDPLATFORM alpine:3.22.1 AS builder
 
 # Install build dependencies
 RUN apk add --no-cache gcc musl-dev curl-dev json-c-dev
@@ -14,7 +14,7 @@ COPY src/ ./src/
 RUN gcc -o service-sink src/*.c -lcurl -ljson-c
 
 # Final stage
-FROM alpine:3.18
+FROM alpine:3.22.1
 
 # Install runtime dependencies
 RUN apk add --no-cache ca-certificates curl json-c

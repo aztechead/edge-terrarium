@@ -503,7 +503,7 @@ class DeployCommand(BaseCommand):
                     run_command(health_check_cmd, check=True, capture_output=True)
                     print(f"{Colors.success(f'{service_name} health check passed')}")
                 except ShellError:
-                    print(f"{Colors.warning(f'{service_name} health check failed (curl not available or endpoint not ready)')}")
+                    print(f"{Colors.warning(f'{service_name} health check failed (run tests to ensure connectivity)')}")
                 finally:
                     # Restore original logging level
                     shell_logger.setLevel(original_level)
@@ -734,7 +734,19 @@ class DeployCommand(BaseCommand):
             # Test Vault direct access
             try:
                 import requests
-                response = requests.get("http://localhost:8200/v1/sys/health", timeout=5)
+                # Try the Vault health endpoint up to 2 times in case Vault is still starting up
+                vault_health_url = "http://localhost:8200/v1/sys/health"
+                response = None
+                for attempt in range(2):
+                    try:
+                        response = requests.get(vault_health_url, timeout=5)
+                        if response.status_code == 200:
+                            break  # Success, no need to retry
+                    except Exception:
+                        if attempt == 0:
+                            time.sleep(2)  # Wait a bit before retrying
+                        else:
+                            raise  # On second failure, propagate the exception
                 if response.status_code == 200:
                     print(f"{Colors.success('Vault direct port forwarding verified on port 8200')}")
                 else:

@@ -103,29 +103,122 @@ environment:
 # ROUTING CONFIGURATION
 # =============================================================================
 # Define how external requests are routed to this application
-# The /api/ prefix is automatically added by NGINX, so define routes without it
+# The /api/ prefix is automatically added by NGINX for path-based routes
 # 
 # Route Matching Rules:
-#   - Routes are matched in order of specificity (most specific first)
+#   - Routes are matched by priority (higher number = higher priority)
+#   - Then by specificity (most specific path first)
 #   - strip_prefix: true removes the matched path before forwarding to the app
 #   - strip_prefix: false forwards the full path including the matched portion
-#   - Use /* at the end for wildcard matching (e.g., /api/users/*)
+#   - host: specify a hostname for host-based routing (optional)
+#   - priority: route priority, higher numbers take precedence (default: 0)
+#
+# Examples:
+#   Path-based routing: /api/myapp/* -> this app
+#   Host-based routing: mycoolwebsite.company.com/* -> this app
+#   Mixed routing: mycoolwebsite.company.com/api/special/* -> this app
 
 routes:
 {% if routes %}
 {% for route in routes %}
-  # Route: {{ route.path }} -> {{ route.target }}
+  # Route: {{ route.path }}{% if route.host %} (host: {{ route.host }}){% endif %} -> {{ route.target }}
   # Strip prefix: {{ route.strip_prefix | lower }}
-  - path: {{ route.path }}
+{% if route.priority %}  # Priority: {{ route.priority }}
+{% endif %}  - path: {{ route.path }}
     target: {{ route.target }}
     strip_prefix: {{ route.strip_prefix | lower }}
+{% if route.host %}    host: {{ route.host }}
+{% endif %}{% if route.priority %}    priority: {{ route.priority }}
+{% endif %}
 {% endfor %}
+
+  # =============================================================================
+  # HOST-BASED ROUTING EXAMPLES (Commented for reference)
+  # =============================================================================
+  # Uncomment and modify these examples to add host-based routing:
+  
+  # # High priority route for custom domain - all paths
+  # - path: /*
+  #   target: /
+  #   strip_prefix: false
+  #   host: mycoolwebsite.company.com
+  #   priority: 200
+  #   description: "All requests to mycoolwebsite.company.com"
+  
+  # # API endpoints for custom domain
+  # - path: /api/*
+  #   target: /api/
+  #   strip_prefix: true
+  #   host: mycoolwebsite.company.com
+  #   priority: 250
+  #   description: "API endpoints for mycoolwebsite.company.com"
 {% else %}
   # No routes configured
   # Add routes like this:
-  # - path: /myapp/*
+  
+  # =============================================================================
+  # PATH-BASED ROUTING (Traditional approach)
+  # =============================================================================
+  # Routes requests based on URL path patterns
+  # External requests: https://edge-terrarium.local/api/{{ app_name }}/* -> this app
+  
+  # - path: /{{ app_name }}/*
   #   target: /
   #   strip_prefix: true
+  #   priority: 100
+  #   description: "Main application endpoint"
+  
+  # =============================================================================
+  # HOST-BASED ROUTING (Advanced approach)
+  # =============================================================================
+  # Routes requests based on hostname, allowing multiple domains per deployment
+  # External requests: https://mycoolwebsite.company.com/* -> this app
+  
+  # # High priority route for custom domain - all paths
+  # - path: /*
+  #   target: /
+  #   strip_prefix: false
+  #   host: mycoolwebsite.company.com
+  #   priority: 200
+  #   description: "All requests to mycoolwebsite.company.com"
+  
+  # # API endpoints for custom domain
+  # - path: /api/*
+  #   target: /api/
+  #   strip_prefix: true
+  #   host: mycoolwebsite.company.com
+  #   priority: 250
+  #   description: "API endpoints for mycoolwebsite.company.com"
+  
+  # # Fallback route for default domain
+  # - path: /{{ app_name }}/*
+  #   target: /
+  #   strip_prefix: true
+  #   priority: 100
+  #   description: "Main endpoint on default domain"
+  
+  # =============================================================================
+  # MIXED ROUTING (Host + Path combination)
+  # =============================================================================
+  # Combines hostname and path matching for granular control
+  
+  # - path: /special/api/*
+  #   target: /special/
+  #   strip_prefix: true
+  #   host: api.company.com
+  #   priority: 300
+  #   description: "Special API endpoints on custom domain"
+  
+  # =============================================================================
+  # ROUTING TIPS
+  # =============================================================================
+  # 1. Higher priority numbers take precedence (300 > 200 > 100)
+  # 2. Host-based routes typically use higher priorities (200+)
+  # 3. strip_prefix: false keeps the full path (useful for root routes)
+  # 4. strip_prefix: true removes matched path (useful for API endpoints)
+  # 5. Test your routing with: terrarium.py test
+  # 6. Update /etc/hosts for custom domains:
+  #    127.0.0.1 mycoolwebsite.company.com
 {% endif %}
 
 # =============================================================================
