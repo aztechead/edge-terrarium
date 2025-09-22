@@ -43,6 +43,22 @@ routes:
       - name: param2
         value: value2
 
+# Host-based routing test configuration
+# These tests verify that requests with specific Host headers are routed correctly
+host_routes:
+  - host: mycoolwebsite.company.com
+    path: /*
+    description: "Root path for mycoolwebsite.company.com"
+    methods: ["GET"]
+  - host: mycoolwebsite.company.com
+    path: /api/*
+    description: "API endpoints for mycoolwebsite.company.com"
+    methods: ["GET"]
+  - host: mycoolwebsite.company.com
+    path: /health
+    description: "Health check for mycoolwebsite.company.com"
+    methods: ["GET"]
+
 test_config:
   # App-specific retry configuration (optional)
   # If not specified, uses global defaults

@@ -18,8 +18,11 @@ enabled: false
 description: {{ app_name }} service
 
 routes:
-  # Add routes to test here
-  # Example:
+  # =============================================================================
+  # PATH-BASED ROUTING TESTS (Traditional)
+  # =============================================================================
+  # Test traditional path-based routes
+  
   # - path: /{{ app_name }}/*
   #   description: {{ app_name|title }} main endpoint
   #   methods: ["GET"]
@@ -28,6 +31,35 @@ routes:
   #       value: value1
   #     - name: param2
   #       value: value2
+
+# =============================================================================
+# HOST-BASED ROUTING TESTS (Advanced)
+# =============================================================================
+# Test host-based routing functionality
+# These tests verify that requests with specific Host headers are routed correctly
+
+# host_routes:
+#   # Test custom domain routing
+#   - host: mycoolwebsite.company.com
+#     path: /*
+#     description: "Root path for mycoolwebsite.company.com"
+#     methods: ["GET"]
+#   
+#   - host: mycoolwebsite.company.com
+#     path: /api/*
+#     description: "API endpoints for mycoolwebsite.company.com"
+#     methods: ["GET"]
+#   
+#   - host: mycoolwebsite.company.com
+#     path: /health
+#     description: "Health check for mycoolwebsite.company.com"
+#     methods: ["GET"]
+#   
+#   # Test additional custom domains
+#   - host: api.company.com
+#     path: /v1/*
+#     description: "API v1 endpoints for api.company.com"
+#     methods: ["GET", "POST"]
 
 test_config:
   # App-specific retry configuration (optional)

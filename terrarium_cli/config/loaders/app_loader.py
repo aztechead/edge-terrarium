@@ -46,6 +46,13 @@ class RouteConfig:
     path: str
     target: str
     strip_prefix: bool = True
+    host: Optional[str] = None  # Host-based routing (e.g., "mycoolwebsite.company.com")
+    priority: int = 0  # Route priority (higher number = higher priority)
+    # Industry standard annotations (optional)
+    rate_limit: Optional[str] = None  # e.g., "10r/s" (requests per second)
+    timeout: Optional[str] = None  # e.g., "30s" (upstream timeout)
+    cors_enabled: Optional[bool] = None  # Override global CORS setting
+    auth_required: Optional[bool] = None  # Require authentication
 
 
 @dataclass
@@ -270,7 +277,13 @@ class AppLoader:
                     route = RouteConfig(
                         path=route_data.get("path", ""),
                         target=route_data.get("target", "/"),
-                        strip_prefix=route_data.get("strip_prefix", True)
+                        strip_prefix=route_data.get("strip_prefix", True),
+                        host=route_data.get("host"),
+                        priority=route_data.get("priority", 0),
+                        rate_limit=route_data.get("rate_limit"),
+                        timeout=route_data.get("timeout"),
+                        cors_enabled=route_data.get("cors_enabled"),
+                        auth_required=route_data.get("auth_required")
                     )
                     routes.append(route)
         

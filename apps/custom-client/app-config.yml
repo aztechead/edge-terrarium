@@ -34,15 +34,40 @@ environment:
 
 # Routing Configuration
 routes:
+  # Host-based routing for mycoolwebsite.company.com
+  # High priority routes for specific hostname
+  - path: /*
+    target: /
+    strip_prefix: false
+    host: mycoolwebsite.company.com
+    priority: 200
+    description: "All requests to mycoolwebsite.company.com"
+  
+  - path: /api/*
+    target: /api/
+    strip_prefix: true
+    host: mycoolwebsite.company.com
+    priority: 250
+    description: "API endpoints for mycoolwebsite.company.com"
+  
+  # Default domain routing (edge-terrarium.local)
   - path: /custom-client/*
     target: /
     strip_prefix: true
+    priority: 100
+    description: "Custom client main endpoint"
+  
   - path: /fake-provider/*
     target: /
     strip_prefix: false
+    priority: 150
+    description: "Fake provider endpoint"
+  
   - path: /example-provider/*
     target: /
     strip_prefix: false
+    priority: 150
+    description: "Example provider endpoint"
 
 # Dependencies
 dependencies:

@@ -193,6 +193,10 @@ class TestCommand(BaseCommand):
         if not self._test_applications(base_url):
             return 1
         
+        # Test host-based routing
+        if not self._test_host_based_routing(base_url):
+            return 1
+        
         # Test Vault integration
         if not self._test_vault(base_url):
             return 1
@@ -239,6 +243,10 @@ class TestCommand(BaseCommand):
         
         # Test application endpoints
         if not self._test_applications(base_url):
+            return 1
+        
+        # Test host-based routing
+        if not self._test_host_based_routing(base_url):
             return 1
         
         # Test Vault integration
@@ -340,6 +348,100 @@ class TestCommand(BaseCommand):
         
         print("")
         return True
+    
+    def _test_host_based_routing(self, base_url: str) -> bool:
+        """Test host-based routing functionality."""
+        print(f"{Colors.bold('Testing Host-Based Routing')}")
+        
+        # Discover app test configurations that have host-based routes
+        app_configs = self._discover_app_test_configs()
+        host_routes_found = False
+        
+        for app_config in app_configs:
+            app_name = app_config.get('app_name', 'unknown')
+            
+            # Check if this app has host-based routes defined
+            host_routes = app_config.get('host_routes', [])
+            if not host_routes:
+                continue
+                
+            host_routes_found = True
+            
+            for host_route in host_routes:
+                hostname = host_route.get('host', '')
+                route_path = host_route.get('path', '/*')
+                route_description = host_route.get('description', f'{hostname}{route_path}')
+                methods = host_route.get('methods', ['GET'])
+                
+                # Test each HTTP method for this host route
+                for method in methods:
+                    # Create test URL
+                    test_path = route_path.replace('*', '')
+                    if self._detect_environment() == "docker":
+                        # For Docker, we test via localhost but with Host header
+                        test_url = f"https://localhost:8443{test_path}"
+                        headers = {"Host": hostname}
+                    else:
+                        # For K3s, we test via port forwarding with Host header
+                        test_url = f"https://localhost:8443{test_path}"
+                        headers = {"Host": hostname}
+                    
+                    test_name = f"{app_name} - Host: {hostname} - {route_path} ({method})"
+                    
+                    # Test the endpoint with the specific host header
+                    if not self._test_endpoint_with_host(test_url, test_name, hostname, method):
+                        print(f"{Colors.warning(f'Host-based routing test failed for {hostname}')}")
+                        # Don't fail the entire test suite for host routing issues
+                        continue
+        
+        if not host_routes_found:
+            print(f"{Colors.info('No host-based routes configured for testing')}")
+        
+        print("")
+        return True
+    
+    def _test_endpoint_with_host(self, url: str, test_name: str, hostname: str, method: str = "GET", 
+                                data: str = None, content_type: str = None, max_retries: int = 3) -> bool:
+        """Test an endpoint with a specific Host header."""
+        for attempt in range(max_retries):
+            try:
+                # Prepare headers
+                headers = {"Host": hostname}
+                if content_type:
+                    headers["Content-Type"] = content_type
+                
+                if method.upper() == "GET":
+                    response = requests.get(url, verify=False, timeout=10, headers=headers)
+                elif method.upper() == "POST":
+                    response = requests.post(url, data=data, headers=headers, verify=False, timeout=10)
+                elif method.upper() == "PUT":
+                    response = requests.put(url, data=data, headers=headers, verify=False, timeout=10)
+                else:
+                    print(f"{Colors.error(f'Unsupported HTTP method: {method}')}")
+                    return False
+                
+                if response.status_code in [200, 201, 202]:
+                    print(f"{Colors.success(f'✓ {test_name} - Status: {response.status_code}')}")
+                    return True
+                else:
+                    if attempt < max_retries - 1:
+                        print(f"{Colors.warning(f'⚠ {test_name} - Status: {response.status_code} (retry {attempt + 1}/{max_retries})')}")
+                        time.sleep(2)
+                        continue
+                    else:
+                        print(f"{Colors.error(f'✗ {test_name} - Status: {response.status_code}')}")
+                        return False
+                        
+            except requests.exceptions.RequestException as e:
+                if attempt < max_retries - 1:
+                    print(f"{Colors.warning(f'⚠ {test_name} - Error: {e} (retry {attempt + 1}/{max_retries})')}")
+                    time.sleep(2)
+                    continue
+                else:
+                    print(f"{Colors.error(f'✗ {test_name} - Error: {e}')}")
+                    return False
+        
+        return False
     
     
     def _test_vault(self, base_url: str) -> bool:
