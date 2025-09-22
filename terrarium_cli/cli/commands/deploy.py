@@ -503,7 +503,7 @@ class DeployCommand(BaseCommand):
                     run_command(health_check_cmd, check=True, capture_output=True)
                     print(f"{Colors.success(f'{service_name} health check passed')}")
                 except ShellError:
-                    print(f"{Colors.warning(f'{service_name} health check failed (curl not available or endpoint not ready)')}")
+                    print(f"{Colors.warning(f'{service_name} health check failed (run tests to ensure connectivity)')}")
                 finally:
                     # Restore original logging level
                     shell_logger.setLevel(original_level)
